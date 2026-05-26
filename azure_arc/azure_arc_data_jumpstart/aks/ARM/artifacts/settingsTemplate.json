@@ -1,0 +1,12 @@
+{
+  "workbench.enablePreviewFeatures": true,
+  "datasource.connectionGroups": [
+    {
+      "name": "ROOT",
+      "id": "C777F06B-202E-4480-B475-FA416154D458"
+    }
+  ],
+  "datasource.connections": [
+  ],
+  "window.zoomLevel": 0
+}

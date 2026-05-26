@@ -1,0 +1,24 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "sshRSAPublicKey": {
+            "value": "<your RSA public key>"
+        },        
+        "adminUsername": {
+            "value": "<OS Username>"
+        },
+        "appId": {
+            "value": "<Your Azure service principal name>"
+        },
+        "password": {
+            "value": "<Your Azure service principal password>"
+        },
+        "tenantId": {
+            "value": "<Your Azure tenant ID>"
+        },
+        "deployBastion": {
+            "value": false
+        }
+    }
+}

@@ -1,0 +1,40 @@
+apiVersion: v1
+data:
+  username: <your base64 encoded username>
+  password: <your base64 encoded password>
+kind: Secret
+metadata:
+  name: pg1-login-secret
+type: Opaque
+---
+apiVersion: arcdata.microsoft.com/v1beta5
+kind: PostgreSql
+metadata:
+  name: pg1
+spec:
+  dev: true # Options: [true, false]
+  scheduling:
+    default:
+      resources:
+        limits:
+          cpu: "4"
+          memory: 4Gi
+        requests:
+          cpu: "1"
+          memory: 2Gi
+  services:
+    primary:
+      type: LoadBalancer # Modify service type based on your Kubernetes environment
+  storage:
+    backups:
+      volumes:
+      - className: default # Use default configured storage class or modify storage class based on your Kubernetes environment
+        size: 5Gi
+    data:
+      volumes:
+      - className: default # Use default configured storage class or modify storage class based on your Kubernetes environment
+        size: 5Gi
+    logs:
+      volumes:
+      - className: default # Use default configured storage class or modify storage class based on your Kubernetes environment
+        size: 5Gi

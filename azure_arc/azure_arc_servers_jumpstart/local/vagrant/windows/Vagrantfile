@@ -1,0 +1,56 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# All Vagrant configuration is done below. The "2" in Vagrant.configure
+# configures the configuration version (we support older styles for
+# backwards compatibility). Please don't change it unless you know what
+# you're doing.
+
+$script = <<SCRIPT
+. sc.exe config winrm start= auto
+iwr -useb https://chocolatey.org/install.ps1 | iex
+choco install -y azure-cli
+SCRIPT
+
+Vagrant.configure("2") do |config|
+  # The most common configuration options are documented and commented below.
+  # For a complete reference, please see the online documentation at
+  # https://docs.vagrantup.com.
+
+  # Every Vagrant development environment requires a box. You can search for
+  # boxes at https://vagrantcloud.com/search.
+  config.vm.synced_folder ".", "/vagrant", disabled: true  
+  
+  config.vm.define "windows" do |windows|
+    config.vm.box = "StefanScherer/windows_10"
+    config.vm.communicator = "winrm"
+    config.winrm.username = "vagrant"
+    config.winrm.password = "vagrant"
+    config.vm.guest = :windows 
+    config.vm.hostname = "Arc-Win10-Demo"
+    config.vm.provision "file", source: "vars.ps1", destination: "C:/runtime/vars.ps1"
+    config.vm.provision "shell", inline: $script, privileged: true, powershell_elevated_interactive: true
+    config.vm.provision "shell", privileged: true, path: "https://raw.githubusercontent.com/microsoft/azure_arc/main/azure_arc_servers_jumpstart/local/vagrant/windows/scripts/install_arc_agent.ps1"
+
+    windows.trigger.before :destroy do |trigger|
+      trigger.warn = "Deleting Azure resource group"
+      trigger.run_remote = {inline: "C:/runtime/delete_rg.ps1"}
+    end
+  end
+
+  # Provider-specific configuration so you can fine-tune various
+  # backing providers for Vagrant. These expose provider-specific options.
+  # Example for VirtualBox:
+  #
+  config.vm.provider "virtualbox" do |vb|
+    # Display the VirtualBox GUI when booting the machine
+    vb.gui = false 
+  
+    # Customize the amount of memory on the VM:
+    vb.memory = "2048"   
+  end
+
+  # View the documentation for the provider you are using for more
+  # information on available options.
+  
+end
