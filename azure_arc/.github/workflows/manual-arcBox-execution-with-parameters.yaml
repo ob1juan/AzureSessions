@@ -7,9 +7,7 @@ on:
         description: "ArcBox flavor to deploy"
         required: true
         options:
-          - Full
           - ITPro
-          - DevOps
       mechanism:
         type: choice
         description: "Deployment option"
@@ -168,13 +166,6 @@ jobs:
           echo "Bastion deployment: ${{ github.event.inputs.deployBastion }}"
       - name: Expected Time Execution
         run: |
-          if [ '${{ github.event.inputs.flavor }}' == 'DevOps' ]; then
-           if [ '${{ github.event.inputs.deployBastion }}' == 'true' ]; then
-              echo "Expected Time Execution 60 min"
-           else
-              echo "Expected Time Execution 50 min"
-           fi
-          fi
           if [ '${{ github.event.inputs.flavor }}' == 'ITPro' ]; then
            if [ '${{ github.event.inputs.deployBastion }}' == 'true' ]; then
               echo "Expected Time Execution 70 min"
@@ -182,13 +173,6 @@ jobs:
               echo "Expected Time Execution 60 min"
            fi
           fi
-          if [ '${{ github.event.inputs.flavor }}' == 'Full' ]; then
-           if [ '${{ github.event.inputs.deployBastion }}' == 'true' ]; then
-              echo "Expected Time Execution 120 min"
-           else
-              echo "Expected Time Execution 110 min"
-           fi
-          fi          
           echo "if Windows Run Command not detect the end, it will finish by time out on 90 min. The scripts might run successfully but not return the results. In this cases the workflow execution time increase in about 1hs. "
       - name: Install package for ssh with password inline
         run: |
@@ -269,14 +253,6 @@ jobs:
              echo "The files which tell us that the script has finished was not found"
              exit 1
           fi
-      - name: Open SSH, execute DataServicesLogonScript
-        if: github.event.inputs.flavor == 'Full'
-        run: |
-          plink -ssh -P 2204 ${{ github.event.inputs.windowsAdminUsername }}@$(az vm show -d -g ${{ github.event.inputs.resourceGroupName }}  -n ArcBox-Client --query publicIps -o tsv)  -pw  '${{secrets.WINDOWS_ADMIN_PASSWORD}}' -batch 'powershell -InputFormat None -F C:\ArcBox\DataServicesLogonScript.ps1'
-      - name: Open SSH, execute DevOpsLogonScript
-        if: github.event.inputs.flavor == 'DevOps'
-        run: |
-          plink -ssh -P 2204 ${{ github.event.inputs.windowsAdminUsername }}@$(az vm show -d -g ${{ github.event.inputs.resourceGroupName }}  -n ArcBox-Client --query publicIps -o tsv)  -pw  '${{secrets.WINDOWS_ADMIN_PASSWORD}}' -batch 'powershell -InputFormat None -F C:\ArcBox\DevOpsLogonScript.ps1'
       - name: Open SSH, execute MonitorWorkbookLogonScript
         run: |
           plink -ssh -P 2204 ${{ github.event.inputs.windowsAdminUsername }}@$(az vm show -d -g ${{ github.event.inputs.resourceGroupName }}  -n ArcBox-Client --query publicIps -o tsv)  -pw  '${{secrets.WINDOWS_ADMIN_PASSWORD}}' -batch 'powershell -InputFormat None -F C:\ArcBox\MonitorWorkbookLogonScript.ps1'
@@ -299,34 +275,10 @@ jobs:
           path: Bootstrap.log
       - name: Upload ArcServersLogonScript.log File
         uses: actions/upload-artifact@v3
-        if: (github.event.inputs.flavor == 'Full' || github.event.inputs.flavor == 'ITPro') &&  (success() || failure())
+        if: success() || failure()
         with:
           name: ArcServersLogonScript.log
           path: ArcServersLogonScript.log
-      - name: Upload DataServicesLogonScript.log File
-        uses: actions/upload-artifact@v3
-        if: github.event.inputs.flavor == 'Full' &&  (success() || failure())
-        with:
-          name: DataServicesLogonScript.log
-          path: DataServicesLogonScript.log
-      - name: Upload DevOpsLogonScript.log File
-        uses: actions/upload-artifact@v3
-        if: (github.event.inputs.flavor == 'DevOps') &&  (success() || failure())
-        with:
-          name: DevOpsLogonScript.log
-          path: DevOpsLogonScript.log
-      - name: Upload installCAPI.log File
-        uses: actions/upload-artifact@v3
-        if: (github.event.inputs.flavor == 'Full' || github.event.inputs.flavor == 'DevOps') &&  (success() || failure())
-        with:
-          name: installCAPI.log
-          path: installCAPI.log
-      - name: Upload installCAPI.log File
-        uses: actions/upload-artifact@v3
-        if: (github.event.inputs.flavor == 'Full' || github.event.inputs.flavor == 'DevOps') &&  (success() || failure())
-        with:
-          name: installK3s.log
-          path: installK3s.log
       - name: Upload MonitorWorkbookLogonScript.log File
         if: success() || failure()
         uses: actions/upload-artifact@v3

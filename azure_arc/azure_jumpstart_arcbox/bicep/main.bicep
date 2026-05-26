@@ -113,76 +113,6 @@ var k3sArcClusterName = '${namingPrefix}-K3s-${guid}'
 var k3sClusterNodesCount = 3 // Number of nodes to deploy in the K3s cluster
 var customerUsageAttributionDeploymentName = (flavor == 'DevOps' ? '390d1642-349e-43c5-845e-8c7cc0972f22' : flavor == 'DataOps' ? 'a8caf3c1-0980-4e23-8c52-27e5d424dbbd' : 'c4a26bed-72cb-415d-91a3-e2577c7c92f5')
 
-module ubuntuRancherK3sDataSvcDeployment 'kubernetes/ubuntuRancher.bicep' = if (flavor == 'DevOps' || flavor == 'DataOps') {
-  name: 'ubuntuRancherK3sDataSvcDeployment'
-  params: {
-    sshRSAPublicKey: sshRSAPublicKey
-    stagingStorageAccountName: toLower(stagingStorageAccountDeployment.outputs.storageAccountName)
-    logAnalyticsWorkspace: logAnalyticsWorkspaceName
-    templateBaseUrl: templateBaseUrl
-    subnetId: mgmtArtifactsAndPolicyDeployment.outputs.subnetId
-    azureLocation: location
-    vmName : k3sArcDataClusterName
-    storageContainerName: toLower(k3sArcDataClusterName)
-    flavor: flavor
-    namingPrefix: namingPrefix
-  }
-}
-
-module ubuntuRancherK3sDataSvcNodesDeployment 'kubernetes/ubuntuRancherNodes.bicep' = [for i in range(0, k3sClusterNodesCount): if (flavor == 'DataOps' || flavor == 'DevOps') {
-  name: 'ubuntuRancherK3sDataSvcNodesDeployment-${i}'
-  params: {
-    sshRSAPublicKey: sshRSAPublicKey
-    stagingStorageAccountName: toLower(stagingStorageAccountDeployment.outputs.storageAccountName)
-    logAnalyticsWorkspace: logAnalyticsWorkspaceName
-    templateBaseUrl: templateBaseUrl
-    subnetId: mgmtArtifactsAndPolicyDeployment.outputs.subnetId
-    azureLocation: location
-    flavor: flavor
-    vmName : '${k3sArcDataClusterName}-Node-0${i}'
-    storageContainerName: toLower(k3sArcDataClusterName)
-    namingPrefix: namingPrefix
-  }
-  dependsOn: [
-    ubuntuRancherK3sDataSvcDeployment
-  ]
-}]
-
-module ubuntuRancherK3sDeployment 'kubernetes/ubuntuRancher.bicep' = if (flavor == 'DevOps') {
-  name: 'ubuntuRancherK3sDeployment'
-  params: {
-    sshRSAPublicKey: sshRSAPublicKey
-    stagingStorageAccountName: toLower(stagingStorageAccountDeployment.outputs.storageAccountName)
-    logAnalyticsWorkspace: logAnalyticsWorkspaceName
-    templateBaseUrl: templateBaseUrl
-    subnetId: mgmtArtifactsAndPolicyDeployment.outputs.subnetId
-    azureLocation: location
-    vmName : k3sArcClusterName
-    storageContainerName: toLower(k3sArcClusterName)
-    flavor: flavor
-    namingPrefix: namingPrefix
-  }
-}
-
-module ubuntuRancherK3sNodesDeployment 'kubernetes/ubuntuRancherNodes.bicep' = [for i in range(0, k3sClusterNodesCount): if (flavor == 'DevOps') {
-  name: 'ubuntuRancherK3sNodesDeployment-${i}'
-  params: {
-    sshRSAPublicKey: sshRSAPublicKey
-    stagingStorageAccountName: toLower(stagingStorageAccountDeployment.outputs.storageAccountName)
-    logAnalyticsWorkspace: logAnalyticsWorkspaceName
-    templateBaseUrl: templateBaseUrl
-    subnetId: mgmtArtifactsAndPolicyDeployment.outputs.subnetId
-    azureLocation: location
-    flavor: flavor
-    vmName : '${k3sArcClusterName}-Node-0${i}'
-    storageContainerName: toLower(k3sArcClusterName)
-    namingPrefix: namingPrefix
-  }
-  dependsOn: [
-    ubuntuRancherK3sDeployment
-  ]
-}]
-
 module clientVmDeployment 'clientVm/clientVm.bicep' = {
   name: 'clientVmDeployment'
   params: {
@@ -218,8 +148,6 @@ module clientVmDeployment 'clientVm/clientVm.bicep' = {
   }
   dependsOn: [
     updateVNetDNSServers
-    ubuntuRancherK3sDataSvcDeployment
-    ubuntuRancherK3sDeployment
   ]
 }
 
@@ -278,22 +206,6 @@ module updateVNetDNSServers 'mgmt/mgmtArtifacts.bicep' = if (flavor == 'DataOps'
   }
   dependsOn: [
     addsVmDeployment
-    mgmtArtifactsAndPolicyDeployment
-  ]
-}
-
-module aksDeployment 'kubernetes/aks.bicep' = if (flavor == 'DataOps') {
-  name: 'aksDeployment'
-  params: {
-    sshRSAPublicKey: sshRSAPublicKey
-    location: location
-    aksClusterName : aksArcDataClusterName
-    drClusterName : aksDrArcDataClusterName
-    namingPrefix: namingPrefix
-  }
-  dependsOn: [
-    updateVNetDNSServers
-    stagingStorageAccountDeployment
     mgmtArtifactsAndPolicyDeployment
   ]
 }
