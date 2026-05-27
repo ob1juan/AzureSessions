@@ -269,7 +269,8 @@
               },
               "type": "Microsoft.Resources/resourceProviders",
               "apiVersion": "2021-04-01",
-              "name": "[variables('resourceProviderNamespaces')[copyIndex()]]"
+              "name": "[variables('resourceProviderNamespaces')[copyIndex()]]",
+              "properties": {}
             }
           ]
         }
