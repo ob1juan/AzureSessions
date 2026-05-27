@@ -2220,7 +2220,7 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'registerResourceProviders')]"
+        "[subscriptionResourceId('Microsoft.Resources/deployments', 'registerResourceProviders')]"
       ]
     },
     {
@@ -5718,7 +5718,7 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'registerResourceProviders')]"
+        "[subscriptionResourceId('Microsoft.Resources/deployments', 'registerResourceProviders')]"
       ]
     },
     {
