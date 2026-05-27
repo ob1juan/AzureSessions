@@ -225,58 +225,6 @@
   },
   "resources": [
     {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2024-11-01",
-      "name": "registerResourceProviders",
-      "subscriptionId": "[subscription().subscriptionId]",
-      "location": "[parameters('location')]",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "variables": {
-            "resourceProviderNamespaces": [
-              "Microsoft.ApiManagement",
-              "Microsoft.AzureArcData",
-              "Microsoft.Compute",
-              "Microsoft.ContainerService",
-              "Microsoft.DevTestLab",
-              "Microsoft.ExtendedLocation",
-              "Microsoft.GuestConfiguration",
-              "Microsoft.HybridCompute",
-              "Microsoft.HybridConnectivity",
-              "Microsoft.Insights",
-              "Microsoft.KeyVault",
-              "Microsoft.Kubernetes",
-              "Microsoft.KubernetesConfiguration",
-              "Microsoft.Network",
-              "Microsoft.OperationalInsights",
-              "Microsoft.OperationsManagement",
-              "Microsoft.PolicyInsights",
-              "Microsoft.Security",
-              "Microsoft.Storage"
-            ]
-          },
-          "resources": [
-            {
-              "copy": {
-                "name": "resourceProviderRegistrations",
-                "count": "[length(variables('resourceProviderNamespaces'))]"
-              },
-              "type": "Microsoft.Resources/resourceProviders",
-              "apiVersion": "2021-04-01",
-              "name": "[variables('resourceProviderNamespaces')[copyIndex()]]",
-              "properties": {}
-            }
-          ]
-        }
-      }
-    },
-    {
       "condition": "[or(equals(parameters('flavor'), 'DevOps'), equals(parameters('flavor'), 'DataOps'))]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
@@ -2218,10 +2166,7 @@
             }
           }
         }
-      },
-      "dependsOn": [
-        "[subscriptionResourceId('Microsoft.Resources/deployments', 'registerResourceProviders')]"
-      ]
+      }
     },
     {
       "type": "Microsoft.Resources/deployments",
@@ -5716,10 +5661,7 @@
             }
           }
         }
-      },
-      "dependsOn": [
-        "[subscriptionResourceId('Microsoft.Resources/deployments', 'registerResourceProviders')]"
-      ]
+      }
     },
     {
       "condition": "[equals(parameters('flavor'), 'DataOps')]",
