@@ -199,7 +199,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
   }
   properties: {
     hardwareProfile: {
-      vmSize: flavor == 'DevOps' ? 'Standard_B4ms' : flavor == 'DataOps' ? 'Standard_D8s_v5' : 'Standard_D8s_v5'
+      vmSize: 'Standard_B4ms'
     }
     storageProfile: {
       osDisk: {

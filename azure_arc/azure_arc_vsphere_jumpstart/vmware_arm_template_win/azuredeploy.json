@@ -31,8 +31,19 @@
     "adminUserName" : {
       "type": "string"
     },
-    "adminUserPassword" : {
-      "type": "securestring"
+    "passwordLength": {
+      "type": "int",
+      "defaultValue": 16,
+      "metadata": {
+        "description": "Length of the auto-generated admin password."
+      }
+    },
+    "adminPasswordSecretName": {
+      "type": "string",
+      "defaultValue": "adminPassword",
+      "metadata": {
+        "description": "The name of the Key Vault secret that stores the generated admin password."
+      }
     }
   },
   "variables": {
@@ -40,15 +51,45 @@
     "vCenterId": "[concat('/subscriptions/', subscription().subscriptionId,'/resourcegroups/',resourceGroup().name, '/providers/Microsoft.ConnectedVMwarevSphere/VCenters/', parameters('vCenterName') )]",
     "networkId": "[concat('/subscriptions/', subscription().subscriptionId,'/resourcegroups/',resourceGroup().name, '/providers/Microsoft.ConnectedVMwarevSphere/VirtualNetworks/', parameters('networkName') )]",
     "templateId": "[concat('/subscriptions/', subscription().subscriptionId,'/resourcegroups/',resourceGroup().name, '/providers/Microsoft.ConnectedVMwarevSphere/VirtualMachineTemplates/', parameters('templateName') )]",
-    "clusterId": "[concat('/subscriptions/', subscription().subscriptionId,'/resourcegroups/',resourceGroup().name, '/providers/Microsoft.ConnectedVMwarevSphere/Clusters/', parameters('clusterName') )]"
+    "clusterId": "[concat('/subscriptions/', subscription().subscriptionId,'/resourcegroups/',resourceGroup().name, '/providers/Microsoft.ConnectedVMwarevSphere/Clusters/', parameters('clusterName') )]",
+    "keyVaultName": "[toLower(concat('kv-vsphere-', substring(uniqueString(resourceGroup().id), 0, 6)))]",
+    "randomSeed": "[uniqueString(resourceGroup().id, deployment().name)]",
+    "generatedAdminPassword": "[concat('Aa1!', substring(base64(variables('randomSeed')), 0, sub(parameters('passwordLength'), 4)))]"
   },
   "resources": [
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('keyVaultName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": { "family": "A", "name": "standard" },
+        "tenantId": "[subscription().tenantId]",
+        "enableRbacAuthorization": true,
+        "enableSoftDelete": true,
+        "softDeleteRetentionInDays": 7
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), parameters('adminPasswordSecretName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ],
+      "properties": {
+        "value": "[variables('generatedAdminPassword')]"
+      }
+    },
     {
       "type": "Microsoft.ConnectedVMwarevSphere/virtualMachines",
       "apiVersion": "2020-10-01-preview",
       "name": "[parameters('virtualMachineName')]",
       "location": "[parameters('location')]",
       "kind": "VMware",
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), parameters('adminPasswordSecretName'))]"
+      ],
       "extendedLocation": {
         "name": "[variables('extendedLocation')]",
         "type": "CustomLocation"
@@ -83,7 +124,7 @@
         "osProfile": {
           "osType": "Windows",
           "computerName": "[parameters('virtualMachineName')]",
-          "adminPassword" : "[parameters('adminUserPassword')]"
+          "adminPassword" : "[variables('generatedAdminPassword')]"
         }
       }
     },
@@ -97,7 +138,7 @@
             "properties": {
                 "credentials": {
                     "username": "[parameters('adminUserName')]",
-                    "password" : "[parameters('adminUserPassword')]"
+                    "password" : "[variables('generatedAdminPassword')]"
                 },
                 "provisioningAction": "install"
             }

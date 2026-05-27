@@ -6,7 +6,11 @@ param tenantId = '<your tenant id>'
 
 param windowsAdminUsername = 'arcdemo'
 
-param windowsAdminPassword = '<your windows admin password>'
+param passwordLength = 16
+
+param windowsAdminPasswordSecretName = 'windowsAdminPassword'
+
+param registryPasswordSecretName = 'registryPassword'
 
 param logAnalyticsWorkspaceName = '<your unique Log Analytics workspace name>'
 

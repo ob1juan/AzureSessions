@@ -74,8 +74,14 @@ param namingPrefix string = 'ArcBox'
 @secure()
 param windowsAdminPassword string?
 
+@description('Key Vault secret name for the generated Windows admin password')
+param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
+
 @secure()
 param registryPassword string?
+
+@description('Key Vault secret name for the generated container registry password')
+param registryPasswordSecretName string = 'registryPassword'
 
 var keyVaultName = toLower('${namingPrefix}${uniqueString(resourceGroup().id)}')
 
@@ -662,7 +668,7 @@ resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' existing = {
 }
 
 resource windowsAdminPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-04-01-preview' = if (!empty(windowsAdminPassword)) {
-  name: 'windowsAdminPassword'
+  name: windowsAdminPasswordSecretName
   parent: kv
   properties: {
     value: windowsAdminPassword
@@ -673,7 +679,7 @@ resource windowsAdminPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-
 }
 
 resource registryPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-04-01-preview' = if (!empty(registryPassword)) {
-  name: 'registryPassword'
+  name: registryPasswordSecretName
   parent: kv
   properties: {
     value: registryPassword
@@ -685,3 +691,5 @@ resource registryPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-04-0
 
 output vnetId string = arcVirtualNetwork.id
 output subnetId string = arcVirtualNetwork.properties.subnets[0].id
+output keyVaultName string = keyVaultName
+output keyVaultId string = kv.id

@@ -5,14 +5,18 @@ param sshRSAPublicKey string = ''
 @description('Your Microsoft Entra tenant Id')
 param tenantId string = tenant().tenantId
 
+@description('Length for generated passwords that are stored in Key Vault')
+@minValue(12)
+param passwordLength int = 16
+
+@description('Secret name in Key Vault for the Windows admin password')
+param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
+
+@description('Secret name in Key Vault for the container registry password')
+param registryPasswordSecretName string = 'registryPassword'
+
 @description('Username for Windows account')
 param windowsAdminUsername string
-
-@description('Password for Windows account. Password must have 3 of the following: 1 lower case character, 1 upper case character, 1 number, and 1 special character. The value must be between 12 and 123 characters long')
-@minLength(12)
-@maxLength(123)
-@secure()
-param windowsAdminPassword string  = newGuid()
 
 @description('Enable automatic logon into ArcBox Virtual Machine')
 param vmAutologon bool = true
@@ -102,22 +106,26 @@ param enableAzureSpotPricing bool = false
 ])
 param zones string = '1'
 
-@secure()
-param registryPassword string = newGuid()
-
 var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/azure_arc/${githubBranch}/azure_jumpstart_arcbox/'
 var aksArcDataClusterName = '${namingPrefix}-AKS-Data-${guid}'
 var aksDrArcDataClusterName = '${namingPrefix}-AKS-DR-Data-${guid}'
 var k3sArcDataClusterName = '${namingPrefix}-K3s-Data-${guid}'
 var k3sArcClusterName = '${namingPrefix}-K3s-${guid}'
 var k3sClusterNodesCount = 3 // Number of nodes to deploy in the K3s cluster
+var randomSeed = uniqueString(resourceGroup().id, deployment().name, guid)
+var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windows'), 0, passwordLength - 4)}'
+var generatedRegistryPassword = 'Bb2!${substring(base64('${randomSeed}-registry'), 0, passwordLength - 4)}'
 var customerUsageAttributionDeploymentName = (flavor == 'DevOps' ? '390d1642-349e-43c5-845e-8c7cc0972f22' : flavor == 'DataOps' ? 'a8caf3c1-0980-4e23-8c52-27e5d424dbbd' : 'c4a26bed-72cb-415d-91a3-e2577c7c92f5')
+
+resource existingKeyVault 'Microsoft.KeyVault/vaults@2024-04-01-preview' existing = {
+  name: mgmtArtifactsAndPolicyDeployment.outputs.keyVaultName
+}
 
 module clientVmDeployment 'clientVm/clientVm.bicep' = {
   name: 'clientVmDeployment'
   params: {
     windowsAdminUsername: windowsAdminUsername
-    windowsAdminPassword: windowsAdminPassword
+    windowsAdminPassword: existingKeyVault.getSecret(windowsAdminPasswordSecretName)
     tenantId: tenantId
     workspaceName: logAnalyticsWorkspaceName
     stagingStorageAccountName: toLower(stagingStorageAccountDeployment.outputs.storageAccountName)
@@ -169,8 +177,10 @@ module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
     location: location
     resourceTags: resourceTags
     namingPrefix: namingPrefix
-    windowsAdminPassword: windowsAdminPassword
-    registryPassword: registryPassword
+    windowsAdminPassword: generatedWindowsAdminPassword
+    windowsAdminPasswordSecretName: windowsAdminPasswordSecretName
+    registryPassword: generatedRegistryPassword
+    registryPasswordSecretName: registryPasswordSecretName
     natGatewayName: natGatewayName
   }
 }
@@ -179,16 +189,13 @@ module addsVmDeployment 'mgmt/addsVm.bicep' = if (flavor == 'DataOps'){
   name: 'addsVmDeployment'
   params: {
     windowsAdminUsername : windowsAdminUsername
-    windowsAdminPassword : windowsAdminPassword
+    windowsAdminPassword : existingKeyVault.getSecret(windowsAdminPasswordSecretName)
     addsDomainName: addsDomainName
     deployBastion: deployBastion
     templateBaseUrl: templateBaseUrl
     azureLocation: location
     namingPrefix: namingPrefix
   }
-  dependsOn:[
-    mgmtArtifactsAndPolicyDeployment
-  ]
 }
 
 module updateVNetDNSServers 'mgmt/mgmtArtifacts.bicep' = if (flavor == 'DataOps'){
@@ -217,3 +224,5 @@ module customerUsageAttribution 'mgmt/customerUsageAttribution.bicep' = {
 }
 
 output clientVmLogonUserName string = flavor == 'DataOps' ? '${windowsAdminUsername}@${addsDomainName}' : ''
+output centralKeyVaultId string = mgmtArtifactsAndPolicyDeployment.outputs.keyVaultId
+output centralKeyVaultName string = mgmtArtifactsAndPolicyDeployment.outputs.keyVaultName

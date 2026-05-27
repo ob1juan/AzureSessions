@@ -8,8 +8,14 @@
         "windowsAdminUsername": {
             "value": "arcdemo"
         },
-        "windowsAdminPassword": {
-            "value": "ArcPassword123!!"
+        "passwordLength": {
+            "value": 16
+        },
+        "windowsAdminPasswordSecretName": {
+            "value": "windowsAdminPassword"
+        },
+        "registryPasswordSecretName": {
+            "value": "registryPassword"
         },
         "flavor": {
             "value": "ITPro"

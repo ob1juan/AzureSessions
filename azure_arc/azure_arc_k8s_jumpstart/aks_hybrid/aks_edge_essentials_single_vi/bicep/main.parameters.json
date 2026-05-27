@@ -6,7 +6,12 @@
         "value": "<spn client id>"
       },
       "spnClientSecret": {
-          "value": "<spn client secret>"
+          "reference": {
+                "keyVault": {
+                    "id": "/subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.KeyVault/vaults/<key-vault-name>"
+                },
+                "secretName": "<secret-name>"
+            }
       },
       "spnTenantId": {
           "value": "<spn tenant id>"
@@ -15,7 +20,12 @@
         "value": "arcdemo"
       },
       "windowsAdminPassword": {
-        "value": "ArcPassword123!!"
+        "reference": {
+                "keyVault": {
+                    "id": "/subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.KeyVault/vaults/<key-vault-name>"
+                },
+                "secretName": "<secret-name>"
+            }
       },
       "rdpPort": {
         "value": "3389"

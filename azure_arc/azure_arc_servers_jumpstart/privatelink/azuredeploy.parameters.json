@@ -36,7 +36,12 @@
             "value": "<Azure VM admin username>"
         },
         "adminPassword": {
-            "value": "<Azure VM admin password>"
+            "reference": {
+                "keyVault": {
+                    "id": "/subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.KeyVault/vaults/<key-vault-name>"
+                },
+                "secretName": "<secret-name>"
+            }
         },
         "onPremVNetName": {
             "value": "<Onpremise VNET Name>"
@@ -69,7 +74,12 @@
             "value": "<Service Principal AppId>"
         },
         "password": {
-            "value": "<Service Principal password>"
+            "reference": {
+                "keyVault": {
+                    "id": "/subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.KeyVault/vaults/<key-vault-name>"
+                },
+                "secretName": "<secret-name>"
+            }
         },
         "tenantId": {
             "value": "<Tenant ID>"

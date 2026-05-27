@@ -23,19 +23,22 @@
         "description": "Your Microsoft Entra tenant Id"
       }
     },
+    "passwordLength": {
+      "type": "int",
+      "defaultValue": 16
+    },
+    "windowsAdminPasswordSecretName": {
+      "type": "string",
+      "defaultValue": "windowsAdminPassword"
+    },
+    "registryPasswordSecretName": {
+      "type": "string",
+      "defaultValue": "registryPassword"
+    },
     "windowsAdminUsername": {
       "type": "string",
       "metadata": {
         "description": "Username for Windows account"
-      }
-    },
-    "windowsAdminPassword": {
-      "type": "securestring",
-      "defaultValue": "[newGuid()]",
-      "minLength": 12,
-      "maxLength": 123,
-      "metadata": {
-        "description": "Password for Windows account. Password must have 3 of the following: 1 lower case character, 1 upper case character, 1 number, and 1 special character. The value must be between 12 and 123 characters long"
       }
     },
     "vmAutologon": {
@@ -212,7 +215,7 @@
     },
     "registryPassword": {
       "type": "securestring",
-      "defaultValue": "[newGuid()]"
+      "defaultValue": ""
     }
   },
   "variables": {
@@ -221,7 +224,12 @@
     "aksDrArcDataClusterName": "[format('{0}-AKS-DR-Data-{1}', parameters('namingPrefix'), parameters('guid'))]",
     "k3sArcDataClusterName": "[format('{0}-K3s-Data-{1}', parameters('namingPrefix'), parameters('guid'))]",
     "k3sArcClusterName": "[format('{0}-K3s-{1}', parameters('namingPrefix'), parameters('guid'))]",
-    "k3sClusterNodesCount": 3
+    "k3sClusterNodesCount": 3,
+    "randomSeed": "[uniqueString(resourceGroup().id, deployment().name, parameters('guid'))]",
+    "randomWindowsPassword": "[concat('Aa1!', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
+    "randomRegistryPassword": "[concat('Bb2!', substring(base64(format('{0}-registry', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
+    "generatedWindowsAdminPassword": "[variables('randomWindowsPassword')]",
+    "generatedRegistryPassword": "[variables('randomRegistryPassword')]"
   },
   "resources": [
     {
@@ -691,7 +699,7 @@
           "variables": {
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
-            "vmSize": "[if(equals(parameters('flavor'), 'DevOps'), 'Standard_B2ms', 'Standard_B8ms')]",
+            "vmSize": "Standard_B4ms",
             "diskSize": "[if(equals(parameters('flavor'), 'DataOps'), 512, 64)]"
           },
           "resources": [
@@ -1296,7 +1304,7 @@
           "variables": {
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
-            "vmSize": "[if(equals(parameters('flavor'), 'DevOps'), 'Standard_B2ms', 'Standard_B8ms')]",
+            "vmSize": "Standard_B4ms",
             "diskSize": "[if(equals(parameters('flavor'), 'DataOps'), 512, 64)]"
           },
           "resources": [
@@ -1448,7 +1456,12 @@
             "value": "[parameters('windowsAdminUsername')]"
           },
           "windowsAdminPassword": {
-            "value": "[parameters('windowsAdminPassword')]"
+            "reference": {
+              "keyVault": {
+                "id": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2022-09-01').outputs.keyVaultId.value]"
+              },
+              "secretName": "[parameters('windowsAdminPasswordSecretName')]"
+            }
           },
           "tenantId": {
             "value": "[parameters('tenantId')]"
@@ -1910,7 +1923,7 @@
               },
               "properties": {
                 "hardwareProfile": {
-                  "vmSize": "[if(equals(parameters('flavor'), 'DevOps'), 'Standard_B4ms', if(equals(parameters('flavor'), 'DataOps'), 'Standard_D8s_v5', 'Standard_D8s_v5'))]"
+                  "vmSize": "Standard_B4ms"
                 },
                 "storageProfile": {
                   "osDisk": {
@@ -2200,10 +2213,16 @@
             "value": "[parameters('namingPrefix')]"
           },
           "windowsAdminPassword": {
-            "value": "[parameters('windowsAdminPassword')]"
+            "value": "[variables('generatedWindowsAdminPassword')]"
+          },
+          "windowsAdminPasswordSecretName": {
+            "value": "[parameters('windowsAdminPasswordSecretName')]"
           },
           "registryPassword": {
-            "value": "[parameters('registryPassword')]"
+            "value": "[variables('generatedRegistryPassword')]"
+          },
+          "registryPasswordSecretName": {
+            "value": "[parameters('registryPasswordSecretName')]"
           }
         },
         "template": {
@@ -2360,6 +2379,14 @@
             "registryPassword": {
               "type": "securestring",
               "nullable": true
+            },
+            "windowsAdminPasswordSecretName": {
+              "type": "string",
+              "defaultValue": "windowsAdminPassword"
+            },
+            "registryPasswordSecretName": {
+              "type": "string",
+              "defaultValue": "registryPassword"
             }
           },
           "variables": {
@@ -2840,7 +2867,7 @@
               "condition": "[not(empty(parameters('windowsAdminPassword')))]",
               "type": "Microsoft.KeyVault/vaults/secrets",
               "apiVersion": "2023-07-01",
-              "name": "[format('{0}/{1}', variables('keyVaultName'), 'windowsAdminPassword')]",
+              "name": "[format('{0}/{1}', variables('keyVaultName'), parameters('windowsAdminPasswordSecretName'))]",
               "properties": {
                 "value": "[parameters('windowsAdminPassword')]"
               },
@@ -2852,7 +2879,7 @@
               "condition": "[not(empty(parameters('registryPassword')))]",
               "type": "Microsoft.KeyVault/vaults/secrets",
               "apiVersion": "2023-07-01",
-              "name": "[format('{0}/{1}', variables('keyVaultName'), 'registryPassword')]",
+              "name": "[format('{0}/{1}', variables('keyVaultName'), parameters('registryPasswordSecretName'))]",
               "properties": {
                 "value": "[parameters('registryPassword')]"
               },
@@ -5658,6 +5685,14 @@
             "subnetId": {
               "type": "string",
               "value": "[reference('arcVirtualNetwork').subnets[0].id]"
+            },
+            "keyVaultName": {
+              "type": "string",
+              "value": "[variables('keyVaultName')]"
+            },
+            "keyVaultId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
             }
           }
         }
@@ -5678,7 +5713,12 @@
             "value": "[parameters('windowsAdminUsername')]"
           },
           "windowsAdminPassword": {
-            "value": "[parameters('windowsAdminPassword')]"
+            "reference": {
+              "keyVault": {
+                "id": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2022-09-01').outputs.keyVaultId.value]"
+              },
+              "secretName": "[parameters('windowsAdminPasswordSecretName')]"
+            }
           },
           "addsDomainName": {
             "value": "[parameters('addsDomainName')]"
@@ -5752,7 +5792,7 @@
             },
             "vmSize": {
               "type": "string",
-              "defaultValue": "Standard_B2ms",
+              "defaultValue": "Standard_B4ms",
               "metadata": {
                 "description": "The size of the VM"
               }
@@ -6130,6 +6170,14 @@
             "registryPassword": {
               "type": "securestring",
               "nullable": true
+            },
+            "windowsAdminPasswordSecretName": {
+              "type": "string",
+              "defaultValue": "windowsAdminPassword"
+            },
+            "registryPasswordSecretName": {
+              "type": "string",
+              "defaultValue": "registryPassword"
             }
           },
           "variables": {
@@ -6610,7 +6658,7 @@
               "condition": "[not(empty(parameters('windowsAdminPassword')))]",
               "type": "Microsoft.KeyVault/vaults/secrets",
               "apiVersion": "2023-07-01",
-              "name": "[format('{0}/{1}', variables('keyVaultName'), 'windowsAdminPassword')]",
+              "name": "[format('{0}/{1}', variables('keyVaultName'), parameters('windowsAdminPasswordSecretName'))]",
               "properties": {
                 "value": "[parameters('windowsAdminPassword')]"
               },
@@ -6622,7 +6670,7 @@
               "condition": "[not(empty(parameters('registryPassword')))]",
               "type": "Microsoft.KeyVault/vaults/secrets",
               "apiVersion": "2023-07-01",
-              "name": "[format('{0}/{1}', variables('keyVaultName'), 'registryPassword')]",
+              "name": "[format('{0}/{1}', variables('keyVaultName'), parameters('registryPasswordSecretName'))]",
               "properties": {
                 "value": "[parameters('registryPassword')]"
               },
@@ -9530,7 +9578,7 @@
             },
             "agentVMSize": {
               "type": "string",
-              "defaultValue": "Standard_D8s_v4",
+              "defaultValue": "Standard_B4ms",
               "metadata": {
                 "description": "The size of the Virtual Machine"
               }

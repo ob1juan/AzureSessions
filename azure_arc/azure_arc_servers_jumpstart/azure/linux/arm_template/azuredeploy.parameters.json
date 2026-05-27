@@ -9,7 +9,12 @@
       "value": "<Guest OS username>"
     },
     "adminPasswordOrKey": {
-      "value": "<A password or SSH Key>"
+      "reference": {
+                "keyVault": {
+                    "id": "/subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.KeyVault/vaults/<key-vault-name>"
+                },
+                "secretName": "<secret-name>"
+            }
     },
     "dnsLabelPrefix": {
       "value": "<A DNS prefix for the Public IP>"
@@ -30,7 +35,12 @@
       "value": "<Your Azure service principal application ID>"
     },
     "servicePrincipalClientSecret": {
-      "value": "<Your Azure service principal password>"
+      "reference": {
+                "keyVault": {
+                    "id": "/subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.KeyVault/vaults/<key-vault-name>"
+                },
+                "secretName": "<secret-name>"
+            }
     },
     "tenantID": {
       "value": "<Your Azure AD Tenant ID>"

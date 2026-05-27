@@ -16,6 +16,14 @@
         "description": "Password for Windows account. Password must have 3 of the following: 1 lower case character, 1 upper case character, 1 number, and 1 special character. The value must be between 12 and 123 characters long"
       }
     },
+    "passwordLength": {
+      "type": "int",
+      "defaultValue": 16
+    },
+    "windowsAdminPasswordSecretName": {
+      "type": "string",
+      "defaultValue": "windowsAdminPassword"
+    },
     "sshRSAPublicKey": {
       "type": "securestring",
       "metadata": {
@@ -141,9 +149,39 @@
     "addsPrivateIPAddress": "172.16.1.100",
     "bastionSubnetName": "AzureBastionSubnet",
     "bastionSubnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('bastionSubnetName'))]",
-    "addsDomainName": "jumpstart.local"
+    "addsDomainName": "jumpstart.local",
+    "keyVaultName": "[toLower(format('kv-data-aks-{0}', uniqueString(resourceGroup().id)))]",
+    "randomSeed": "[uniqueString(resourceGroup().id, deployment().name)]",
+    "generatedWindowsAdminPassword": "[concat('Aa1!', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]"
   },
   "resources": [
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('keyVaultName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "enableRbacAuthorization": true,
+        "enabledForTemplateDeployment": true,
+        "accessPolicies": []
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), parameters('windowsAdminPasswordSecretName'))]",
+      "properties": {
+        "value": "[variables('generatedWindowsAdminPassword')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
     {
       "type": "Microsoft.Resources/deployments",
       "comments": "Deploys a VNET and Subnet for Client VM",
@@ -249,7 +287,10 @@
       "apiVersion": "2024-11-01",
       "name": "addsVmDeployment",
       "condition": "[parameters('enableADAuth')]",
-      "dependsOn": ["VNETDeployment"],
+      "dependsOn": [
+        "VNETDeployment",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), parameters('windowsAdminPasswordSecretName'))]"
+      ],
       "properties": {
         "mode": "Incremental",
         "templateLink": {
@@ -261,7 +302,12 @@
             "value": "[parameters('windowsAdminUsername')]"
           },
           "windowsAdminPassword": {
-            "value": "[parameters('windowsAdminPassword')]"
+            "reference": {
+              "keyVault": {
+                "id": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+              },
+              "secretName": "[parameters('windowsAdminPasswordSecretName')]"
+            }
           },
           "addsDomainName": {
             "value": "[variables('addsDomainName')]"
@@ -292,7 +338,12 @@
       "comments": "Deploys the Client Windows VM",
       "apiVersion": "2024-11-01",
       "name": "clientVmDeployment",
-      "dependsOn": ["VNETDeployment", "addsVmDeployment", "updateVNetDNSServers"],
+      "dependsOn": [
+        "VNETDeployment",
+        "addsVmDeployment",
+        "updateVNetDNSServers",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), parameters('windowsAdminPasswordSecretName'))]"
+      ],
       "properties": {
         "mode": "Incremental",
         "templateLink": {
@@ -304,7 +355,12 @@
             "value": "[parameters('windowsAdminUsername')]"
           },
           "windowsAdminPassword": {
-            "value": "[parameters('windowsAdminPassword')]"
+            "reference": {
+              "keyVault": {
+                "id": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+              },
+              "secretName": "[parameters('windowsAdminPasswordSecretName')]"
+            }
           },
           "spnClientId": {
             "value": "[parameters('spnClientId')]"
