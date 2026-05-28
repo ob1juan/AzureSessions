@@ -480,11 +480,30 @@ if ($Env:flavor -ne 'DevOps') {
         # Update disk IOPS and throughput after downloading nested VMs (note: a disk's performance tier can be downgraded only once every 12 hours)
         az disk update --resource-group $env:resourceGroup --name $existingVMDisk.Name --disk-iops-read-write $existingVMDisk.DiskIOPSReadWrite --disk-mbps-read-write $existingVMDisk.DiskMBpsReadWrite
 
+        # Clone source VHDXs for the IIS and PG demo VMs before Hyper-V takes an exclusive lock on them.
+        $IISvmName = "$namingPrefix-IIS"
+        $PGvmName = "$namingPrefix-PG"
+        $IISvmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-IIS.vhdx"
+        $PGvmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-PG.vhdx"
+
+        if (-not (Test-Path $IISvmvhdPath)) {
+            Write-Output 'Cloning Win2K25 VHDX for IIS demo VM'
+            Copy-Item -Path $Win2k25vmvhdPath -Destination $IISvmvhdPath -Force
+        }
+        if (-not (Test-Path $PGvmvhdPath)) {
+            Write-Output 'Cloning Ubuntu-01 VHDX for PostgreSQL demo VM'
+            Copy-Item -Path $Ubuntu01vmvhdPath -Destination $PGvmvhdPath -Force
+        }
+
         # Create the nested VMs if not already created
         Write-Header 'Create Hyper-V VMs'
         $serversDscConfigurationFile = "$Env:ArcBoxDscDir\virtual_machines_itpro.dsc.yml"
         (Get-Content -Path $serversDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $serversDscConfigurationFile
         winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
+
+        $iisPgDscConfigurationFile = "$Env:ArcBoxDscDir\virtual_machines_iis_pg.dsc.yml"
+        (Get-Content -Path $iisPgDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $iisPgDscConfigurationFile
+        winget configure --file C:\ArcBox\DSC\virtual_machines_iis_pg.dsc.yml --accept-configuration-agreements --disable-interactivity
 
     # Configure automatic start & stop action for the nested VMs
     Get-VM | Where-Object {$_.State -eq "Running"} |
@@ -671,6 +690,121 @@ if ($Env:flavor -ne 'DevOps') {
             $null = Invoke-AzRestMethod -Method POST -Path "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.HybridCompute/machines/$($connectedMachine.Name)/assessPatches?api-version=2020-08-15-preview" -Payload '{}'
 
         }
+
+        # ---------------------------------------------------------------------
+        # IIS demo VM and PostgreSQL demo VM
+        # ---------------------------------------------------------------------
+        Write-Header 'Configuring IIS and PostgreSQL demo VMs'
+
+        $arcBoxWebSqlPassword = 'ArcBoxWeb1!'
+        $arcBoxWebPgPassword = 'ArcBoxWeb1!'
+        $arcBoxWebPgUser = 'arcboxweb'
+        $arcBoxWebPgDb = 'arcboxdemo'
+        $arcBoxSqlDb = 'ArcBoxDemo'
+        $arcBoxWebSqlUser = 'arcboxweb'
+
+        # Wait for the new VMs to come online and acquire IPs
+        Write-Output 'Waiting for IIS and PG VMs to become reachable'
+        Get-VM $IISvmName, $PGvmName | Wait-VM -For Heartbeat
+        Get-VM $IISvmName, $PGvmName | Wait-VM -For IPAddress
+        Start-Sleep -Seconds 20
+
+        # Restart adapters on the IIS VM so DHCP lease is fresh
+        Invoke-Command -VMName $IISvmName -ScriptBlock { Get-NetAdapter | Restart-NetAdapter } -Credential $winCreds
+        Start-Sleep -Seconds 15
+
+        if ($namingPrefix -ne 'ArcBox') {
+            Write-Header 'Renaming IIS and PG nested VMs'
+            Invoke-Command -VMName $IISvmName -ScriptBlock {
+                if ($env:computername -cne $using:IISvmName) {
+                    Rename-Computer -NewName $using:IISvmName -Restart
+                }
+            } -Credential $winCreds
+
+            Get-VM $IISvmName | Wait-VM -For Heartbeat
+
+            $PGvmIp = Get-VM -Name $PGvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Select-Object -Index 0
+            Get-VM $PGvmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
+            Invoke-Command -HostName $PGvmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername -ScriptBlock {
+                Invoke-Expression "sudo hostnamectl set-hostname $using:PGvmName;sudo systemctl reboot"
+            }
+            Restart-VM -Name $PGvmName -Force
+            Get-VM $PGvmName | Wait-VM -For IPAddress
+            Start-Sleep -Seconds 15
+        } else {
+            Get-VM $PGvmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
+        }
+
+        # Discover IPs (re-discover after renames/restarts)
+        $SQLvmIp = Get-VM -Name $SQLvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+        $PGvmIp = Get-VM -Name $PGvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+
+        Write-Output "SQL VM IP: $SQLvmIp"
+        Write-Output "PG VM IP : $PGvmIp"
+
+        # Seed the SQL demo database and arcboxweb login on ArcBox-SQL
+        Write-Header 'Seeding ArcBoxDemo database on SQL VM'
+        Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -DestinationPath "$nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -CreateFullPath -FileSource Host -Force
+        Invoke-Command -VMName $SQLvmName -ScriptBlock {
+            powershell.exe -ExecutionPolicy Bypass -File $Using:nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1 -WebSqlPassword $Using:arcBoxWebSqlPassword
+        } -Credential $winCreds
+
+        # Configure PostgreSQL on the PG VM
+        Write-Header 'Installing and configuring PostgreSQL on PG VM'
+        Get-VM $PGvmName | Copy-VMFile -SourcePath "$Env:ArcBoxDir\Configure-Postgres.sh" -DestinationPath "/home/$nestedLinuxUsername/Configure-Postgres.sh" -FileSource Host -Force -CreateFullPath
+        $pgSession = New-PSSession -HostName $PGvmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername
+        Invoke-Command -Session $pgSession -ScriptBlock {
+            chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
+        }
+        Invoke-JSSudoCommand -Session $pgSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgPassword' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
+        Remove-PSSession $pgSession
+
+        # Install IIS and deploy the sample web app
+        Write-Header 'Installing IIS and deploying sample web app'
+        Copy-VMFile $IISvmName -SourcePath "$Env:ArcBoxDir\Configure-IIS.ps1" -DestinationPath "$nestedVMArcBoxDir\Configure-IIS.ps1" -CreateFullPath -FileSource Host -Force
+        $artifactBaseUrl = $Env:templateBaseUrl
+        Invoke-Command -VMName $IISvmName -ScriptBlock {
+            powershell.exe -ExecutionPolicy Bypass -File $Using:nestedVMArcBoxDir\Configure-IIS.ps1 `
+                -SqlServerAddress $Using:SQLvmIp `
+                -SqlDatabase $Using:arcBoxSqlDb `
+                -SqlUser $Using:arcBoxWebSqlUser `
+                -SqlPassword $Using:arcBoxWebSqlPassword `
+                -PgServerAddress $Using:PGvmIp `
+                -PgDatabase $Using:arcBoxWebPgDb `
+                -PgUser $Using:arcBoxWebPgUser `
+                -PgPassword $Using:arcBoxWebPgPassword `
+                -ArtifactBaseUrl $Using:artifactBaseUrl
+        } -Credential $winCreds
+
+        # Onboard the new VMs to Azure Arc
+        Write-Header 'Onboarding IIS and PG VMs to Azure Arc'
+        $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
+
+        Copy-VMFile $IISvmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
+        Invoke-Command -VMName $IISvmName -ScriptBlock {
+            powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation
+        } -Credential $winCreds
+
+        (Get-Content -Path "$agentScript\installArcAgentUbuntu.sh" -Raw) -replace '\$accessToken', "'$accessToken'" -replace '\$resourceGroup', "'$resourceGroup'" -replace '\$tenantId', "'$Env:tenantId'" -replace '\$azureLocation', "'$Env:azureLocation'" -replace '\$subscriptionId', "'$subscriptionId'" | Set-Content -Path "$agentScript\installArcAgentModifiedUbuntu.sh"
+        Get-VM $PGvmName | Copy-VMFile -SourcePath "$agentScript\installArcAgentModifiedUbuntu.sh" -DestinationPath "/home/$nestedLinuxUsername" -FileSource Host -Force
+        $pgSession = New-PSSession -HostName $PGvmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername
+        Invoke-JSSudoCommand -Session $pgSession -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+        Remove-PSSession $pgSession
+
+        # Install monitoring extensions on the new Arc-enabled servers
+        Write-Header 'Installing monitoring extensions on IIS and PG VMs'
+        @($IISvmName) | ForEach-Object -Parallel {
+            $null = Connect-AzAccount -Identity -Tenant $using:tenantId -Subscription $using:subscriptionId -Scope Process -WarningAction SilentlyContinue
+            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name DependencyAgentWindows -Publisher Microsoft.Azure.Monitoring.DependencyAgent -ExtensionType DependencyAgentWindows -Location $using:azureLocation -Settings @{"enableAMA" = $true} -NoWait
+            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ExtensionType AzureMonitorWindowsAgent -Location $using:azureLocation -NoWait
+        }
+        @($PGvmName) | ForEach-Object -Parallel {
+            $null = Connect-AzAccount -Identity -Tenant $using:tenantId -Subscription $using:subscriptionId -Scope Process -WarningAction SilentlyContinue
+            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name DependencyAgentLinux -Publisher Microsoft.Azure.Monitoring.DependencyAgent -ExtensionType DependencyAgentLinux -Location $using:azureLocation -Settings @{"enableAMA" = $true} -NoWait
+            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ExtensionType AzureMonitorLinuxAgent -Location $using:azureLocation -NoWait
+        }
+
+        Write-Header 'IIS sample app reachable at http://<ArcBox-IIS-IP>/ (and /pg/pg.aspx)'
     } elseif ($Env:flavor -eq 'DataOps') {
         Write-Header 'Enabling SSH access to Arc-enabled servers'
         $null = Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId -Scope Process -WarningAction SilentlyContinue

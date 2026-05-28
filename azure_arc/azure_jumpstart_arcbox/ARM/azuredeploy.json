@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "14944740285765497345"
+      "templateHash": "8251180237835604014"
     }
   },
   "parameters": {
@@ -79,9 +79,23 @@
     },
     "githubAccount": {
       "type": "string",
-      "defaultValue": "microsoft",
+      "defaultValue": "ob1juan",
       "metadata": {
         "description": "Target GitHub account"
+      }
+    },
+    "githubRepo": {
+      "type": "string",
+      "defaultValue": "AzureSessions",
+      "metadata": {
+        "description": "Target GitHub repository name (under githubAccount)"
+      }
+    },
+    "githubRepoPath": {
+      "type": "string",
+      "defaultValue": "azure_arc/azure_jumpstart_arcbox/",
+      "metadata": {
+        "description": "Path inside the repo to azure_jumpstart_arcbox (no leading slash, trailing slash required)"
       }
     },
     "githubBranch": {
@@ -237,7 +251,7 @@
   },
   "variables": {
     "location": "[resourceGroup().location]",
-    "templateBaseUrl": "[format('https://raw.githubusercontent.com/{0}/azure_arc/{1}/azure_jumpstart_arcbox/', parameters('githubAccount'), parameters('githubBranch'))]",
+    "templateBaseUrl": "[format('https://raw.githubusercontent.com/{0}/{1}/{2}/{3}', parameters('githubAccount'), parameters('githubRepo'), parameters('githubBranch'), parameters('githubRepoPath'))]",
     "aksArcDataClusterName": "[format('{0}-AKS-Data-{1}', parameters('namingPrefix'), parameters('guid'))]",
     "aksDrArcDataClusterName": "[format('{0}-AKS-DR-Data-{1}', parameters('namingPrefix'), parameters('guid'))]",
     "k3sArcDataClusterName": "[format('{0}-K3s-Data-{1}', parameters('namingPrefix'), parameters('guid'))]",

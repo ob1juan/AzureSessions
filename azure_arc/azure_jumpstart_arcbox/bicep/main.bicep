@@ -32,7 +32,13 @@ param logAnalyticsWorkspaceName string = 'ArcBox-la'
 param sqlServerEdition string = 'Developer'
 
 @description('Target GitHub account')
-param githubAccount string = 'microsoft'
+param githubAccount string = 'ob1juan'
+
+@description('Target GitHub repository name (under githubAccount)')
+param githubRepo string = 'AzureSessions'
+
+@description('Path inside the repo to azure_jumpstart_arcbox (no leading slash, trailing slash required)')
+param githubRepoPath string = 'azure_arc/azure_jumpstart_arcbox/'
 
 @description('Target GitHub branch')
 param githubBranch string = 'main'
@@ -121,7 +127,7 @@ param enableAzureSpotPricing bool = false
 ])
 param zones string = '1'
 
-var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/azure_arc/${githubBranch}/azure_jumpstart_arcbox/'
+var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/${githubRepo}/${githubBranch}/${githubRepoPath}'
 var aksArcDataClusterName = '${namingPrefix}-AKS-Data-${guid}'
 var aksDrArcDataClusterName = '${namingPrefix}-AKS-DR-Data-${guid}'
 var k3sArcDataClusterName = '${namingPrefix}-K3s-Data-${guid}'

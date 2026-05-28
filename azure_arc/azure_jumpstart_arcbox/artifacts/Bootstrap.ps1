@@ -274,6 +274,12 @@ if ($flavor -eq "ITPro") {
     Invoke-WebRequest ($templateBaseUrl + "artifacts/tests/itpro.tests.ps1") -OutFile $Env:ArcBoxTestsDir\itpro.tests.ps1
     Invoke-WebRequest ($templateBaseUrl + "artifacts/dsc/itpro.dsc.yml") -OutFile $Env:ArcBoxDscDir\itpro.dsc.yml
     Invoke-WebRequest ($templateBaseUrl + "artifacts/dsc/virtual_machines_itpro.dsc.yml") -OutFile $Env:ArcBoxDscDir\virtual_machines_itpro.dsc.yml
+
+    # IIS + PostgreSQL demo VM artifacts
+    Invoke-WebRequest ($templateBaseUrl + "artifacts/dsc/virtual_machines_iis_pg.dsc.yml") -OutFile $Env:ArcBoxDscDir\virtual_machines_iis_pg.dsc.yml
+    Invoke-WebRequest ($templateBaseUrl + "artifacts/iis/Configure-IIS.ps1") -OutFile $Env:ArcBoxDir\Configure-IIS.ps1
+    Invoke-WebRequest ($templateBaseUrl + "artifacts/iis/Initialize-ArcBoxSqlDemo.ps1") -OutFile $Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1
+    Invoke-WebRequest ($templateBaseUrl + "artifacts/postgres/Configure-Postgres.sh") -OutFile $Env:ArcBoxDir\Configure-Postgres.sh
 }
 
 # DevOps
