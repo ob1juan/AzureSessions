@@ -30,6 +30,7 @@
     },
     "windowsAdminUsername": {
       "type": "string",
+      "defaultValue": "arcdemo",
       "metadata": {
         "description": "Username for Windows account"
       }
