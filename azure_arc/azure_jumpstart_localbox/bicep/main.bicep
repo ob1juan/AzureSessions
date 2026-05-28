@@ -48,10 +48,9 @@ param natGatewayName string = 'LocalBox-NatGateway'
 
 @description('The size of the Virtual Machine')
 @allowed([
-  'Standard_E32s_v5'
-  'Standard_E32s_v6'
+  'Standard_D4s_v5'
 ])
-param vmSize string = 'Standard_E32s_v6'
+param vmSize string = 'Standard_D4s_v5'
 
 @description('Option to enable spot pricing for the LocalBox Client VM')
 param enableAzureSpotPricing bool = false

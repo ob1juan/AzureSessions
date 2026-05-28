@@ -36,7 +36,7 @@
             "value": "ArcDemo-VM"
         },
         "vmSize": {
-            "value": "Standard_D4s_v4"
+            "value": "Standard_D4s_v5"
         },
         "adminUsername": {
             "value": "arcdemo"

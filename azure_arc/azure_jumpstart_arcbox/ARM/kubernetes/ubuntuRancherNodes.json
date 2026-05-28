@@ -100,7 +100,7 @@
   "variables": {
     "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
     "osDiskType": "Premium_LRS",
-    "vmSize": "Standard_B4ms",
+    "vmSize": "Standard_D4s_v5",
     "diskSize": "[if(equals(parameters('flavor'), 'DataOps'), 512, 64)]"
   },
   "resources": [

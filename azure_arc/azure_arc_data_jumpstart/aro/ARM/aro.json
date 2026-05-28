@@ -138,13 +138,13 @@
         },
         "masterProfile": {
           "subnetId": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName')), parameters('masterNodesSubnet'))]",
-          "vmSize": "Standard_D8s_v3",
+          "vmSize": "Standard_D4s_v5",
           "encryptionAtHost": "Disabled"
         },
         "workerProfiles": [
           {
             "name": "worker",
-            "vmSize": "Standard_D8s_v3",
+            "vmSize": "Standard_D4s_v5",
             "diskSizeGB": 128,
             "count": 3,
             "subnetId": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName')), parameters('workerNodesSubnet'))]",

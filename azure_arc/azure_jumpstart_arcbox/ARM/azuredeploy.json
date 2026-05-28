@@ -307,7 +307,7 @@
             },
             "vmSize": {
               "type": "string",
-              "defaultValue": "Standard_B4ms",
+              "defaultValue": "Standard_D4s_v5",
               "metadata": {
                 "description": "The size of the VM"
               }
@@ -683,7 +683,7 @@
             "flavor": "ITPro",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
-            "vmSize": "Standard_B4ms",
+            "vmSize": "Standard_D4s_v5",
             "diskSize": "[if(equals(variables('flavor'), 'DataOps'), 512, 64)]"
           },
           "resources": [
@@ -914,7 +914,7 @@
             },
             "vmSize": {
               "type": "string",
-              "defaultValue": "Standard_B4ms",
+              "defaultValue": "Standard_D4s_v5",
               "metadata": {
                 "description": "The size of the VM"
               }
@@ -1290,7 +1290,7 @@
             "flavor": "ITPro",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
-            "vmSize": "Standard_B4ms",
+            "vmSize": "Standard_D4s_v5",
             "diskSize": "[if(equals(variables('flavor'), 'DataOps'), 512, 64)]"
           },
           "resources": [
@@ -1910,7 +1910,7 @@
               },
               "properties": {
                 "hardwareProfile": {
-                  "vmSize": "Standard_B4ms"
+                  "vmSize": "Standard_D4s_v5"
                 },
                 "storageProfile": {
                   "osDisk": {
@@ -5788,7 +5788,7 @@
             },
             "vmSize": {
               "type": "string",
-              "defaultValue": "Standard_B4ms",
+              "defaultValue": "Standard_D4s_v5",
               "metadata": {
                 "description": "The size of the VM"
               }
