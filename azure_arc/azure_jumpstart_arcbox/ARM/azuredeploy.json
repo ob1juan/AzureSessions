@@ -9,13 +9,6 @@
     }
   },
   "parameters": {
-    "sshRSAPublicKey": {
-      "type": "securestring",
-      "defaultValue": "",
-      "metadata": {
-        "description": "RSA public key used for securing SSH access to ArcBox resources. This parameter is only needed when deploying the DataOps or DevOps flavors."
-      }
-    },
     "tenantId": {
       "type": "string",
       "defaultValue": "[tenant().tenantId]",
@@ -60,18 +53,6 @@
       "defaultValue": "ArcBox-la",
       "metadata": {
         "description": "Name for your log analytics workspace"
-      }
-    },
-    "flavor": {
-      "type": "string",
-      "defaultValue": "ITPro",
-      "allowedValues": [
-        "ITPro",
-        "DevOps",
-        "DataOps"
-      ],
-      "metadata": {
-        "description": "The flavor of ArcBox you want to deploy. Valid values are: 'Full', 'ITPro', 'DevOps', 'DataOps'"
       }
     },
     "sqlServerEdition": {
@@ -188,7 +169,10 @@
     },
     "autoShutdownTimezone": {
       "type": "string",
-      "defaultValue": "UTC"
+      "defaultValue": "UTC",
+      "metadata": {
+        "description": "Timezone for the auto-shutdown schedule. Use Windows timezone names, e.g. 'UTC', 'Eastern Standard Time', 'Pacific Standard Time', 'Central Europe Standard Time'. Full list: https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/default-time-zones"
+      }
     },
     "autoShutdownEmailRecipient": {
       "type": "string",
@@ -213,10 +197,6 @@
         "description": "The availability zone for the Virtual Machine, public IP, and data disk for the ArcBox client VM"
       }
     },
-    "registryPassword": {
-      "type": "securestring",
-      "defaultValue": ""
-    }
   },
   "variables": {
     "templateBaseUrl": "[format('https://raw.githubusercontent.com/{0}/azure_arc/{1}/azure_jumpstart_arcbox/', parameters('githubAccount'), parameters('githubBranch'))]",
@@ -229,11 +209,13 @@
     "randomWindowsPassword": "[concat('Aa1!', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "randomRegistryPassword": "[concat('Bb2!', substring(base64(format('{0}-registry', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "generatedWindowsAdminPassword": "[variables('randomWindowsPassword')]",
-    "generatedRegistryPassword": "[variables('randomRegistryPassword')]"
+    "generatedRegistryPassword": "[variables('randomRegistryPassword')]",
+    "flavor": "ITPro",
+    "sshRSAPublicKey": ""
   },
   "resources": [
     {
-      "condition": "[or(equals(parameters('flavor'), 'DevOps'), equals(parameters('flavor'), 'DataOps'))]",
+      "condition": "[or(equals(variables('flavor'), 'DevOps'), equals(variables('flavor'), 'DataOps'))]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
       "name": "ubuntuRancherK3sDataSvcDeployment",
@@ -244,7 +226,7 @@
         "mode": "Incremental",
         "parameters": {
           "sshRSAPublicKey": {
-            "value": "[parameters('sshRSAPublicKey')]"
+            "value": "[variables('sshRSAPublicKey')]"
           },
           "stagingStorageAccountName": {
             "value": "[toLower(reference(resourceId('Microsoft.Resources/deployments', 'stagingStorageAccountDeployment'), '2022-09-01').outputs.storageAccountName.value)]"
@@ -268,7 +250,7 @@
             "value": "[toLower(variables('k3sArcDataClusterName'))]"
           },
           "flavor": {
-            "value": "[parameters('flavor')]"
+            "value": "[variables('flavor')]"
           },
           "namingPrefix": {
             "value": "[parameters('namingPrefix')]"
@@ -381,12 +363,13 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "publicIpAddressName": "[format('{0}-PIP', parameters('vmName'))]",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
             "k3sControlPlane": "true",
-            "diskSize": "[if(equals(parameters('flavor'), 'DataOps'), 512, 64)]",
-            "numberOfIPAddresses": "[if(equals(parameters('flavor'), 'DataOps'), 8, 5)]"
+            "diskSize": "[if(equals(variables('flavor'), 'DataOps'), 512, 64)]",
+            "numberOfIPAddresses": "[if(equals(variables('flavor'), 'DataOps'), 8, 5)]"
           },
           "resources": [
             {
@@ -482,7 +465,7 @@
                       "publicKeys": [
                         {
                           "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
-                          "keyData": "[parameters('sshRSAPublicKey')]"
+                          "keyData": "[variables('sshRSAPublicKey')]"
                         }
                       ]
                     }
@@ -556,7 +539,7 @@
         "name": "ubuntuRancherK3sDataSvcNodesDeployment",
         "count": "[length(range(0, variables('k3sClusterNodesCount')))]"
       },
-      "condition": "[or(equals(parameters('flavor'), 'DataOps'), equals(parameters('flavor'), 'DevOps'))]",
+      "condition": "[or(equals(variables('flavor'), 'DataOps'), equals(variables('flavor'), 'DevOps'))]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
       "name": "[format('ubuntuRancherK3sDataSvcNodesDeployment-{0}', range(0, variables('k3sClusterNodesCount'))[copyIndex()])]",
@@ -567,7 +550,7 @@
         "mode": "Incremental",
         "parameters": {
           "sshRSAPublicKey": {
-            "value": "[parameters('sshRSAPublicKey')]"
+            "value": "[variables('sshRSAPublicKey')]"
           },
           "stagingStorageAccountName": {
             "value": "[toLower(reference(resourceId('Microsoft.Resources/deployments', 'stagingStorageAccountDeployment'), '2022-09-01').outputs.storageAccountName.value)]"
@@ -585,7 +568,7 @@
             "value": "[parameters('location')]"
           },
           "flavor": {
-            "value": "[parameters('flavor')]"
+            "value": "[variables('flavor')]"
           },
           "vmName": {
             "value": "[format('{0}-Node-0{1}', variables('k3sArcDataClusterName'), range(0, variables('k3sClusterNodesCount'))[copyIndex()])]"
@@ -697,10 +680,11 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
             "vmSize": "Standard_B4ms",
-            "diskSize": "[if(equals(parameters('flavor'), 'DataOps'), 512, 64)]"
+            "diskSize": "[if(equals(variables('flavor'), 'DataOps'), 512, 64)]"
           },
           "resources": [
             {
@@ -767,7 +751,7 @@
                       "publicKeys": [
                         {
                           "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
-                          "keyData": "[parameters('sshRSAPublicKey')]"
+                          "keyData": "[variables('sshRSAPublicKey')]"
                         }
                       ]
                     }
@@ -838,7 +822,7 @@
       ]
     },
     {
-      "condition": "[equals(parameters('flavor'), 'DevOps')]",
+      "condition": "[equals(variables('flavor'), 'DevOps')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
       "name": "ubuntuRancherK3sDeployment",
@@ -849,7 +833,7 @@
         "mode": "Incremental",
         "parameters": {
           "sshRSAPublicKey": {
-            "value": "[parameters('sshRSAPublicKey')]"
+            "value": "[variables('sshRSAPublicKey')]"
           },
           "stagingStorageAccountName": {
             "value": "[toLower(reference(resourceId('Microsoft.Resources/deployments', 'stagingStorageAccountDeployment'), '2022-09-01').outputs.storageAccountName.value)]"
@@ -873,7 +857,7 @@
             "value": "[toLower(variables('k3sArcClusterName'))]"
           },
           "flavor": {
-            "value": "[parameters('flavor')]"
+            "value": "[variables('flavor')]"
           },
           "namingPrefix": {
             "value": "[parameters('namingPrefix')]"
@@ -986,12 +970,13 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "publicIpAddressName": "[format('{0}-PIP', parameters('vmName'))]",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
             "k3sControlPlane": "true",
-            "diskSize": "[if(equals(parameters('flavor'), 'DataOps'), 512, 64)]",
-            "numberOfIPAddresses": "[if(equals(parameters('flavor'), 'DataOps'), 8, 5)]"
+            "diskSize": "[if(equals(variables('flavor'), 'DataOps'), 512, 64)]",
+            "numberOfIPAddresses": "[if(equals(variables('flavor'), 'DataOps'), 8, 5)]"
           },
           "resources": [
             {
@@ -1087,7 +1072,7 @@
                       "publicKeys": [
                         {
                           "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
-                          "keyData": "[parameters('sshRSAPublicKey')]"
+                          "keyData": "[variables('sshRSAPublicKey')]"
                         }
                       ]
                     }
@@ -1161,7 +1146,7 @@
         "name": "ubuntuRancherK3sNodesDeployment",
         "count": "[length(range(0, variables('k3sClusterNodesCount')))]"
       },
-      "condition": "[equals(parameters('flavor'), 'DevOps')]",
+      "condition": "[equals(variables('flavor'), 'DevOps')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
       "name": "[format('ubuntuRancherK3sNodesDeployment-{0}', range(0, variables('k3sClusterNodesCount'))[copyIndex()])]",
@@ -1172,7 +1157,7 @@
         "mode": "Incremental",
         "parameters": {
           "sshRSAPublicKey": {
-            "value": "[parameters('sshRSAPublicKey')]"
+            "value": "[variables('sshRSAPublicKey')]"
           },
           "stagingStorageAccountName": {
             "value": "[toLower(reference(resourceId('Microsoft.Resources/deployments', 'stagingStorageAccountDeployment'), '2022-09-01').outputs.storageAccountName.value)]"
@@ -1190,7 +1175,7 @@
             "value": "[parameters('location')]"
           },
           "flavor": {
-            "value": "[parameters('flavor')]"
+            "value": "[variables('flavor')]"
           },
           "vmName": {
             "value": "[format('{0}-Node-0{1}', variables('k3sArcClusterName'), range(0, variables('k3sClusterNodesCount'))[copyIndex()])]"
@@ -1302,10 +1287,11 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
             "osDiskType": "Premium_LRS",
             "vmSize": "Standard_B4ms",
-            "diskSize": "[if(equals(parameters('flavor'), 'DataOps'), 512, 64)]"
+            "diskSize": "[if(equals(variables('flavor'), 'DataOps'), 512, 64)]"
           },
           "resources": [
             {
@@ -1372,7 +1358,7 @@
                       "publicKeys": [
                         {
                           "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
-                          "keyData": "[parameters('sshRSAPublicKey')]"
+                          "keyData": "[variables('sshRSAPublicKey')]"
                         }
                       ]
                     }
@@ -1476,7 +1462,7 @@
             "value": "[variables('templateBaseUrl')]"
           },
           "flavor": {
-            "value": "[parameters('flavor')]"
+            "value": "[variables('flavor')]"
           },
           "subnetId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2022-09-01').outputs.subnetId.value]"
@@ -1839,6 +1825,7 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "bastionName": "[format('{0}-Bastion', parameters('namingPrefix'))]",
             "publicIpAddressName": "[if(equals(parameters('deployBastion'), false()), format('{0}-PIP', parameters('vmName')), format('{0}-PIP', variables('bastionName')))]",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
@@ -1993,7 +1980,7 @@
                   "fileUris": [
                     "[uri(parameters('templateBaseUrl'), 'artifacts/Bootstrap.ps1')]"
                   ],
-                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -tenantId {1} -spnAuthority {2} -subscriptionId {3} -resourceGroup {4} -azdataUsername {5} -acceptEula {6} -registryUsername {7} -arcDcName {8} -azureLocation {9} -mssqlmiName {10} -POSTGRES_NAME {11} -POSTGRES_WORKER_NODE_COUNT {12} -POSTGRES_DATASIZE {13} -POSTGRES_SERVICE_TYPE {14} -stagingStorageAccountName {15} -workspaceName {16} -templateBaseUrl {17} -flavor {18} -k3sArcDataClusterName {19} -k3sArcClusterName {20} -aksArcClusterName {21} -aksdrArcClusterName {22} -githubUser {23} -githubBranch {24} -vmAutologon {25} -rdpPort {26} -addsDomainName {27} -customLocationRPOID {28} -resourceTags {29} -namingPrefix {30} -debugEnabled {31} -sqlServerEdition {32} -autoShutdownEnabled {33}', parameters('windowsAdminUsername'), parameters('tenantId'), parameters('spnAuthority'), subscription().subscriptionId, resourceGroup().name, parameters('azdataUsername'), parameters('acceptEula'), parameters('registryUsername'), parameters('arcDcName'), parameters('location'), parameters('mssqlmiName'), parameters('postgresName'), parameters('postgresWorkerNodeCount'), parameters('postgresDatasize'), parameters('postgresServiceType'), parameters('stagingStorageAccountName'), parameters('workspaceName'), parameters('templateBaseUrl'), parameters('flavor'), parameters('k3sArcDataClusterName'), parameters('k3sArcClusterName'), parameters('aksArcClusterName'), parameters('aksdrArcClusterName'), parameters('githubUser'), parameters('githubBranch'), parameters('vmAutologon'), parameters('rdpPort'), parameters('addsDomainName'), parameters('customLocationRPOID'), parameters('resourceTags'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'))]"
+                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -tenantId {1} -spnAuthority {2} -subscriptionId {3} -resourceGroup {4} -azdataUsername {5} -acceptEula {6} -registryUsername {7} -arcDcName {8} -azureLocation {9} -mssqlmiName {10} -POSTGRES_NAME {11} -POSTGRES_WORKER_NODE_COUNT {12} -POSTGRES_DATASIZE {13} -POSTGRES_SERVICE_TYPE {14} -stagingStorageAccountName {15} -workspaceName {16} -templateBaseUrl {17} -flavor {18} -k3sArcDataClusterName {19} -k3sArcClusterName {20} -aksArcClusterName {21} -aksdrArcClusterName {22} -githubUser {23} -githubBranch {24} -vmAutologon {25} -rdpPort {26} -addsDomainName {27} -customLocationRPOID {28} -resourceTags {29} -namingPrefix {30} -debugEnabled {31} -sqlServerEdition {32} -autoShutdownEnabled {33}', parameters('windowsAdminUsername'), parameters('tenantId'), parameters('spnAuthority'), subscription().subscriptionId, resourceGroup().name, parameters('azdataUsername'), parameters('acceptEula'), parameters('registryUsername'), parameters('arcDcName'), parameters('location'), parameters('mssqlmiName'), parameters('postgresName'), parameters('postgresWorkerNodeCount'), parameters('postgresDatasize'), parameters('postgresServiceType'), parameters('stagingStorageAccountName'), parameters('workspaceName'), parameters('templateBaseUrl'), variables('flavor'), parameters('k3sArcDataClusterName'), parameters('k3sArcClusterName'), parameters('aksArcClusterName'), parameters('aksdrArcClusterName'), parameters('githubUser'), parameters('githubBranch'), parameters('vmAutologon'), parameters('rdpPort'), parameters('addsDomainName'), parameters('customLocationRPOID'), parameters('resourceTags'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'))]"
                 }
               },
               "dependsOn": [
@@ -2153,6 +2140,7 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "storageAccountName": "[format('{0}{1}', parameters('namingPrefix'), uniqueString(resourceGroup().id))]"
           },
           "resources": [
@@ -2195,7 +2183,7 @@
             "value": "[parameters('logAnalyticsWorkspaceName')]"
           },
           "flavor": {
-            "value": "[parameters('flavor')]"
+            "value": "[variables('flavor')]"
           },
           "deployBastion": {
             "value": "[parameters('deployBastion')]"
@@ -2390,6 +2378,7 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "keyVaultName": "[toLower(format('{0}{1}', parameters('namingPrefix'), uniqueString(resourceGroup().id)))]",
             "security": {
               "name": "[format('Security({0})', parameters('workspaceName'))]",
@@ -2460,7 +2449,7 @@
                 "dhcpOptions": {
                   "dnsServers": "[parameters('dnsServers')]"
                 },
-                "subnets": "[if(and(equals(parameters('deployBastion'), false()), not(equals(parameters('flavor'), 'DataOps'))), variables('primarySubnet'), if(and(equals(parameters('deployBastion'), false()), equals(parameters('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('dataOpsSubnets')), if(and(equals(parameters('deployBastion'), true()), not(equals(parameters('flavor'), 'DataOps'))), union(variables('primarySubnet'), variables('bastionSubnet')), if(and(equals(parameters('deployBastion'), true()), equals(parameters('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('bastionSubnet'), variables('dataOpsSubnets')), variables('primarySubnet')))))]"
+                "subnets": "[if(and(equals(parameters('deployBastion'), false()), not(equals(variables('flavor'), 'DataOps'))), variables('primarySubnet'), if(and(equals(parameters('deployBastion'), false()), equals(variables('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('dataOpsSubnets')), if(and(equals(parameters('deployBastion'), true()), not(equals(variables('flavor'), 'DataOps'))), union(variables('primarySubnet'), variables('bastionSubnet')), if(and(equals(parameters('deployBastion'), true()), equals(variables('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('bastionSubnet'), variables('dataOpsSubnets')), variables('primarySubnet')))))]"
               },
               "dependsOn": [
                 "bastionNetworkSecurityGroup",
@@ -2469,7 +2458,7 @@
               ]
             },
             "drVirtualNetwork": {
-              "condition": "[equals(parameters('flavor'), 'DataOps')]",
+              "condition": "[equals(variables('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks",
               "apiVersion": "2024-05-01",
               "name": "[parameters('drVirtualNetworkName')]",
@@ -2501,7 +2490,7 @@
               ]
             },
             "virtualNetworkName_peering_to_DR_vnet": {
-              "condition": "[equals(parameters('flavor'), 'DataOps')]",
+              "condition": "[equals(variables('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}/{1}', parameters('virtualNetworkName'), 'peering-to-DR-vnet')]",
@@ -2521,7 +2510,7 @@
               ]
             },
             "drVirtualNetworkName_peering_to_primary_vnet": {
-              "condition": "[equals(parameters('flavor'), 'DataOps')]",
+              "condition": "[equals(variables('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}/{1}', parameters('drVirtualNetworkName'), 'peering-to-primary-vnet')]",
@@ -2904,7 +2893,7 @@
                     "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
                   },
                   "flavor": {
-                    "value": "[parameters('flavor')]"
+                    "value": "[variables('flavor')]"
                   },
                   "resourceTags": {
                     "value": "[parameters('resourceTags')]"
@@ -2966,6 +2955,7 @@
                     }
                   },
                   "variables": {
+                    "flavor": "ITPro",
                     "policies": [
                       {
                         "name": "(ArcBox) Enable Azure Monitor for Hybrid VMs with AMA",
@@ -3004,7 +2994,7 @@
                         "name": "policies_name",
                         "count": "[length(variables('policies'))]"
                       },
-                      "condition": "[contains(variables('policies')[copyIndex()].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[copyIndex()].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/policyAssignments",
                       "apiVersion": "2025-01-01",
                       "name": "[variables('policies')[copyIndex()].name]",
@@ -3018,13 +3008,13 @@
                       }
                     },
                     {
-                      "condition": "[contains(variables('policies')[0].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[0].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[0].name, variables('policies')[0].roleDefinition[0], resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[0].roleDefinition[0]]",
-                        "principalId": "[if(contains(variables('policies')[0].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[0].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -3032,13 +3022,13 @@
                       ]
                     },
                     {
-                      "condition": "[contains(variables('policies')[0].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[0].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[0].name, variables('policies')[0].roleDefinition[1], resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[0].roleDefinition[1]]",
-                        "principalId": "[if(contains(variables('policies')[0].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[0].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -3046,13 +3036,13 @@
                       ]
                     },
                     {
-                      "condition": "[contains(variables('policies')[0].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[0].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[0].name, variables('policies')[0].roleDefinition[2], resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[0].roleDefinition[2]]",
-                        "principalId": "[if(contains(variables('policies')[0].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[0].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -3060,13 +3050,13 @@
                       ]
                     },
                     {
-                      "condition": "[contains(variables('policies')[1].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[1].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[1].name, variables('policies')[1].roleDefinition, resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[1].roleDefinition]",
-                        "principalId": "[if(contains(variables('policies')[1].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[1].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[1].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[1].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -3957,6 +3947,7 @@
                     }
                   },
                   "variables": {
+                    "flavor": "ITPro",
                     "copy": [
                       {
                         "name": "formattedAccessPolicies",
@@ -4294,6 +4285,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "copy": [
                               {
                                 "name": "formattedAccessPolicies",
@@ -4541,6 +4533,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "builtInRoleNames": {
                               "Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
                               "Key Vault Administrator": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
@@ -4873,6 +4866,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "builtInRoleNames": {
                               "Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
                               "Key Vault Administrator": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
@@ -5382,6 +5376,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "builtInRoleNames": {
                               "Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
                               "DNS Resolver Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0f2ebee7-ffd4-4fc0-b3b7-664099fdad5d')]",
@@ -5536,6 +5531,7 @@
                                     }
                                   },
                                   "variables": {
+                                    "flavor": "ITPro",
                                     "copy": [
                                       {
                                         "name": "privateDnsZoneConfigs",
@@ -5699,7 +5695,7 @@
       }
     },
     {
-      "condition": "[equals(parameters('flavor'), 'DataOps')]",
+      "condition": "[equals(variables('flavor'), 'DataOps')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
       "name": "addsVmDeployment",
@@ -5821,6 +5817,7 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "networkInterfaceName": "[format('{0}-NIC', parameters('clientVMName'))]",
             "virtualNetworkName": "[format('{0}-VNet', parameters('namingPrefix'))]",
             "dcSubnetName": "[format('{0}-DC-Subnet', parameters('namingPrefix'))]",
@@ -5984,7 +5981,7 @@
       ]
     },
     {
-      "condition": "[equals(parameters('flavor'), 'DataOps')]",
+      "condition": "[equals(variables('flavor'), 'DataOps')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
       "name": "updateVNetDNSServers",
@@ -5998,7 +5995,7 @@
             "value": "[parameters('logAnalyticsWorkspaceName')]"
           },
           "flavor": {
-            "value": "[parameters('flavor')]"
+            "value": "[variables('flavor')]"
           },
           "deployBastion": {
             "value": "[parameters('deployBastion')]"
@@ -6181,6 +6178,7 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "keyVaultName": "[toLower(format('{0}{1}', parameters('namingPrefix'), uniqueString(resourceGroup().id)))]",
             "security": {
               "name": "[format('Security({0})', parameters('workspaceName'))]",
@@ -6251,7 +6249,7 @@
                 "dhcpOptions": {
                   "dnsServers": "[parameters('dnsServers')]"
                 },
-                "subnets": "[if(and(equals(parameters('deployBastion'), false()), not(equals(parameters('flavor'), 'DataOps'))), variables('primarySubnet'), if(and(equals(parameters('deployBastion'), false()), equals(parameters('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('dataOpsSubnets')), if(and(equals(parameters('deployBastion'), true()), not(equals(parameters('flavor'), 'DataOps'))), union(variables('primarySubnet'), variables('bastionSubnet')), if(and(equals(parameters('deployBastion'), true()), equals(parameters('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('bastionSubnet'), variables('dataOpsSubnets')), variables('primarySubnet')))))]"
+                "subnets": "[if(and(equals(parameters('deployBastion'), false()), not(equals(variables('flavor'), 'DataOps'))), variables('primarySubnet'), if(and(equals(parameters('deployBastion'), false()), equals(variables('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('dataOpsSubnets')), if(and(equals(parameters('deployBastion'), true()), not(equals(variables('flavor'), 'DataOps'))), union(variables('primarySubnet'), variables('bastionSubnet')), if(and(equals(parameters('deployBastion'), true()), equals(variables('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('bastionSubnet'), variables('dataOpsSubnets')), variables('primarySubnet')))))]"
               },
               "dependsOn": [
                 "bastionNetworkSecurityGroup",
@@ -6260,7 +6258,7 @@
               ]
             },
             "drVirtualNetwork": {
-              "condition": "[equals(parameters('flavor'), 'DataOps')]",
+              "condition": "[equals(variables('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks",
               "apiVersion": "2024-05-01",
               "name": "[parameters('drVirtualNetworkName')]",
@@ -6292,7 +6290,7 @@
               ]
             },
             "virtualNetworkName_peering_to_DR_vnet": {
-              "condition": "[equals(parameters('flavor'), 'DataOps')]",
+              "condition": "[equals(variables('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}/{1}', parameters('virtualNetworkName'), 'peering-to-DR-vnet')]",
@@ -6312,7 +6310,7 @@
               ]
             },
             "drVirtualNetworkName_peering_to_primary_vnet": {
-              "condition": "[equals(parameters('flavor'), 'DataOps')]",
+              "condition": "[equals(variables('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}/{1}', parameters('drVirtualNetworkName'), 'peering-to-primary-vnet')]",
@@ -6695,7 +6693,7 @@
                     "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
                   },
                   "flavor": {
-                    "value": "[parameters('flavor')]"
+                    "value": "[variables('flavor')]"
                   },
                   "resourceTags": {
                     "value": "[parameters('resourceTags')]"
@@ -6757,6 +6755,7 @@
                     }
                   },
                   "variables": {
+                    "flavor": "ITPro",
                     "policies": [
                       {
                         "name": "(ArcBox) Enable Azure Monitor for Hybrid VMs with AMA",
@@ -6795,7 +6794,7 @@
                         "name": "policies_name",
                         "count": "[length(variables('policies'))]"
                       },
-                      "condition": "[contains(variables('policies')[copyIndex()].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[copyIndex()].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/policyAssignments",
                       "apiVersion": "2025-01-01",
                       "name": "[variables('policies')[copyIndex()].name]",
@@ -6809,13 +6808,13 @@
                       }
                     },
                     {
-                      "condition": "[contains(variables('policies')[0].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[0].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[0].name, variables('policies')[0].roleDefinition[0], resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[0].roleDefinition[0]]",
-                        "principalId": "[if(contains(variables('policies')[0].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[0].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -6823,13 +6822,13 @@
                       ]
                     },
                     {
-                      "condition": "[contains(variables('policies')[0].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[0].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[0].name, variables('policies')[0].roleDefinition[1], resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[0].roleDefinition[1]]",
-                        "principalId": "[if(contains(variables('policies')[0].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[0].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -6837,13 +6836,13 @@
                       ]
                     },
                     {
-                      "condition": "[contains(variables('policies')[0].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[0].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[0].name, variables('policies')[0].roleDefinition[2], resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[0].roleDefinition[2]]",
-                        "principalId": "[if(contains(variables('policies')[0].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[0].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[0].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -6851,13 +6850,13 @@
                       ]
                     },
                     {
-                      "condition": "[contains(variables('policies')[1].flavors, parameters('flavor'))]",
+                      "condition": "[contains(variables('policies')[1].flavors, variables('flavor'))]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2020-10-01-preview",
                       "name": "[guid(variables('policies')[1].name, variables('policies')[1].roleDefinition, resourceGroup().id)]",
                       "properties": {
                         "roleDefinitionId": "[variables('policies')[1].roleDefinition]",
-                        "principalId": "[if(contains(variables('policies')[1].flavors, parameters('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[1].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
+                        "principalId": "[if(contains(variables('policies')[1].flavors, variables('flavor')), reference(resourceId('Microsoft.Authorization/policyAssignments', variables('policies')[1].name), '2021-06-01', 'full').identity.principalId, guid(format('policies_name_id{0}', 0)))]",
                         "principalType": "ServicePrincipal"
                       },
                       "dependsOn": [
@@ -7748,6 +7747,7 @@
                     }
                   },
                   "variables": {
+                    "flavor": "ITPro",
                     "copy": [
                       {
                         "name": "formattedAccessPolicies",
@@ -8085,6 +8085,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "copy": [
                               {
                                 "name": "formattedAccessPolicies",
@@ -8332,6 +8333,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "builtInRoleNames": {
                               "Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
                               "Key Vault Administrator": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
@@ -8664,6 +8666,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "builtInRoleNames": {
                               "Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
                               "Key Vault Administrator": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
@@ -9173,6 +9176,7 @@
                             }
                           },
                           "variables": {
+                            "flavor": "ITPro",
                             "builtInRoleNames": {
                               "Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
                               "DNS Resolver Contributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0f2ebee7-ffd4-4fc0-b3b7-664099fdad5d')]",
@@ -9327,6 +9331,7 @@
                                     }
                                   },
                                   "variables": {
+                                    "flavor": "ITPro",
                                     "copy": [
                                       {
                                         "name": "privateDnsZoneConfigs",
@@ -9486,7 +9491,7 @@
       ]
     },
     {
-      "condition": "[equals(parameters('flavor'), 'DataOps')]",
+      "condition": "[equals(variables('flavor'), 'DataOps')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2024-11-01",
       "name": "aksDeployment",
@@ -9497,7 +9502,7 @@
         "mode": "Incremental",
         "parameters": {
           "sshRSAPublicKey": {
-            "value": "[parameters('sshRSAPublicKey')]"
+            "value": "[variables('sshRSAPublicKey')]"
           },
           "location": {
             "value": "[parameters('location')]"
@@ -9631,6 +9636,7 @@
             }
           },
           "variables": {
+            "flavor": "ITPro",
             "serviceCidr_primary": "10.20.64.0/19",
             "dnsServiceIP_primary": "10.20.64.10",
             "serviceCidr_secondary": "172.20.64.0/19",
@@ -9687,7 +9693,7 @@
                   "ssh": {
                     "publicKeys": [
                       {
-                        "keyData": "[parameters('sshRSAPublicKey')]"
+                        "keyData": "[variables('sshRSAPublicKey')]"
                       }
                     ]
                   }
@@ -9736,7 +9742,7 @@
                   "ssh": {
                     "publicKeys": [
                       {
-                        "keyData": "[parameters('sshRSAPublicKey')]"
+                        "keyData": "[variables('sshRSAPublicKey')]"
                       }
                     ]
                   }
@@ -9786,7 +9792,7 @@
   "outputs": {
     "clientVmLogonUserName": {
       "type": "string",
-      "value": "[if(equals(parameters('flavor'), 'DataOps'), format('{0}@{1}', parameters('windowsAdminUsername'), parameters('addsDomainName')), '')]"
+      "value": "[if(equals(variables('flavor'), 'DataOps'), format('{0}@{1}', parameters('windowsAdminUsername'), parameters('addsDomainName')), '')]"
     }
   }
 }

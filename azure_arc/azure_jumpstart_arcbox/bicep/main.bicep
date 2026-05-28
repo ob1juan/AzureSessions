@@ -1,7 +1,3 @@
-@description('RSA public key used for securing SSH access to ArcBox resources. This parameter is only needed when deploying the DataOps or DevOps flavors.')
-@secure()
-param sshRSAPublicKey string = ''
-
 @description('Your Microsoft Entra tenant Id')
 param tenantId string = tenant().tenantId
 
@@ -26,14 +22,6 @@ param rdpPort string = '3389'
 
 @description('Name for your log analytics workspace')
 param logAnalyticsWorkspaceName string = 'ArcBox-la'
-
-@description('The flavor of ArcBox you want to deploy. Valid values are: \'Full\', \'ITPro\', \'DevOps\', \'DataOps\'')
-@allowed([
-  'ITPro'
-  'DevOps'
-  'DataOps'
-])
-param flavor string = 'ITPro'
 
 @description('SQL Server edition to deploy. Valid values are: \'Developer\', \'Standard\', \'Enterprise\'')
 @allowed([
@@ -80,7 +68,7 @@ param debugEnabled bool = false
 
 @description('Tags to assign for all ArcBox resources')
 param resourceTags object = {
-  Solution: 'jumpstart_arcbox_${toLower(flavor)}'
+  Solution: 'jumpstart_arcbox_itpro'
 }
 
 @description('Name of the NAT Gateway')
@@ -92,7 +80,8 @@ param namingPrefix string = 'ArcBox'
 
 param autoShutdownEnabled bool = true
 param autoShutdownTime string = '1800' // The time for auto-shutdown in HHmm format (24-hour clock)
-param autoShutdownTimezone string = 'UTC' // Timezone for the auto-shutdown
+@description('Timezone for the auto-shutdown schedule. Use Windows timezone names, e.g. \'UTC\', \'Eastern Standard Time\', \'Pacific Standard Time\', \'Central Europe Standard Time\'. Full list: https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/default-time-zones')
+param autoShutdownTimezone string = 'UTC'
 param autoShutdownEmailRecipient string = ''
 
 @description('Option to enable spot pricing for the ArcBox Client VM')
@@ -115,6 +104,7 @@ var k3sClusterNodesCount = 3 // Number of nodes to deploy in the K3s cluster
 var randomSeed = uniqueString(resourceGroup().id, deployment().name, guid)
 var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windows'), 0, passwordLength - 4)}'
 var generatedRegistryPassword = 'Bb2!${substring(base64('${randomSeed}-registry'), 0, passwordLength - 4)}'
+var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = (flavor == 'DevOps' ? '390d1642-349e-43c5-845e-8c7cc0972f22' : flavor == 'DataOps' ? 'a8caf3c1-0980-4e23-8c52-27e5d424dbbd' : 'c4a26bed-72cb-415d-91a3-e2577c7c92f5')
 
 resource existingKeyVault 'Microsoft.KeyVault/vaults@2024-04-01-preview' existing = {

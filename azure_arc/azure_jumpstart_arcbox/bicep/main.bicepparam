@@ -1,7 +1,5 @@
 using 'main.bicep'
 
-param sshRSAPublicKey = '<your RSA public key>'
-
 param tenantId = '<your tenant id>'
 
 param windowsAdminUsername = 'arcdemo'
@@ -13,8 +11,6 @@ param windowsAdminPasswordSecretName = 'windowsAdminPassword'
 param registryPasswordSecretName = 'registryPassword'
 
 param logAnalyticsWorkspaceName = '<your unique Log Analytics workspace name>'
-
-param flavor = 'ITPro'
 
 param deployBastion = false
 
