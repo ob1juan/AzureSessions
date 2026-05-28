@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "8251180237835604014"
+      "templateHash": "146106229145574064"
     }
   },
   "parameters": {
@@ -8694,7 +8694,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "15031507103466279247"
+              "templateHash": "9224744542160926654"
             }
           },
           "parameters": {
@@ -8706,7 +8706,7 @@
             }
           },
           "variables": {
-            "arcOnboardingRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b64e21ea-ac4e-4cdf-9c9a-7ad77c1d7ef9')]"
+            "arcOnboardingRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b64e21ea-ac4e-4cdf-9dc9-5b892992bee7')]"
           },
           "resources": [
             {

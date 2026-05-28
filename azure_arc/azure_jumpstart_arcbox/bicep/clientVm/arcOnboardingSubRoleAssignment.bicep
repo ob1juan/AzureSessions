@@ -5,7 +5,7 @@ param principalId string
 
 // Azure Connected Machine Onboarding (built-in). Grants Microsoft.HybridCompute/register/action
 // at subscription scope, which azcmagent connect calls on every first machine in a sub.
-var arcOnboardingRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b64e21ea-ac4e-4cdf-9c9a-7ad77c1d7ef9')
+var arcOnboardingRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b64e21ea-ac4e-4cdf-9dc9-5b892992bee7')
 
 resource arcOnboardingAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(subscription().id, principalId, arcOnboardingRoleDefinitionId)
