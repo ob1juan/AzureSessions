@@ -196,7 +196,7 @@
       "metadata": {
         "description": "The availability zone for the Virtual Machine, public IP, and data disk for the ArcBox client VM"
       }
-    },
+    }
   },
   "variables": {
     "templateBaseUrl": "[format('https://raw.githubusercontent.com/{0}/azure_arc/{1}/azure_jumpstart_arcbox/', parameters('githubAccount'), parameters('githubBranch'))]",
