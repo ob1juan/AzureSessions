@@ -2,6 +2,8 @@ using 'main.bicep'
 
 param tenantId = '<your tenant id>'
 
+param location = 'centralus'
+
 param windowsAdminUsername = 'arcdemo'
 
 param passwordLength = 16

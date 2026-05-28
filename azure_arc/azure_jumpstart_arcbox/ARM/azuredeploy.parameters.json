@@ -2,6 +2,9 @@
     "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
     "contentVersion": "1.0.0.0",
     "parameters": {
+        "location": {
+            "value": "centralus"
+        },
         "windowsAdminUsername": {
             "value": "arcdemo"
         },
@@ -15,7 +18,7 @@
             "value": "registryPassword"
         },
         "deployBastion": {
-            "value": false
+            "value": true
         },
         "githubUser": {
             "value": "microsoft"
