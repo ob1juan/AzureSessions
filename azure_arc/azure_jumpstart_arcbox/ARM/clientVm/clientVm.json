@@ -494,7 +494,8 @@
           "targetResourceId": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
         },
         "dependsOn": [
-          "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+          "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]",
+          "[resourceId('Microsoft.Compute/virtualMachines/extensions', parameters('vmName'), 'Bootstrap')]"
         ]
       }
     ],

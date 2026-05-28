@@ -80,8 +80,35 @@ param namingPrefix string = 'ArcBox'
 
 param autoShutdownEnabled bool = true
 param autoShutdownTime string = '1800' // The time for auto-shutdown in HHmm format (24-hour clock)
-@description('Timezone for the auto-shutdown schedule. Use Windows timezone names, e.g. \'UTC\', \'Eastern Standard Time\', \'Pacific Standard Time\', \'Central Europe Standard Time\'. Full list: https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/default-time-zones')
-param autoShutdownTimezone string = 'UTC'
+@description('Timezone for the auto-shutdown schedule. Uses Windows timezone IDs as accepted by Azure DevTest Labs.')
+@allowed([
+  'UTC'
+  'Hawaiian Standard Time'
+  'Alaskan Standard Time'
+  'Pacific Standard Time'
+  'Mountain Standard Time'
+  'Central Standard Time'
+  'Eastern Standard Time'
+  'Atlantic Standard Time'
+  'E. South America Standard Time'
+  'Argentina Standard Time'
+  'Greenwich Standard Time'
+  'GMT Standard Time'
+  'W. Europe Standard Time'
+  'Central Europe Standard Time'
+  'Romance Standard Time'
+  'South Africa Standard Time'
+  'E. Africa Standard Time'
+  'Arabian Standard Time'
+  'Russian Standard Time'
+  'India Standard Time'
+  'China Standard Time'
+  'Singapore Standard Time'
+  'Tokyo Standard Time'
+  'AUS Eastern Standard Time'
+  'New Zealand Standard Time'
+])
+param autoShutdownTimezone string = 'Central Standard Time'
 param autoShutdownEmailRecipient string = ''
 
 @description('Option to enable spot pricing for the ArcBox Client VM')

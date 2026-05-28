@@ -118,7 +118,35 @@ param debugEnabled bool = false
 
 param autoShutdownEnabled bool = true
 param autoShutdownTime string = '1800' // The time for auto-shutdown in HHmm format (24-hour clock)
-param autoShutdownTimezone string = 'UTC' // Timezone for the auto-shutdown
+@description('Timezone for the auto-shutdown schedule. Uses Windows timezone IDs as accepted by Azure DevTest Labs.')
+@allowed([
+  'UTC'
+  'Hawaiian Standard Time'
+  'Alaskan Standard Time'
+  'Pacific Standard Time'
+  'Mountain Standard Time'
+  'Central Standard Time'
+  'Eastern Standard Time'
+  'Atlantic Standard Time'
+  'E. South America Standard Time'
+  'Argentina Standard Time'
+  'Greenwich Standard Time'
+  'GMT Standard Time'
+  'W. Europe Standard Time'
+  'Central Europe Standard Time'
+  'Romance Standard Time'
+  'South Africa Standard Time'
+  'E. Africa Standard Time'
+  'Arabian Standard Time'
+  'Russian Standard Time'
+  'India Standard Time'
+  'China Standard Time'
+  'Singapore Standard Time'
+  'Tokyo Standard Time'
+  'AUS Eastern Standard Time'
+  'New Zealand Standard Time'
+])
+param autoShutdownTimezone string = 'Central Standard Time'
 param autoShutdownEmailRecipient string = ''
 
 @description('The availability zone for the Virtual Machine, public IP, and data disk for the ArcBox client VM')
@@ -317,7 +345,7 @@ resource vmRoleAssignment_Storage 'Microsoft.Authorization/roleAssignments@2022-
 }
 
 resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = if (autoShutdownEnabled) {
-  name: 'shutdown-computevm-${vm.name}'
+  name: 'shutdown-computevm-${vmName}'
   location: location
   properties: {
     status: 'Enabled'
@@ -335,6 +363,11 @@ resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = if (autoShut
     }
     targetResourceId: vm.id
   }
+  // Wait for the bootstrap extension so the VM is fully visible to the DevTest Labs RP
+  // (avoids "A compute virtual machine could not be found for the Id" race between RPs).
+  dependsOn: [
+    vmBootstrap
+  ]
 }
 
 output adminUsername string = windowsAdminUsername
