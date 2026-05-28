@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "14031662620700117750"
+      "templateHash": "14944740285765497345"
     }
   },
   "parameters": {
@@ -353,7 +353,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "11517190095444832921"
+              "templateHash": "700174485853436"
             }
           },
           "parameters": {
@@ -917,6 +917,10 @@
             "publicIP": {
               "type": "string",
               "value": "[if(equals(parameters('deployBastion'), false()), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName')), '2024-05-01').ipAddress, '')]"
+            },
+            "vmPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Compute/virtualMachines', parameters('vmName')), '2024-07-01', 'full').identity.principalId]"
             }
           }
         }
@@ -8652,6 +8656,61 @@
           "resources": []
         }
       }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "arcOnboardingSubRoleAssignment",
+      "subscriptionId": "[subscription().subscriptionId]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "principalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'clientVmDeployment'), '2025-04-01').outputs.vmPrincipalId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "15031507103466279247"
+            }
+          },
+          "parameters": {
+            "principalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID of the client VM system-assigned managed identity that runs azcmagent connect for nested VMs."
+              }
+            }
+          },
+          "variables": {
+            "arcOnboardingRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b64e21ea-ac4e-4cdf-9c9a-7ad77c1d7ef9')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(subscription().id, parameters('principalId'), variables('arcOnboardingRoleDefinitionId'))]",
+              "properties": {
+                "principalId": "[parameters('principalId')]",
+                "roleDefinitionId": "[variables('arcOnboardingRoleDefinitionId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'clientVmDeployment')]"
+      ]
     }
   ],
   "outputs": {

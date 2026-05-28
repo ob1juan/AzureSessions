@@ -238,6 +238,17 @@ module customerUsageAttribution 'mgmt/customerUsageAttribution.bicep' = {
   }
 }
 
+// Grant the client VM's managed identity the built-in Azure Connected Machine Onboarding role
+// at subscription scope so azcmagent connect (used to onboard the nested SQL/Linux VMs) can
+// perform Microsoft.HybridCompute/register/action.
+module arcOnboardingSubRoleAssignment 'clientVm/arcOnboardingSubRoleAssignment.bicep' = {
+  name: 'arcOnboardingSubRoleAssignment'
+  scope: subscription()
+  params: {
+    principalId: clientVmDeployment.outputs.vmPrincipalId
+  }
+}
+
 output clientVmLogonUserName string = flavor == 'DataOps' ? '${windowsAdminUsername}@${addsDomainName}' : ''
 output centralKeyVaultId string = mgmtArtifactsAndPolicyDeployment.outputs.keyVaultId
 output centralKeyVaultName string = mgmtArtifactsAndPolicyDeployment.outputs.keyVaultName

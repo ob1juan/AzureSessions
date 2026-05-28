@@ -372,3 +372,4 @@ resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = if (autoShut
 
 output adminUsername string = windowsAdminUsername
 output publicIP string = deployBastion == false ? publicIpAddress!.properties.ipAddress : ''
+output vmPrincipalId string = vm.identity.principalId
