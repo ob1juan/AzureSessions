@@ -25,9 +25,20 @@ on:
         required: true
         default: "arcbox-test-rg"
       location:
+        type: choice
         description: "Resource group location"
         required: true
-        default: "westus2"
+        default: "centralus"
+        options:
+          - centralus
+          - eastus
+          - eastus2
+          - northcentralus
+          - southcentralus
+          - westus
+          - westus2
+          - westus3
+          - westcentralus
       logAnalyticsWorkspaceName:
         description: "Analytics Workspace name"
         required: true
