@@ -57,19 +57,7 @@ param addsDomainName string = 'jumpstart.local'
 @description('Random GUID for cluster names')
 param guid string = substring(newGuid(),0,4)
 
-@description('Azure location to deploy all resources')
-@allowed([
-  'centralus'
-  'eastus'
-  'eastus2'
-  'northcentralus'
-  'southcentralus'
-  'westus'
-  'westus2'
-  'westus3'
-  'westcentralus'
-])
-param location string = 'centralus'
+var location = resourceGroup().location
 
 @description('The custom location RPO ID. This parameter is only needed when deploying the DataOps flavor.')
 param customLocationRPOID string = newGuid()

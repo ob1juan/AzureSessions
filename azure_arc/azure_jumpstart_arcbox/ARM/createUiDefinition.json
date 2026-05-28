@@ -1,0 +1,38 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+    "handler": "Microsoft.Azure.CreateUIDef",
+    "version": "0.1.2-preview",
+    "parameters": {
+        "config": {
+            "isWizard": false,
+            "basics": {
+                "description": "Azure Jumpstart ArcBox is a sandbox solution that demonstrates Azure Arc capabilities. Choose a US region (Central US by default) where ArcBox will be deployed.",
+                "location": {
+                    "label": "Region",
+                    "toolTip": "Select the Azure region for the ArcBox deployment. Central US is recommended.",
+                    "resourceTypes": [
+                        "Microsoft.Compute/virtualMachines"
+                    ],
+                    "allowedValues": [
+                        "centralus",
+                        "eastus",
+                        "eastus2",
+                        "northcentralus",
+                        "southcentralus",
+                        "westus",
+                        "westus2",
+                        "westus3",
+                        "westcentralus"
+                    ]
+                },
+                "resourceGroup": {
+                    "allowExisting": true
+                }
+            }
+        },
+        "basics": [],
+        "steps": [],
+        "outputs": {}
+    }
+}
+
