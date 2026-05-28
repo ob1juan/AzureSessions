@@ -133,15 +133,11 @@ var generatedRegistryPassword = 'Bb2!${substring(base64('${randomSeed}-registry'
 var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = (flavor == 'DevOps' ? '390d1642-349e-43c5-845e-8c7cc0972f22' : flavor == 'DataOps' ? 'a8caf3c1-0980-4e23-8c52-27e5d424dbbd' : 'c4a26bed-72cb-415d-91a3-e2577c7c92f5')
 
-resource existingKeyVault 'Microsoft.KeyVault/vaults@2024-04-01-preview' existing = {
-  name: mgmtArtifactsAndPolicyDeployment.outputs.keyVaultName
-}
-
 module clientVmDeployment 'clientVm/clientVm.bicep' = {
   name: 'clientVmDeployment'
   params: {
     windowsAdminUsername: windowsAdminUsername
-    windowsAdminPassword: existingKeyVault.getSecret(windowsAdminPasswordSecretName)
+    windowsAdminPassword: generatedWindowsAdminPassword
     tenantId: tenantId
     workspaceName: logAnalyticsWorkspaceName
     stagingStorageAccountName: toLower(stagingStorageAccountDeployment.outputs.storageAccountName)
@@ -205,13 +201,16 @@ module addsVmDeployment 'mgmt/addsVm.bicep' = if (flavor == 'DataOps'){
   name: 'addsVmDeployment'
   params: {
     windowsAdminUsername : windowsAdminUsername
-    windowsAdminPassword : existingKeyVault.getSecret(windowsAdminPasswordSecretName)
+    windowsAdminPassword : generatedWindowsAdminPassword
     addsDomainName: addsDomainName
     deployBastion: deployBastion
     templateBaseUrl: templateBaseUrl
     azureLocation: location
     namingPrefix: namingPrefix
   }
+  dependsOn: [
+    mgmtArtifactsAndPolicyDeployment
+  ]
 }
 
 module updateVNetDNSServers 'mgmt/mgmtArtifacts.bicep' = if (flavor == 'DataOps'){
