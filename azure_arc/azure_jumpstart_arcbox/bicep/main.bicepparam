@@ -12,7 +12,7 @@ param registryPasswordSecretName = 'registryPassword'
 
 param logAnalyticsWorkspaceName = '<your unique Log Analytics workspace name>'
 
-param deployBastion = false
+param deployBastion = true
 
 param vmAutologon = true
 

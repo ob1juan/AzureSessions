@@ -83,7 +83,7 @@
     },
     "deployBastion": {
       "type": "bool",
-      "defaultValue": false,
+      "defaultValue": true,
       "metadata": {
         "description": "Choice to deploy Bastion to connect to the client VM"
       }
