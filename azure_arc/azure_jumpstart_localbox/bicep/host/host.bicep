@@ -3,9 +3,9 @@ param vmName string = 'LocalBox-Client'
 
 @description('The size of the Virtual Machine')
 @allowed([
-  'Standard_D4s_v5'
+  'Standard_D4s_v3'
 ])
-param vmSize string = 'Standard_D4s_v5'
+param vmSize string = 'Standard_D4s_v3'
 
 @description('Username for the Virtual Machine')
 param windowsAdminUsername string = 'arcdemo'

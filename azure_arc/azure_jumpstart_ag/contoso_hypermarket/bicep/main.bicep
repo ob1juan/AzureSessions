@@ -101,12 +101,10 @@ param natGatewayName string = 'Ag-NatGateway-${namingGuid}'
 
 @description('The sku name of the K3s cluster worker nodes.')
 @allowed([
-  'Standard_D8s_v5'
-  'Standard_NV6ads_A10_v5'
-  'Standard_NV4as_v4'
+  'Standard_D4s_v3'
 ])
-param k8sWorkerNodesSku string = 'Standard_D8s_v5'
-//param k8sWorkerNodesSku string = deployGPUNodes ? 'Standard_NV4as_v4' : 'Standard_D8s_v5'
+param k8sWorkerNodesSku string = 'Standard_D4s_v3'
+//param k8sWorkerNodesSku string = deployGPUNodes ? 'Standard_D4s_v3' : 'Standard_D4s_v3'
 
 var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/azure_arc/${githubBranch}/azure_jumpstart_ag/'
 var k3sClusterNodesCount = 2 // Number of nodes to deploy in the K3s cluster

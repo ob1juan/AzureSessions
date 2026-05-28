@@ -42,11 +42,9 @@ param deployGPUNodes bool = false
 
 @description('The sku name of the K3s cluster worker nodes.')
 @allowed([
-  'Standard_D8s_v5'
-  'Standard_NV6ads_A10_v5'
-  'Standard_NV4as_v4'
+  'Standard_D4s_v3'
 ])
-param k8sWorkerNodesSku string = deployGPUNodes ? 'Standard_NV4as_v4' : 'Standard_D8s_v5'
+param k8sWorkerNodesSku string = 'Standard_D4s_v3'
 
 var networkInterfaceName = '${vmName}-NIC'
 var osDiskType = 'Premium_LRS'
