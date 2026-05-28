@@ -12,4 +12,4 @@ This repository contains working assets used for SLED Azure Enablement Sessions,
 
 Use the button below to deploy ArcBox from the Azure Arc Jumpstart ARM template:
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fob1juan%2FAzureSessions%2Fmain%2Fazure_arc%2Fazure_jumpstart_arcbox%2FARM%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fob1juan%2FAzureSessions%2Fmain%2Fazure_arc%2Fazure_jumpstart_arcbox%2FARM%2FcreateUiDefinition.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fob1juan%2FAzureSessions%2Fmain%2Fazure_arc%2Fazure_jumpstart_arcbox%2FARM%2Fazuredeploy.json)
