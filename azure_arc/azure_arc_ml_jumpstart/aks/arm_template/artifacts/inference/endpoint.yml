@@ -1,3 +1,0 @@
-name: sklearn-mnist
-compute: azureml:connectedClusterName-stage
-auth_mode: aml_token
