@@ -37,6 +37,9 @@
     "location": {
       "value": "eastus"
     },
+    "timeZoneId": {
+      "value": "UTC"
+    },
     "deployBastion": {
         "value": false
     },

@@ -44,6 +44,13 @@
                 "description": "Location for all resources."
             }
         },
+        "timeZoneId": {
+            "type": "string",
+            "defaultValue": "UTC",
+            "metadata": {
+                "description": "Windows time zone ID to configure on the VM, for example 'UTC' or 'Pacific Standard Time'."
+            }
+        },
         "deployBastion": {
             "type": "bool",
             "metadata": {
@@ -338,7 +345,7 @@
                     "fileUris": [
                         "https://raw.githubusercontent.com/microsoft/azure_arc/main/azure_arc_servers_jumpstart/azure/windows/arm_template/scripts/install_arc_agent.ps1"
                     ],
-                    "commandToExecute": "[concat('powershell.exe -ExecutionPolicy Bypass -File install_arc_agent.ps1', ' -appId ', parameters('appId'), ' -password ', parameters('password'), ' -tenantId ', parameters('tenantId'), ' -resourceGroup ', parameters('resourceGroup'),  ' -subscriptionId ', parameters('subscriptionId'), ' -location ', parameters('location'), ' -adminUsername ', parameters('adminUsername'))]"
+                    "commandToExecute": "[concat('powershell.exe -ExecutionPolicy Bypass -File install_arc_agent.ps1', ' -appId ', parameters('appId'), ' -password ', parameters('password'), ' -tenantId ', parameters('tenantId'), ' -resourceGroup ', parameters('resourceGroup'),  ' -subscriptionId ', parameters('subscriptionId'), ' -location ', parameters('location'), ' -timeZoneId \"', parameters('timeZoneId'), '\"', ' -adminUsername ', parameters('adminUsername'))]"
                 }
             }
         },

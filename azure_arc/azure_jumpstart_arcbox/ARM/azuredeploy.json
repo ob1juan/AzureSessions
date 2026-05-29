@@ -140,14 +140,14 @@
     },
     "guid": {
       "type": "string",
-      "defaultValue": "[substring(newGuid(), 0, 4)]",
+      "defaultValue": "[substring(uniqueString(resourceGroup().id), 0, 4)]",
       "metadata": {
         "description": "Random GUID for cluster names"
       }
     },
     "customLocationRPOID": {
       "type": "string",
-      "defaultValue": "[newGuid()]",
+      "defaultValue": "[guid(resourceGroup().id, 'customLocationRPOID')]",
       "metadata": {
         "description": "The custom location RPO ID. This parameter is only needed when deploying the DataOps flavor."
       }
@@ -257,7 +257,7 @@
     "k3sArcDataClusterName": "[format('{0}-K3s-Data-{1}', parameters('namingPrefix'), parameters('guid'))]",
     "k3sArcClusterName": "[format('{0}-K3s-{1}', parameters('namingPrefix'), parameters('guid'))]",
     "k3sClusterNodesCount": 3,
-    "randomSeed": "[uniqueString(resourceGroup().id, deployment().name, parameters('guid'))]",
+    "randomSeed": "[uniqueString(resourceGroup().id, parameters('guid'))]",
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "generatedRegistryPassword": "[format('Bb2!{0}', substring(base64(format('{0}-registry', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "flavor": "ITPro",

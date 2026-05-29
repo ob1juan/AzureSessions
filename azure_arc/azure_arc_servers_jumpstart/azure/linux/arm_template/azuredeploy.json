@@ -324,7 +324,7 @@
           "fileUris": [
             "https://raw.githubusercontent.com/microsoft/azure_arc/main/azure_arc_servers_jumpstart/azure/linux/arm_template/scripts/install_arc_agent.sh"
           ],
-          "commandToExecute": "[concat('./install_arc_agent.sh ', parameters('adminUsername'), ' ', parameters ('subscriptionID'), ' ', parameters('servicePrincipalClient'), ' ', parameters('servicePrincipalClientSecret'), ' ', parameters('tenantId'), ' ', parameters('resourceGroup'), ' ', parameters('location'), ' ', parameters('vmName') )]"
+          "commandToExecute": "[concat('./install_arc_agent.sh ', parameters('adminUsername'), ' ', parameters ('subscriptionID'), ' ', parameters('servicePrincipalClient'), ' ', parameters('servicePrincipalClientSecret'), ' ', parameters('tenantID'), ' ', parameters('resourceGroup'), ' ', parameters('location'), ' ', parameters('vmName') )]"
         }
       }
     },

@@ -5,6 +5,7 @@ param (
     [string]$tenantId,
     [string]$resourceGroup,
     [string]$location,
+    [string]$timeZoneId,
     [string]$adminUsername
 )
 
@@ -14,6 +15,7 @@ param (
 [System.Environment]::SetEnvironmentVariable('tenantId', $tenantId,[System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('resourceGroup', $resourceGroup,[System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('location', $location,[System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('timeZoneId', $timeZoneId,[System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('adminUsername', $adminUsername,[System.EnvironmentVariableTarget]::Machine)
 
 New-Item -Path "C:\" -Name "tmp" -ItemType "directory" -Force
@@ -28,6 +30,11 @@ Write-Host "Configure the OS to allow Azure Arc Agent to be deploy on an Azure V
 Set-Service WindowsAzureGuestAgent -StartupType Disabled -Verbose
 Stop-Service WindowsAzureGuestAgent -Force -Verbose
 New-NetFirewallRule -Name BlockAzureIMDS -DisplayName "Block access to Azure IMDS" -Enabled True -Profile Any -Direction Outbound -Action Block -RemoteAddress 169.254.169.254 
+
+if (-not [string]::IsNullOrWhiteSpace($env:timeZoneId)) {
+    Write-Host "Setting Windows time zone to $env:timeZoneId"
+    tzutil /s "$env:timeZoneId"
+}
 
 ## Azure Arc agent Installation
 

@@ -42,6 +42,9 @@
     "location": {
       "value": "<Azure region>"
     },
+    "timeZoneId": {
+      "value": "UTC"
+    },
     "deployBastion": {
         "value": "<true | false>"
     },
