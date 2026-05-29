@@ -137,6 +137,13 @@
       "metadata": {
         "description": "Optional object ID of the service principal to grant Owner at subscription scope. Leave empty to skip."
       }
+    },
+    "migrateProjectName": {
+      "type": "string",
+      "defaultValue": "Migration Test",
+      "metadata": {
+        "description": "Azure Migrate project name."
+      }
     }
   },
   "variables": {
@@ -166,6 +173,12 @@
     }
   },
   "resources": [
+    {
+      "type": "Microsoft.Migrate/migrateProjects",
+      "apiVersion": "2020-05-01",
+      "name": "[parameters('migrateProjectName')]",
+      "location": "[parameters('location')]"
+    },
     {
       "type": "Microsoft.Network/networkInterfaces",
       "apiVersion": "2020-06-01",
