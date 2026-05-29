@@ -174,7 +174,6 @@ module clientVmDeployment 'clientVm/clientVm.bicep' = {
   }
   dependsOn: [
     updateVNetDNSServers
-    arcResourceProvidersRegistration
   ]
 }
 
@@ -243,13 +242,6 @@ module customerUsageAttribution 'mgmt/customerUsageAttribution.bicep' = {
   name: 'pid-${customerUsageAttributionDeploymentName}'
   params: {
   }
-}
-
-// Pre-register Arc resource providers at subscription scope so onboarding from inside the
-// client VM does not need Microsoft.HybridCompute/register/action on the managed identity.
-module arcResourceProvidersRegistration 'clientVm/registerArcResourceProviders.bicep' = {
-  name: 'arcResourceProvidersRegistration'
-  scope: subscription()
 }
 
 // Grant the client VM's managed identity the built-in Azure Connected Machine Onboarding role

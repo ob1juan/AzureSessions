@@ -138,6 +138,29 @@ if ($Env:flavor -ne 'DevOps') {
     az login --identity
     az account set -s $subscriptionId
 
+    Write-Header 'Register Arc resource providers'
+    $requiredResourceProviders = @(
+        'Microsoft.HybridCompute'
+        'Microsoft.GuestConfiguration'
+        'Microsoft.HybridConnectivity'
+        'Microsoft.AzureArcData'
+    )
+
+    foreach ($providerNamespace in $requiredResourceProviders) {
+        $registrationState = (az provider show --namespace $providerNamespace --query registrationState -o tsv --only-show-errors)
+        if ($registrationState -ne 'Registered') {
+            Write-Host "Registering provider $providerNamespace"
+            az provider register --namespace $providerNamespace --wait --only-show-errors
+            $registrationState = (az provider show --namespace $providerNamespace --query registrationState -o tsv --only-show-errors)
+        }
+
+        if ($registrationState -ne 'Registered') {
+            throw "Provider $providerNamespace is in state '$registrationState'. Expected 'Registered'."
+        }
+
+        Write-Host "Provider $providerNamespace is Registered"
+    }
+
     Write-Header 'Az PowerShell Login'
     Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId
 
