@@ -94,6 +94,13 @@
                 "description": "Azure subscription ID"
             }
         },
+        "servicePrincipalObjectId": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Optional object ID of the service principal to grant Owner at subscription scope. Leave empty to skip."
+            }
+        },
         "virtualNetworkName": {
             "type": "string",
             "defaultValue": "Arc-Win-Demo-VNET",
@@ -266,6 +273,9 @@
             "name": "[variables('vmName')]",
             "location": "[parameters('location')]",
             "tags": "[parameters('resourceTags')]",
+            "identity": {
+                "type": "SystemAssigned"
+            },
             "dependsOn": [
                 "[resourceId('Microsoft.Network/networkInterfaces/', variables('networkInterfaceName'))]",
                 "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), parameters('adminPasswordSecretName'))]"
@@ -357,6 +367,69 @@
                         }
                      }
                 ]
+            }
+        },
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2025-04-01",
+            "name": "arcOnboardingSubRoleAssignments",
+            "subscriptionId": "[subscription().subscriptionId]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Compute/virtualMachines', variables('vmName'))]"
+            ],
+            "properties": {
+                "expressionEvaluationOptions": {
+                    "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                    "managedIdentityPrincipalId": {
+                        "value": "[reference(resourceId('Microsoft.Compute/virtualMachines', variables('vmName')), '2019-03-01', 'full').identity.principalId]"
+                    },
+                    "servicePrincipalObjectId": {
+                        "value": "[parameters('servicePrincipalObjectId')]"
+                    }
+                },
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "managedIdentityPrincipalId": {
+                            "type": "string"
+                        },
+                        "servicePrincipalObjectId": {
+                            "type": "string",
+                            "defaultValue": ""
+                        }
+                    },
+                    "variables": {
+                        "ownerRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8e3af657-a8ff-443c-a75c-2fe8c4bcb635')]"
+                    },
+                    "resources": [
+                        {
+                            "type": "Microsoft.Authorization/roleAssignments",
+                            "apiVersion": "2022-04-01",
+                            "name": "[guid(subscription().id, parameters('managedIdentityPrincipalId'), variables('ownerRoleDefinitionId'))]",
+                            "properties": {
+                                "principalId": "[parameters('managedIdentityPrincipalId')]",
+                                "roleDefinitionId": "[variables('ownerRoleDefinitionId')]",
+                                "principalType": "ServicePrincipal"
+                            }
+                        },
+                        {
+                            "condition": "[not(empty(parameters('servicePrincipalObjectId')))]",
+                            "type": "Microsoft.Authorization/roleAssignments",
+                            "apiVersion": "2022-04-01",
+                            "name": "[guid(subscription().id, parameters('servicePrincipalObjectId'), variables('ownerRoleDefinitionId'))]",
+                            "properties": {
+                                "principalId": "[parameters('servicePrincipalObjectId')]",
+                                "roleDefinitionId": "[variables('ownerRoleDefinitionId')]",
+                                "principalType": "ServicePrincipal"
+                            }
+                        }
+                    ]
+                }
             }
         }
         
