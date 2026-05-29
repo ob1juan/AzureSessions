@@ -279,18 +279,21 @@ if ($Env:flavor -ne 'DevOps') {
     Invoke-Command -VMName $SQLvmName -ScriptBlock { powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation } -Credential $winCreds
 
     # Wait for the Arc-enabled server installation to be completed
+    $sqlArcOnboarded = $false
     $retryCount = 0
     do {
         $ArcServer = Get-AzConnectedMachine -Name $SQLvmName -ResourceGroupName $resourceGroup
         if (($null -ne $ArcServer) -and ($ArcServer.ProvisioningState -eq 'Succeeded')) {
             Write-Host 'Onboarding the nested SQL VM as Azure Arc-enabled server successful.'
             $azConnectedMachineId = $ArcServer.Id
+            $sqlArcOnboarded = $true
             break;
         } else {
             $retryCount = $retryCount + 1
             if ($retryCount -gt 5) {
                 Write-Host "WARNING: Timeout exceeded for onboarding nested SQL VM as Azure Arc-enabled server ... Retry count: $retryCount."
-                Exit
+                Write-Warning 'Continuing with remaining VM deployment steps. SQL Arc-specific post-onboarding steps will be skipped.'
+                break
             } else {
                 Write-Host "Waiting for onboarding nested SQL VM as Azure Arc-enabled server ... Retry count: $retryCount"
                 Start-Sleep(30)
@@ -298,10 +301,11 @@ if ($Env:flavor -ne 'DevOps') {
         }
     } while ($retryCount -le 5)
 
-    # Create SQL server extension as policy to auto deployment is disabled
-    Write-Host "Installing SQL Server extension on the Arc-enabled Server.`n"
-    az connectedmachine extension create --machine-name $SQLvmName --name 'WindowsAgent.SqlServer' --resource-group $resourceGroup --type 'WindowsAgent.SqlServer' --publisher 'Microsoft.AzureData' --settings '{\"LicenseType\":\"Paid\", \"SqlManagement\": {\"IsEnabled\":true}}' --tags $resourceTags --location $azureLocation --only-show-errors --no-wait
-    Write-Host 'SQL Server extension installation on the Arc-enabled Server successful.'
+    if ($sqlArcOnboarded) {
+        # Create SQL server extension as policy to auto deployment is disabled
+        Write-Host "Installing SQL Server extension on the Arc-enabled Server.`n"
+        az connectedmachine extension create --machine-name $SQLvmName --name 'WindowsAgent.SqlServer' --resource-group $resourceGroup --type 'WindowsAgent.SqlServer' --publisher 'Microsoft.AzureData' --settings '{\"LicenseType\":\"Paid\", \"SqlManagement\": {\"IsEnabled\":true}}' --tags $resourceTags --location $azureLocation --only-show-errors --no-wait
+        Write-Host 'SQL Server extension installation on the Arc-enabled Server successful.'
 
     $retryCount = 0
     do {
@@ -435,9 +439,12 @@ if ($Env:flavor -ne 'DevOps') {
     Write-Host "Enabling Arc-enabled SQL server least privileged access.`n"
     az sql server-arc extension feature-flag set --name LeastPrivilege --enable true --resource-group $resourceGroup --machine-name $SQLvmName
 
-    # Enable automated backups
-    Write-Host "Enabling Arc-enabled SQL server automated backups.`n"
-    az sql server-arc backups-policy set --name $SQLvmName --resource-group $resourceGroup --retention-days 31 --full-backup-days 7 --diff-backup-hours 12 --tlog-backup-mins 5
+        # Enable automated backups
+        Write-Host "Enabling Arc-enabled SQL server automated backups.`n"
+        az sql server-arc backups-policy set --name $SQLvmName --resource-group $resourceGroup --retention-days 31 --full-backup-days 7 --diff-backup-hours 12 --tlog-backup-mins 5
+    } else {
+        Write-Warning 'Skipping SQL Arc extension/BPA/Defender/backup steps because SQL Arc onboarding did not complete in time.'
+    }
 
     # Onboard nested Windows and Linux VMs to Azure Arc
     if ($Env:flavor -eq 'ITPro') {
