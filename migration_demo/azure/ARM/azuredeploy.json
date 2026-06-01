@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "2644674985463829175"
+      "templateHash": "6909153460173796087"
     }
   },
   "parameters": {
@@ -139,6 +139,15 @@
         "description": "The naming prefix for the nested virtual machines and all Azure resources deployed. The maximum length for the naming prefix is 7 characters, example: `MigDem-Win2k19`"
       }
     },
+    "migrateProjectName": {
+      "type": "string",
+      "defaultValue": "Migration-Test",
+      "minLength": 3,
+      "maxLength": 24,
+      "metadata": {
+        "description": "Azure Migrate project resource name. Azure Migrate allows only letters, numbers, and hyphens, so the default uses `Migration-Test` as the resource-safe form of `Migration Test`."
+      }
+    },
     "autoShutdownEnabled": {
       "type": "bool",
       "defaultValue": true
@@ -211,9 +220,41 @@
     "randomSeed": "[uniqueString(resourceGroup().id, parameters('guid'))]",
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "flavor": "ITPro",
-    "customerUsageAttributionDeploymentName": "c4a26bed-72cb-415d-91a3-e2577c7c92f5"
+    "customerUsageAttributionDeploymentName": "c4a26bed-72cb-415d-91a3-e2577c7c92f5",
+    "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]"
   },
   "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('migrateUtilityStorageAccountName')]",
+      "location": "[variables('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "accessTier": "Hot",
+        "allowBlobPublicAccess": false,
+        "allowSharedKeyAccess": true,
+        "minimumTlsVersion": "TLS1_2",
+        "publicNetworkAccess": "Enabled",
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Migrate/migrateProjects",
+      "apiVersion": "2023-01-01",
+      "name": "[parameters('migrateProjectName')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "publicNetworkAccess": "Enabled",
+        "utilityStorageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      ]
+    },
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
@@ -4075,6 +4116,14 @@
     "centralKeyVaultName": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.keyVaultName.value]"
+    },
+    "azureMigrateProjectId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+    },
+    "azureMigrateProjectName": {
+      "type": "string",
+      "value": "[parameters('migrateProjectName')]"
     }
   }
 }

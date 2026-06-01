@@ -315,17 +315,18 @@ if ($Env:flavor -ne 'DevOps') {
 
     Complete-DeploymentComponent -Name 'Hyper-V network setup' -Message 'DHCP, NAT, credentials, and Hyper-V host shortcuts are ready.'
 
-    Start-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Logging in with managed identity and registering required Arc providers.'
+    Start-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Logging in with managed identity and registering required Arc and Azure Migrate providers.'
 
     # Required for CLI commands
     Write-Header 'Az CLI Login'
     az login --identity
     az account set -s $subscriptionId
 
-    Write-Header 'Register Arc resource providers'
+    Write-Header 'Register Arc and Azure Migrate resource providers'
     $requiredResourceProviders = @(
         'Microsoft.HybridCompute'
         'Microsoft.GuestConfiguration'
+        'Microsoft.Migrate'
     )
 
     foreach ($providerNamespace in $requiredResourceProviders) {
@@ -343,7 +344,7 @@ if ($Env:flavor -ne 'DevOps') {
         Write-Host "Provider $providerNamespace is Registered"
     }
 
-    Complete-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Required Arc resource providers are registered.'
+    Complete-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Required Arc and Azure Migrate resource providers are registered.'
 
     Write-Header 'Az PowerShell Login'
     Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId

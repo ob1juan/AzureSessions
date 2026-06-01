@@ -63,6 +63,11 @@ param natGatewayName string = '${namingPrefix}-NatGateway'
 @description('The naming prefix for the nested virtual machines and all Azure resources deployed. The maximum length for the naming prefix is 7 characters, example: `MigDem-Win2k19`')
 param namingPrefix string = 'MigDem'
 
+@minLength(3)
+@maxLength(24)
+@description('Azure Migrate project resource name. Azure Migrate allows only letters, numbers, and hyphens, so the default uses `Migration-Test` as the resource-safe form of `Migration Test`.')
+param migrateProjectName string = 'Migration-Test'
+
 param autoShutdownEnabled bool = true
 param autoShutdownTime string = '1800' // The time for auto-shutdown in HHmm format (24-hour clock)
 @description('Timezone for the auto-shutdown schedule. Uses Windows timezone IDs as accepted by Azure DevTest Labs.')
@@ -112,6 +117,33 @@ var randomSeed = uniqueString(resourceGroup().id, guid)
 var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windows'), 0, passwordLength - 4)}'
 var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = 'c4a26bed-72cb-415d-91a3-e2577c7c92f5'
+var migrateUtilityStorageAccountName = 'mig${uniqueString(resourceGroup().id, migrateProjectName)}'
+
+resource migrateUtilityStorageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: migrateUtilityStorageAccountName
+  location: location
+  sku: {
+    name: 'Standard_LRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    accessTier: 'Hot'
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: true
+    minimumTlsVersion: 'TLS1_2'
+    publicNetworkAccess: 'Enabled'
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource migrateProject 'Microsoft.Migrate/migrateProjects@2023-01-01' = {
+  name: migrateProjectName
+  location: location
+  properties: {
+    publicNetworkAccess: 'Enabled'
+    utilityStorageAccountId: migrateUtilityStorageAccount.id
+  }
+}
 
 module clientVmDeployment 'clientVm/clientVm.bicep' = {
   name: 'clientVmDeployment'
@@ -185,3 +217,5 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
 output clientVmLogonUserName string = ''
 output centralKeyVaultId string = mgmtArtifactsAndPolicyDeployment.outputs.keyVaultId
 output centralKeyVaultName string = mgmtArtifactsAndPolicyDeployment.outputs.keyVaultName
+output azureMigrateProjectId string = migrateProject.id
+output azureMigrateProjectName string = migrateProject.name

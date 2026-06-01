@@ -66,10 +66,10 @@ $defaultComponents = @(
     }
     @{
         Name = 'Azure resource provider registration'
-        Description = 'Azure CLI login and required Arc resource provider registration.'
+        Description = 'Azure CLI login and required Arc plus Azure Migrate resource provider registration.'
         RunsOn = 'Client VM / Hyper-V host'
         ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
-        Command = 'az login --identity; az account set -s $env:subscriptionId; az provider register --namespace Microsoft.HybridCompute --wait; az provider register --namespace Microsoft.GuestConfiguration --wait'
+        Command = 'az login --identity; az account set -s $env:subscriptionId; az provider register --namespace Microsoft.HybridCompute --wait; az provider register --namespace Microsoft.GuestConfiguration --wait; az provider register --namespace Microsoft.Migrate --wait'
         RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
