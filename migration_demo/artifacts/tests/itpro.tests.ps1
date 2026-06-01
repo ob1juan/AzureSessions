@@ -33,12 +33,12 @@ Describe "ArcBox demo websites" {
     It "SQL website responds from ArcBox-SQL" {
         $ipAddress = (Get-VMNetworkAdapter -VMName "$namingPrefix-SQL").IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
         $response = Invoke-WebRequest -Uri "http://$ipAddress/sql.aspx" -UseBasicParsing -TimeoutSec 30
-        $response.Content | Should -Match 'SQL Server products'
+        $response.Content | Should -Match 'SQL Server products|AdventureWorks'
     }
 
     It "PostgreSQL website responds from ArcBox-Ubuntu" {
         $ipAddress = (Get-VMNetworkAdapter -VMName "$namingPrefix-Ubuntu").IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
         $response = Invoke-WebRequest -Uri "http://$ipAddress/" -UseBasicParsing -TimeoutSec 30
-        $response.Content | Should -Match 'PostgreSQL widgets'
+        $response.Content | Should -Match 'PostgreSQL AdventureWorks storefront'
     }
 }

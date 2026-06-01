@@ -20,18 +20,138 @@ $statePath = Join-Path -Path $LogsDir -ChildPath 'DeploymentStatus.json'
 $htmlPath = Join-Path -Path $LogsDir -ChildPath 'DeploymentStatus.html'
 
 $defaultComponents = @(
-    @{ Name = 'Client bootstrap'; Description = 'Custom Script Extension bootstrap, artifact download, module install, autologon, and scheduled task registration.' }
-    @{ Name = 'Hyper-V feature installation'; Description = 'Client VM Hyper-V, Containers, and Virtual Machine Platform feature enablement before restart.' }
-    @{ Name = 'WinGet and host configuration'; Description = 'WinGet/DSC package installation and host networking configuration.' }
-    @{ Name = 'Hyper-V network setup'; Description = 'DHCP, NAT, VM credentials, and Hyper-V host preparation.' }
-    @{ Name = 'Azure resource provider registration'; Description = 'Azure CLI login and required Arc resource provider registration.' }
-    @{ Name = 'ArcBox-SQL VM'; Description = 'SQL nested VM VHD download, Hyper-V VM creation, rename, and firewall preparation.' }
-    @{ Name = 'ArcBox-SQL Arc onboarding'; Description = 'Azure Connected Machine agent installation and onboarding for the SQL VM.' }
-    @{ Name = 'ArcBox-Ubuntu VM'; Description = 'Ubuntu nested VM VHD download, Hyper-V VM creation, SSH preparation, and hostname setup.' }
-    @{ Name = 'ArcBox-SQL website and database'; Description = 'SQL Server demo database, IIS, and legacy ASP.NET Web Forms site setup.' }
-    @{ Name = 'ArcBox-Ubuntu website and database'; Description = 'PostgreSQL, Apache/PHP, and legacy CRUD site setup.' }
-    @{ Name = 'ArcBox-Ubuntu Arc onboarding'; Description = 'Azure Connected Machine agent installation and onboarding for the Ubuntu VM.' }
-    @{ Name = 'Deployment report'; Description = 'Final HTML status report generation and browser launch.' }
+    @{
+        Name = 'Client bootstrap'
+        Description = 'Custom Script Extension bootstrap, artifact download, module install, autologon, and scheduled task registration.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'Custom Script Extension download folder\Bootstrap.ps1'
+        Command = 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername <template value> -tenantId <tenant id> -subscriptionId <subscription id> -resourceGroup <resource group> -azureLocation <location> -templateBaseUrl <artifact url> -flavor ITPro -vmAutologon <true|false> -rdpPort <port> -namingPrefix <prefix> -debugEnabled <true|false> -sqlServerEdition <edition> -autoShutdownEnabled <true|false>'
+        RerunCommand = 'Redeploy the Bootstrap VM extension or rerun the ARM deployment after fixing the reported issue.'
+        LogPath = 'C:\ArcBox\Logs\Bootstrap.log'
+        WorkingDirectory = 'Custom Script Extension download folder'
+        RecoveryInstructions = 'If this step fails, review Bootstrap.log first. Because it runs as the Azure VM extension, the most reliable rerun is to redeploy the Bootstrap extension or rerun the template.'
+    }
+    @{
+        Name = 'Hyper-V feature installation'
+        Description = 'Client VM Hyper-V, Containers, and Virtual Machine Platform feature enablement before restart.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'Custom Script Extension download folder\Bootstrap.ps1'
+        Command = 'Enable-WindowsOptionalFeature -Online -FeatureName Containers -All -NoRestart; Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart; Install-WindowsFeature -Name Hyper-V -IncludeAllSubFeature -IncludeManagementTools; Restart-Computer'
+        RerunCommand = 'Run the feature install command from an elevated PowerShell session, then restart the client VM.'
+        LogPath = 'C:\ArcBox\Logs\Bootstrap.log'
+        WorkingDirectory = 'Custom Script Extension download folder'
+        RecoveryInstructions = 'If this step fails, confirm the Azure VM size supports nested virtualization, then rerun the command from an elevated session.'
+    }
+    @{
+        Name = 'WinGet and host configuration'
+        Description = 'WinGet/DSC package installation, including Azure CLI, AzCopy, SQL Server Management Studio, Visual Studio Code, and host networking configuration.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\WinGet.ps1'
+        Command = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\WinGet.ps1"; applies C:\ArcBox\DSC\common.dsc.yml, which installs Microsoft.AzureCLI, Microsoft.Azure.AZCopy.10, Microsoft.SQLServerManagementStudio, Microsoft.VisualStudioCode, DHCP, and RSAT-DHCP.'
+        RerunCommand = 'Start-ScheduledTask -TaskName WinGetLogonScript; or run pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\WinGet.ps1" from an elevated PowerShell session.'
+        LogPath = 'C:\ArcBox\Logs\WinGet-provisioning-*.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'If this step fails, rerun WinGet.ps1 after fixing package or DSC errors. It will start ArcServersLogonScript when it completes.'
+    }
+    @{
+        Name = 'Hyper-V network setup'
+        Description = 'DHCP, NAT, VM credentials, and Hyper-V host preparation.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        RerunCommand = 'Start-ScheduledTask -TaskName ArcServersLogonScript; or run pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1" from an elevated PowerShell session.'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'This script is idempotent for existing VHDs and VMs. Rerun ArcServersLogonScript after fixing the reported error.'
+    }
+    @{
+        Name = 'Azure resource provider registration'
+        Description = 'Azure CLI login and required Arc resource provider registration.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'az login --identity; az account set -s $env:subscriptionId; az provider register --namespace Microsoft.HybridCompute --wait; az provider register --namespace Microsoft.GuestConfiguration --wait'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm the client VM managed identity has subscription Owner access, then rerun ArcServersLogonScript.'
+    }
+    @{
+        Name = 'ArcBox-SQL VM'
+        Description = 'SQL nested VM VHD download, Hyper-V VM creation, rename, and firewall preparation.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'Downloads the SQL VHD with AzCopy, applies C:\ArcBox\DSC\virtual_machines_sql.dsc.yml with winget configure, renames the VM if needed, and opens SQL TCP 1433.'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Fix VHD download, disk, or Hyper-V errors, then rerun ArcServersLogonScript. Existing VHDs are reused.'
+    }
+    @{
+        Name = 'ArcBox-SQL Arc onboarding'
+        Description = 'Azure Connected Machine agent installation and onboarding for the SQL VM.'
+        RunsOn = 'Nested VM: SQL'
+        ScriptPath = 'C:\ArcBox\agentScript\installArcAgent.ps1 copied into C:\ArcBox\installArcAgent.ps1 on the nested SQL VM'
+        Command = 'Invoke-Command -VMName <prefix>-SQL -ScriptBlock { powershell -File C:\ArcBox\installArcAgent.ps1 -accessToken <token> -tenantId <tenant> -subscriptionId <subscription> -resourceGroup <resource group> -azureLocation <location> }'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm the nested SQL VM is running and has network access, then rerun ArcServersLogonScript to acquire a fresh token and retry onboarding.'
+    }
+    @{
+        Name = 'ArcBox-Ubuntu VM'
+        Description = 'Ubuntu nested VM VHD download, Hyper-V VM creation, SSH preparation, and hostname setup.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'Downloads ArcBox-Ubuntu-01.vhdx with AzCopy, applies C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml with winget configure, configures SSH key access, and sets the hostname.'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Fix VHD download, SSH, or Hyper-V errors, then rerun ArcServersLogonScript. Existing VHDs are reused.'
+    }
+    @{
+        Name = 'ArcBox-SQL website and database'
+        Description = 'AdventureWorksLT SQL Server database, IIS, and legacy ASP.NET Web Forms storefront setup.'
+        RunsOn = 'Nested VM: SQL'
+        ScriptPath = 'C:\ArcBox\Initialize-ArcBoxSqlDemo.ps1 and C:\ArcBox\Configure-IIS.ps1 copied to the nested SQL VM'
+        Command = 'Invoke-Command -VMName <prefix>-SQL to run Initialize-ArcBoxSqlDemo.ps1 and Configure-IIS.ps1 with SQL authentication parameters.'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm the SQL VM is reachable through PowerShell Direct, then rerun ArcServersLogonScript. The database/site scripts are designed to be rerunnable.'
+    }
+    @{
+        Name = 'ArcBox-Ubuntu website and database'
+        Description = 'AdventureWorksLT PostgreSQL schema conversion, Apache/PHP, and legacy PHP storefront setup.'
+        RunsOn = 'Nested VM: Ubuntu'
+        ScriptPath = 'C:\ArcBox\Configure-Postgres.sh copied to /home/jumpstart/Configure-Postgres.sh on the nested Ubuntu VM'
+        Command = 'Invoke-JSSudoCommand -Session <Ubuntu session> -Command "WEB_USER=<user> WEB_PASSWORD=<password> WEB_DB=<db> ALLOW_CIDR=10.10.1.0/24 bash /home/jumpstart/Configure-Postgres.sh"'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm SSH key access to the Ubuntu VM works for user jumpstart, then rerun ArcServersLogonScript.'
+    }
+    @{
+        Name = 'ArcBox-Ubuntu Arc onboarding'
+        Description = 'Azure Connected Machine agent installation and onboarding for the Ubuntu VM.'
+        RunsOn = 'Nested VM: Ubuntu'
+        ScriptPath = 'C:\ArcBox\agentScript\installArcAgentUbuntu.sh rendered as installArcAgentModifiedUbuntu.sh and copied to /home/jumpstart on the nested Ubuntu VM'
+        Command = 'Invoke-JSSudoCommand -Session <Ubuntu session> -Command "sh /home/jumpstart/installArcAgentModifiedUbuntu.sh"'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm the Ubuntu VM is running and reachable over SSH, then rerun ArcServersLogonScript to render a fresh token and retry onboarding.'
+    }
+    @{
+        Name = 'Deployment report'
+        Description = 'Final HTML status report generation and browser launch.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\DeploymentStatus.ps1'
+        Command = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\DeploymentStatus.ps1" -Action Report -Open'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\DeploymentStatus.ps1" -Action Report -Open'
+        LogPath = 'C:\ArcBox\Logs\DeploymentStatus.json and C:\ArcBox\Logs\DeploymentStatus.html'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Rerun the report command after Azure CLI login is available if Azure resource status is missing.'
+    }
 )
 
 function Get-UtcIsoTime {
@@ -103,26 +223,61 @@ function Get-Component {
         [string]$Description = ''
     )
 
+    $definition = @($defaultComponents | Where-Object { $_.Name -eq $Name } | Select-Object -First 1)
+    $metadataFields = @('RunsOn', 'ScriptPath', 'Command', 'RerunCommand', 'LogPath', 'WorkingDirectory', 'RecoveryInstructions')
+    if ($definition.Count -gt 0 -and [string]::IsNullOrWhiteSpace($Description)) {
+        $Description = $definition[0].Description
+    }
+
     $componentEntry = @($State.Components | Where-Object { $_.Name -eq $Name } | Select-Object -First 1)
     if ($componentEntry.Count -eq 0) {
         $component = [pscustomobject]@{
-            Name         = $Name
-            Description  = $Description
-            Status       = 'Pending'
-            StartTime    = $null
-            StopTime     = $null
-            TotalSeconds = $null
-            Message      = ''
+            Name                 = $Name
+            Description          = $Description
+            Status               = 'Pending'
+            StartTime            = $null
+            StopTime             = $null
+            TotalSeconds         = $null
+            Message              = ''
+            RunsOn               = ''
+            ScriptPath           = ''
+            Command              = ''
+            RerunCommand         = ''
+            LogPath              = ''
+            WorkingDirectory     = ''
+            RecoveryInstructions = ''
+        }
+        if ($definition.Count -gt 0) {
+            foreach ($field in $metadataFields) {
+                if ($definition[0].ContainsKey($field)) {
+                    $component.$field = $definition[0][$field]
+                }
+            }
         }
         $State.Components = @(Convert-ToArray -Value $State.Components) + $component
         return $component
     }
 
-    if ($Description -and [string]::IsNullOrWhiteSpace([string]$componentEntry[0].Description)) {
-        $componentEntry[0].Description = $Description
+    $component = $componentEntry[0]
+    if ($Description -and [string]::IsNullOrWhiteSpace([string]$component.Description)) {
+        $component.Description = $Description
     }
 
-    return $componentEntry[0]
+    foreach ($field in $metadataFields) {
+        $metadataValue = ''
+        if ($definition.Count -gt 0 -and $definition[0].ContainsKey($field)) {
+            $metadataValue = $definition[0][$field]
+        }
+
+        if (-not ($component.PSObject.Properties.Name -contains $field)) {
+            $component | Add-Member -MemberType NoteProperty -Name $field -Value $metadataValue
+        }
+        elseif ([string]::IsNullOrWhiteSpace([string]$component.$field) -and -not [string]::IsNullOrWhiteSpace([string]$metadataValue)) {
+            $component.$field = $metadataValue
+        }
+    }
+
+    return $component
 }
 
 function Initialize-StatusState {
@@ -196,6 +351,16 @@ function ConvertTo-HtmlText {
     }
 
     return [System.Net.WebUtility]::HtmlEncode([string]$Value)
+}
+
+function ConvertTo-FileHref {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or $Path -notmatch '^[A-Za-z]:\\') {
+        return ''
+    }
+
+    return 'file:///' + (($Path -replace '\\', '/') -replace ' ', '%20')
 }
 
 function Ensure-AzCliContext {
@@ -308,6 +473,13 @@ function Write-HtmlReport {
     $statusClass = ([string]$state.OverallStatus).ToLowerInvariant()
     $componentCards = (@(Convert-ToArray -Value $state.Components) | ForEach-Object {
         $componentStatusClass = ([string]$_.Status).ToLowerInvariant()
+        $scriptHref = ConvertTo-FileHref -Path $_.ScriptPath
+        $scriptMarkup = if ($scriptHref) {
+            "<a href='$scriptHref'>$(ConvertTo-HtmlText $_.ScriptPath)</a>"
+        }
+        else {
+            ConvertTo-HtmlText $_.ScriptPath
+        }
 @"
         <section class='component-card'>
           <div class='component-heading'>
@@ -321,6 +493,18 @@ function Write-HtmlReport {
             <div><dt>Total</dt><dd>$(Format-Duration $_.TotalSeconds)</dd></div>
           </dl>
           <p class='message'>$(ConvertTo-HtmlText $_.Message)</p>
+                    <details>
+                        <summary>Script and rerun details</summary>
+                        <dl class='execution-details'>
+                            <div><dt>Runs on</dt><dd>$(ConvertTo-HtmlText $_.RunsOn)</dd></div>
+                            <div><dt>Working directory</dt><dd>$(ConvertTo-HtmlText $_.WorkingDirectory)</dd></div>
+                            <div><dt>Script</dt><dd>$scriptMarkup</dd></div>
+                            <div><dt>Log</dt><dd>$(ConvertTo-HtmlText $_.LogPath)</dd></div>
+                        </dl>
+                        <div class='command-block'><span>Executed command</span><pre>$(ConvertTo-HtmlText $_.Command)</pre></div>
+                        <div class='command-block'><span>Rerun command or action</span><pre>$(ConvertTo-HtmlText $_.RerunCommand)</pre></div>
+                        <p class='message'>$(ConvertTo-HtmlText $_.RecoveryInstructions)</p>
+                    </details>
         </section>
 "@
     }) -join [Environment]::NewLine
@@ -361,6 +545,14 @@ function Write-HtmlReport {
     dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 0; }
     dt { color: var(--muted); font-size: 12px; }
     dd { margin: 4px 0 0; font-weight: 600; }
+    details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+    summary { cursor: pointer; font-weight: 650; color: var(--ink); }
+    .execution-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .execution-details dd { overflow-wrap: anywhere; }
+    .command-block { margin-top: 12px; }
+    .command-block span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 10px; background: #f8fafc; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+    a { color: var(--active); }
     .message { min-height: 20px; }
     .table-card { overflow-x: auto; margin-bottom: 16px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }

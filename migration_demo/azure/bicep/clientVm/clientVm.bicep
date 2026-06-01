@@ -20,8 +20,8 @@ param location string = resourceGroup().location
 param subnetId string
 
 @maxLength(7)
-@description('The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19')
-param namingPrefix string = 'ArcBox'
+@description('The naming prefix for the nested virtual machines. Example: MigDem-Win2k19')
+param namingPrefix string = 'MigDem'
 
 @description('Choice to deploy Bastion to connect to the client VM')
 param deployBastion bool = false

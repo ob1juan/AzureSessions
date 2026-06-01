@@ -52,8 +52,8 @@ param bastionNetworkSecurityGroupName string = '${namingPrefix}-Bastion-NSG'
 param dnsServers array = []
 
 @maxLength(7)
-@description('The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19')
-param namingPrefix string = 'ArcBox'
+@description('The naming prefix for the nested virtual machines. Example: MigDem-Win2k19')
+param namingPrefix string = 'MigDem'
 
 @description('Password for Windows account. Password must have 3 of the following: 1 lower case character, 1 upper case character, 1 number, and 1 special character. The value must be between 12 and 123 characters long')
 @minLength(12)

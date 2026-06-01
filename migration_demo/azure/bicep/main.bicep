@@ -60,8 +60,8 @@ param debugEnabled bool = false
 param natGatewayName string = '${namingPrefix}-NatGateway'
 
 @maxLength(7)
-@description('The naming prefix for the nested virtual machines and all Azure resources deployed. The maximum length for the naming prefix is 7 characters,example: `ArcBox-Win2k19`')
-param namingPrefix string = 'ArcBox'
+@description('The naming prefix for the nested virtual machines and all Azure resources deployed. The maximum length for the naming prefix is 7 characters, example: `MigDem-Win2k19`')
+param namingPrefix string = 'MigDem'
 
 param autoShutdownEnabled bool = true
 param autoShutdownTime string = '1800' // The time for auto-shutdown in HHmm format (24-hour clock)

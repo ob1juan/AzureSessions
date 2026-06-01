@@ -19,6 +19,18 @@ $namingPrefix = $env:namingPrefix
 # Moved VHD storage account details here to keep only in place to prevent duplicates.
 $vhdSourceFolder = 'https://jumpstartprodsg.blob.core.windows.net/arcbox/prod/*'
 
+function Write-Header {
+    param(
+        [string]$Title
+    )
+
+    Write-Host
+    Write-Host ('#' * ($Title.Length + 8))
+    Write-Host "# - $Title"
+    Write-Host ('#' * ($Title.Length + 8))
+    Write-Host
+}
+
 # Archive existing log file and create new one
 $logFilePath = "$Env:ArcBoxLogsDir\ArcServersLogonScript.log"
 if (Test-Path $logFilePath) {
@@ -54,6 +66,152 @@ function Complete-DeploymentComponent {
     if (Test-Path $script:DeploymentStatusScript) {
         & $script:DeploymentStatusScript -Action Complete -Component $Name -Status $Status -Message $Message
     }
+}
+
+function Set-HostFileEntry {
+    param(
+        [string]$HostName,
+        [string]$IPAddress
+    )
+
+    if ([string]::IsNullOrWhiteSpace($HostName) -or [string]::IsNullOrWhiteSpace($IPAddress)) {
+        throw "Host file entry requires both host name and IP address. HostName='$HostName', IPAddress='$IPAddress'."
+    }
+
+    $hostsPath = Join-Path -Path $env:SystemRoot -ChildPath 'System32\drivers\etc\hosts'
+    $existingLines = if (Test-Path $hostsPath) { Get-Content -Path $hostsPath } else { @() }
+    $updatedLines = @(
+        foreach ($existingLine in $existingLines) {
+            $line = [string]$existingLine
+            $tokens = @($line -split '\s+' | Where-Object { $_ })
+            if ($tokens.Count -lt 2 -or $tokens[0].StartsWith('#')) {
+                $line
+                continue
+            }
+
+            $aliases = @($tokens[1..($tokens.Count - 1)])
+            if (-not ($aliases -contains $HostName)) {
+                $line
+            }
+        }
+    )
+
+    $updatedLines += ('{0}`t{1}' -f $IPAddress, $HostName)
+    Set-Content -Path $hostsPath -Value $updatedLines -Encoding ASCII -Force
+    Write-Output "Updated hosts file: $HostName -> $IPAddress"
+}
+
+function Wait-ArcBoxVmRunning {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [int]$TimeoutSeconds = 900
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $vm = Get-VM -Name $Name -ErrorAction Stop
+        if ($vm.State -eq 'Running') {
+            Write-Host "VM $Name is running."
+            return
+        }
+
+        if ($vm.State -eq 'Off' -or $vm.State -eq 'Saved') {
+            Write-Host "Starting VM $Name. Current state: $($vm.State)"
+            Start-VM -Name $Name | Out-Null
+        } elseif ($vm.State -eq 'Paused') {
+            Write-Host "Resuming VM $Name. Current state: $($vm.State)"
+            Resume-VM -Name $Name | Out-Null
+        }
+
+        Write-Host "Waiting for VM $Name to start. Current state: $($vm.State)"
+        Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Timed out waiting for VM $Name to reach Running state."
+}
+
+function Wait-ArcBoxVmIPv4 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [int]$TimeoutSeconds = 900
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $ipAddress = Get-VM -Name $Name -ErrorAction Stop |
+            Select-Object -ExpandProperty NetworkAdapters |
+            Select-Object -ExpandProperty IPAddresses |
+            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Select-Object -First 1
+
+        if (-not [string]::IsNullOrWhiteSpace($ipAddress)) {
+            Write-Host "VM $Name has IPv4 address $ipAddress."
+            return $ipAddress
+        }
+
+        Write-Host "Waiting for VM $Name to report an IPv4 address."
+        Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Timed out waiting for VM $Name to report an IPv4 address."
+}
+
+function Wait-ArcBoxWindowsVmReady {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][pscredential]$Credential,
+        [int]$TimeoutSeconds = 900
+    )
+
+    Wait-ArcBoxVmRunning -Name $Name -TimeoutSeconds $TimeoutSeconds
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $ready = Invoke-Command -VMName $Name -Credential $Credential -ScriptBlock { 'ready' } -ErrorAction Stop
+            if ($ready -contains 'ready') {
+                Write-Host "Windows VM $Name is ready for PowerShell Direct commands."
+                return
+            }
+        } catch {
+            Write-Host "Waiting for Windows VM $Name PowerShell Direct readiness: $($_.Exception.Message)"
+        }
+
+        Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Timed out waiting for Windows VM $Name to accept PowerShell Direct commands."
+}
+
+function Wait-ArcBoxLinuxSshReady {
+    param(
+        [Parameter(Mandatory = $true)][string]$IPAddress,
+        [Parameter(Mandatory = $true)][string]$KeyFilePath,
+        [Parameter(Mandatory = $true)][string]$UserName,
+        [int]$TimeoutSeconds = 900
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $session = $null
+        try {
+            $session = New-PSSession -HostName $IPAddress -KeyFilePath $KeyFilePath -UserName $UserName -ErrorAction Stop
+            $ready = Invoke-Command -Session $session -ScriptBlock { 'ready' } -ErrorAction Stop
+            if ($ready -contains 'ready') {
+                Write-Host "Linux VM at $IPAddress is ready for SSH PowerShell commands."
+                return
+            }
+        } catch {
+            Write-Host "Waiting for Linux VM at $IPAddress SSH readiness: $($_.Exception.Message)"
+        } finally {
+            if ($null -ne $session) {
+                Remove-PSSession $session -ErrorAction SilentlyContinue
+            }
+        }
+
+        Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Timed out waiting for Linux VM at $IPAddress to accept SSH PowerShell commands."
 }
 
 trap {
@@ -254,9 +412,10 @@ if ($Env:flavor -ne 'DevOps') {
 
     # Restarting Windows VM Network Adapters
     Write-Host 'Restarting Network Adapters'
-    Start-Sleep -Seconds 5
+    Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
     Invoke-Command -VMName $SQLvmName -ScriptBlock { Get-NetAdapter | Restart-NetAdapter } -Credential $winCreds
     Start-Sleep -Seconds 20
+    Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
 
     # Rename server if hostname is not as ArcBox-SQL or doesn't match naming prefix
     $hostname = Invoke-Command -VMName $SQLvmName -ScriptBlock { hostname } -Credential $winCreds
@@ -266,17 +425,8 @@ if ($Env:flavor -ne 'DevOps') {
         Write-Header 'Renaming the nested SQL VM'
         Invoke-Command -VMName $SQLvmName -ScriptBlock { Rename-Computer -NewName $using:SQLvmName -Restart } -Credential $winCreds
 
-        Get-VM *SQL* | Wait-VM -For IPAddress
-
-        Write-Host 'Waiting for the nested Windows SQL VM to come back online...waiting for 30 seconds'
-        Start-Sleep -Seconds 30
-
-        # Wait for VM to start again
-        while ((Get-VM -vmName $SQLvmName).State -ne 'Running') {
-            Write-Host 'Waiting for VM to start...'
-            Start-Sleep -Seconds 5
-        }
-
+        Write-Host 'Waiting for the nested Windows SQL VM to come back online.'
+        Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
         Write-Host 'VM has rebooted successfully!'
     }
 
@@ -349,13 +499,16 @@ if ($Env:flavor -ne 'DevOps') {
         winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
 
         # Configure automatic start & stop action for the nested VMs
-        Get-VM -Name $SQLvmName, $ubuntuVmName | Where-Object { $_.State -eq 'Running' } |
-            ForEach-Object -Parallel {
-                Stop-VM -Force -Name $PSItem.Name
-                Set-VM -Name $PSItem.Name -AutomaticStopAction ShutDown -AutomaticStartAction Start
-                Start-VM -Name $PSItem.Name
+        foreach ($nestedVm in Get-VM -Name $SQLvmName, $ubuntuVmName) {
+            if ($nestedVm.State -eq 'Running') {
+                Stop-VM -Force -Name $nestedVm.Name
             }
+            Set-VM -Name $nestedVm.Name -AutomaticStopAction ShutDown -AutomaticStartAction Start
+            Start-VM -Name $nestedVm.Name
+        }
         Start-Sleep -Seconds 30
+        Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
+        Wait-ArcBoxVmRunning -Name $ubuntuVmName
 
         Write-Header 'Creating VM Credentials'
         # Hard-coded username and password for the nested Linux VM
@@ -383,7 +536,8 @@ if ($Env:flavor -ne 'DevOps') {
         Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
         Get-VM $ubuntuVmName | Wait-VM -For IPAddress
 
-        $ubuntuVmIp = Get-VM -Name $ubuntuVmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+        $ubuntuVmIp = Wait-ArcBoxVmIPv4 -Name $ubuntuVmName
+        Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
         Write-Output 'Ensuring nested Ubuntu VM hostname matches its Hyper-V name'
         Invoke-Command -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ScriptBlock {
@@ -394,51 +548,59 @@ if ($Env:flavor -ne 'DevOps') {
 
         Get-VM $ubuntuVmName | Wait-VM -For IPAddress
 
-        Write-Host 'Waiting for the nested Linux VM to come back online...waiting for 10 seconds'
+        Write-Host 'Waiting for the nested Linux VM to accept SSH commands.'
 
-        Start-Sleep -Seconds 10
-
-        $SQLvmIp = Get-VM -Name $SQLvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
-        $ubuntuVmIp = Get-VM -Name $ubuntuVmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+        Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
+        $SQLvmIp = Wait-ArcBoxVmIPv4 -Name $SQLvmName
+        $ubuntuVmIp = Wait-ArcBoxVmIPv4 -Name $ubuntuVmName
+        Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
         Write-Output "SQL VM IP    : $SQLvmIp"
         Write-Output "Ubuntu VM IP : $ubuntuVmIp"
+        Set-HostFileEntry -HostName $SQLvmName -IPAddress $SQLvmIp
+        Set-HostFileEntry -HostName $ubuntuVmName -IPAddress $ubuntuVmIp
 
         Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message "Ubuntu VM is created and reachable at $ubuntuVmIp."
 
-        $arcBoxWebSqlPassword = 'ArcBoxWeb1!'
-        $arcBoxWebPgPassword = 'ArcBoxWeb1!'
+        $arcBoxWebSqlSecret = 'ArcBoxWeb1!'
+        $arcBoxWebPgSecret = 'ArcBoxWeb1!'
         $arcBoxWebPgUser = 'arcboxweb'
         $arcBoxWebPgDb = 'arcboxdemo'
         $arcBoxSqlDb = 'ArcBoxDemo'
         $arcBoxWebSqlUser = 'arcboxweb'
 
-        Start-DeploymentComponent -Name 'ArcBox-SQL website and database' -Message 'Seeding the SQL database and configuring IIS/ASP.NET on the SQL VM.'
-        Write-Header 'Seeding SQL Server and configuring IIS on SQL VM'
+        Start-DeploymentComponent -Name 'ArcBox-SQL website and database' -Message 'Seeding the AdventureWorksLT SQL database and configuring IIS/ASP.NET on the SQL VM.'
+        Write-Header 'Seeding AdventureWorksLT SQL Server and configuring IIS on SQL VM'
+        Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
         Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -DestinationPath "$nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -CreateFullPath -FileSource Host -Force
         Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Configure-IIS.ps1" -DestinationPath "$nestedVMArcBoxDir\Configure-IIS.ps1" -CreateFullPath -FileSource Host -Force
         $artifactBaseUrl = $Env:templateBaseUrl
         Invoke-Command -VMName $SQLvmName -ScriptBlock {
-            powershell.exe -ExecutionPolicy Bypass -File $Using:nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1 -WebSqlPassword $Using:arcBoxWebSqlPassword
+            Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+            $secureSqlSecret = ConvertTo-SecureString -String $Using:arcBoxWebSqlSecret -AsPlainText -Force
+            $webSqlCredential = New-Object System.Management.Automation.PSCredential ($Using:arcBoxWebSqlUser, $secureSqlSecret)
+            & (Join-Path -Path $Using:nestedVMArcBoxDir -ChildPath 'Initialize-ArcBoxSqlDemo.ps1') -WebSqlCredential $webSqlCredential
             powershell.exe -ExecutionPolicy Bypass -File $Using:nestedVMArcBoxDir\Configure-IIS.ps1 `
                 -SqlServerAddress 'localhost' `
                 -SqlDatabase $Using:arcBoxSqlDb `
                 -SqlUser $Using:arcBoxWebSqlUser `
-                -SqlPassword $Using:arcBoxWebSqlPassword `
+                -SqlPassword $Using:arcBoxWebSqlSecret `
                 -ArtifactBaseUrl $Using:artifactBaseUrl
         } -Credential $winCreds
-            Complete-DeploymentComponent -Name 'ArcBox-SQL website and database' -Message "Legacy SQL site is configured at http://$SQLvmIp/."
+            Complete-DeploymentComponent -Name 'ArcBox-SQL website and database' -Message "AdventureWorks SQL Server storefront is configured at http://$SQLvmIp/."
 
-            Start-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message 'Installing PostgreSQL, Apache/PHP, and the legacy CRUD site on Ubuntu.'
-        Write-Header 'Installing PostgreSQL and web services on Ubuntu VM'
+            Start-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message 'Installing the AdventureWorksLT PostgreSQL conversion and PHP storefront on Ubuntu.'
+        Write-Header 'Installing PostgreSQL AdventureWorks storefront on Ubuntu VM'
+        $ubuntuVmIp = Wait-ArcBoxVmIPv4 -Name $ubuntuVmName
+        Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
         Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:ArcBoxDir\Configure-Postgres.sh" -DestinationPath "/home/$nestedLinuxUsername/Configure-Postgres.sh" -FileSource Host -Force -CreateFullPath
         $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
         Invoke-Command -Session $ubuntuSession -ScriptBlock {
             chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
         }
-        Invoke-JSSudoCommand -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgPassword' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
+        Invoke-JSSudoCommand -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgSecret' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
         Remove-PSSession $ubuntuSession
-        Complete-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message "Legacy PostgreSQL site is configured at http://$ubuntuVmIp/."
+        Complete-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message "AdventureWorks PostgreSQL storefront is configured at http://$ubuntuVmIp/."
 
         Start-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the Ubuntu VM.'
         # Update Linux VM onboarding script connect to Azure Arc, get new token as it might have been expired by the time execution reached this line.
@@ -458,8 +620,8 @@ if ($Env:flavor -ne 'DevOps') {
         Remove-PSSession $ubuntuSession
         Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Ubuntu VM Azure Connected Machine onboarding command completed.'
 
-        Write-Header "Legacy SQL site reachable at http://$SQLvmIp/"
-        Write-Header "Legacy PostgreSQL site reachable at http://$ubuntuVmIp/"
+        Write-Header "AdventureWorks SQL Server storefront reachable at http://$SQLvmIp/"
+        Write-Header "AdventureWorks PostgreSQL storefront reachable at http://$ubuntuVmIp/"
     }
 
     Start-DeploymentComponent -Name 'Deployment report' -Message 'Collecting Azure deployment/resource status and writing the final HTML report.'

@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "14761012401917789676"
+      "templateHash": "4340260990681205208"
     }
   },
   "parameters": {
@@ -124,10 +124,10 @@
     },
     "namingPrefix": {
       "type": "string",
-      "defaultValue": "ArcBox",
+      "defaultValue": "MigDem",
       "maxLength": 7,
       "metadata": {
-        "description": "The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19"
+        "description": "The naming prefix for the nested virtual machines. Example: MigDem-Win2k19"
       }
     },
     "windowsAdminPassword": {

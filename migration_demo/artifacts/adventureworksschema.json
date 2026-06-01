@@ -1,0 +1,1663 @@
+{
+    "Tables":  [
+                   {
+                       "TABLE_SCHEMA":  "dbo",
+                       "TABLE_NAME":  "BuildVersion",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "SystemInformationID",
+                                           "DATA_TYPE":  "tinyint",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Database Version",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  25,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "VersionDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "dbo",
+                       "TABLE_NAME":  "ErrorLog",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "ErrorLogID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ErrorTime",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "UserName",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  128,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ErrorNumber",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ErrorSeverity",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ErrorState",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ErrorProcedure",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  126,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ErrorLine",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ErrorMessage",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  4000,
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_ErrorLog_ErrorLogID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "ErrorLogID"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_ErrorLog_ErrorLogID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ErrorLogID"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "Address",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "AddressID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "AddressLine1",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  60,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "AddressLine2",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  60,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "City",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  30,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "StateProvince",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "CountryRegion",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "PostalCode",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  15,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_Address_AddressID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "AddressID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_Address_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_Address_AddressID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "AddressID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_Address_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "IX_Address_AddressLine1_AddressLine2_City_StateProvince_PostalCode_CountryRegion",
+                                           "IsUnique":  false,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "AddressLine1"
+                                                                },
+                                                                {
+                                                                    "name":  "AddressLine2"
+                                                                },
+                                                                {
+                                                                    "name":  "City"
+                                                                },
+                                                                {
+                                                                    "name":  "StateProvince"
+                                                                },
+                                                                {
+                                                                    "name":  "PostalCode"
+                                                                },
+                                                                {
+                                                                    "name":  "CountryRegion"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "IX_Address_StateProvince",
+                                           "IsUnique":  false,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "StateProvince"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "Customer",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "CustomerID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "NameStyle",
+                                           "DATA_TYPE":  "bit",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Title",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  8,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "FirstName",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "MiddleName",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "LastName",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Suffix",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  10,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "CompanyName",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  128,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "SalesPerson",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  256,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "EmailAddress",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Phone",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  25,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "PasswordHash",
+                                           "DATA_TYPE":  "varchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  128,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "PasswordSalt",
+                                           "DATA_TYPE":  "varchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  10,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_Customer_CustomerID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "CustomerID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_Customer_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_Customer_CustomerID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "CustomerID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_Customer_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "IX_Customer_EmailAddress",
+                                           "IsUnique":  false,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "EmailAddress"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "CustomerAddress",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "CustomerID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "AddressID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "AddressType",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_CustomerAddress_CustomerID_AddressID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "AddressID"
+                                                        },
+                                                        {
+                                                            "COLUMN_NAME":  "CustomerID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_CustomerAddress_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "ForeignKeys":  [
+                                           {
+                                               "ForeignKeyName":  "FK_CustomerAddress_Customer_CustomerID",
+                                               "ReferencedTable":  "Customer",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "CustomerID",
+                                                                         "ReferencedColumn":  "CustomerID"
+                                                                     }
+                                                                 ]
+                                           },
+                                           {
+                                               "ForeignKeyName":  "FK_CustomerAddress_Address_AddressID",
+                                               "ReferencedTable":  "Address",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "AddressID",
+                                                                         "ReferencedColumn":  "AddressID"
+                                                                     }
+                                                                 ]
+                                           }
+                                       ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_CustomerAddress_CustomerID_AddressID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "CustomerID"
+                                                                },
+                                                                {
+                                                                    "name":  "AddressID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_CustomerAddress_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "Product",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "ProductID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Name",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ProductNumber",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  25,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Color",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  15,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "StandardCost",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ListPrice",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Size",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  5,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Weight",
+                                           "DATA_TYPE":  "decimal",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ProductCategoryID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ProductModelID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "SellStartDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "SellEndDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "DiscontinuedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ThumbNailPhoto",
+                                           "DATA_TYPE":  "varbinary",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  -1,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ThumbnailPhotoFileName",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_Product_ProductID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "ProductID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_Product_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_Product_Name",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "Name"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_Product_ProductNumber",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "ProductNumber"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "ForeignKeys":  [
+                                           {
+                                               "ForeignKeyName":  "FK_Product_ProductModel_ProductModelID",
+                                               "ReferencedTable":  "ProductModel",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "ProductModelID",
+                                                                         "ReferencedColumn":  "ProductModelID"
+                                                                     }
+                                                                 ]
+                                           },
+                                           {
+                                               "ForeignKeyName":  "FK_Product_ProductCategory_ProductCategoryID",
+                                               "ReferencedTable":  "ProductCategory",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "ProductCategoryID",
+                                                                         "ReferencedColumn":  "ProductCategoryID"
+                                                                     }
+                                                                 ]
+                                           }
+                                       ],
+                       "CheckConstraints":  [
+                                                {
+                                                    "ConstraintName":  "CK_Product_StandardCost",
+                                                    "ConstraintDefinition":  "([StandardCost]\u003e=(0.00))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_Product_ListPrice",
+                                                    "ConstraintDefinition":  "([ListPrice]\u003e=(0.00))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_Product_Weight",
+                                                    "ConstraintDefinition":  "([Weight]\u003e(0.00))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_Product_SellEndDate",
+                                                    "ConstraintDefinition":  "([SellEndDate]\u003e=[SellStartDate] OR [SellEndDate] IS NULL)"
+                                                }
+                                            ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_Product_ProductID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ProductID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_Product_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_Product_Name",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "Name"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_Product_ProductNumber",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ProductNumber"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "ProductCategory",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "ProductCategoryID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ParentProductCategoryID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Name",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_ProductCategory_ProductCategoryID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "ProductCategoryID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_ProductCategory_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_ProductCategory_Name",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "Name"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "ForeignKeys":  [
+                                           {
+                                               "ForeignKeyName":  "FK_ProductCategory_ProductCategory_ParentProductCategoryID_ProductCategoryID",
+                                               "ReferencedTable":  "ProductCategory",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "ParentProductCategoryID",
+                                                                         "ReferencedColumn":  "ProductCategoryID"
+                                                                     }
+                                                                 ]
+                                           }
+                                       ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_ProductCategory_ProductCategoryID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ProductCategoryID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_ProductCategory_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_ProductCategory_Name",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "Name"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "ProductDescription",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "ProductDescriptionID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Description",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  400,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_ProductDescription_ProductDescriptionID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "ProductDescriptionID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_ProductDescription_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_ProductDescription_ProductDescriptionID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ProductDescriptionID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_ProductDescription_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "ProductModel",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "ProductModelID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Name",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "CatalogDescription",
+                                           "DATA_TYPE":  "xml",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  -1,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_ProductModel_ProductModelID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "ProductModelID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_ProductModel_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_ProductModel_Name",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "Name"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_ProductModel_ProductModelID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ProductModelID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_ProductModel_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_ProductModel_Name",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "Name"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "PXML_ProductModel_CatalogDescription",
+                                           "IsUnique":  false,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "CatalogDescription"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "ProductModelProductDescription",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "ProductModelID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ProductDescriptionID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Culture",
+                                           "DATA_TYPE":  "nchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  6,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_ProductModelProductDescription_ProductModelID_ProductDescriptionID_Culture",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "Culture"
+                                                        },
+                                                        {
+                                                            "COLUMN_NAME":  "ProductDescriptionID"
+                                                        },
+                                                        {
+                                                            "COLUMN_NAME":  "ProductModelID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_ProductModelProductDescription_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "ForeignKeys":  [
+                                           {
+                                               "ForeignKeyName":  "FK_ProductModelProductDescription_ProductDescription_ProductDescriptionID",
+                                               "ReferencedTable":  "ProductDescription",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "ProductDescriptionID",
+                                                                         "ReferencedColumn":  "ProductDescriptionID"
+                                                                     }
+                                                                 ]
+                                           },
+                                           {
+                                               "ForeignKeyName":  "FK_ProductModelProductDescription_ProductModel_ProductModelID",
+                                               "ReferencedTable":  "ProductModel",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "ProductModelID",
+                                                                         "ReferencedColumn":  "ProductModelID"
+                                                                     }
+                                                                 ]
+                                           }
+                                       ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_ProductModelProductDescription_ProductModelID_ProductDescriptionID_Culture",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ProductModelID"
+                                                                },
+                                                                {
+                                                                    "name":  "ProductDescriptionID"
+                                                                },
+                                                                {
+                                                                    "name":  "Culture"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_ProductModelProductDescription_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       }
+                                   ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "SalesOrderDetail",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "SalesOrderID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "SalesOrderDetailID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "OrderQty",
+                                           "DATA_TYPE":  "smallint",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ProductID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "UnitPrice",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "UnitPriceDiscount",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "LineTotal",
+                                           "DATA_TYPE":  "numeric",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_SalesOrderDetail_SalesOrderID_SalesOrderDetailID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "SalesOrderDetailID"
+                                                        },
+                                                        {
+                                                            "COLUMN_NAME":  "SalesOrderID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_SalesOrderDetail_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "ForeignKeys":  [
+                                           {
+                                               "ForeignKeyName":  "FK_SalesOrderDetail_SalesOrderHeader_SalesOrderID",
+                                               "ReferencedTable":  "SalesOrderHeader",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "SalesOrderID",
+                                                                         "ReferencedColumn":  "SalesOrderID"
+                                                                     }
+                                                                 ]
+                                           },
+                                           {
+                                               "ForeignKeyName":  "FK_SalesOrderDetail_Product_ProductID",
+                                               "ReferencedTable":  "Product",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "ProductID",
+                                                                         "ReferencedColumn":  "ProductID"
+                                                                     }
+                                                                 ]
+                                           }
+                                       ],
+                       "CheckConstraints":  [
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderDetail_OrderQty",
+                                                    "ConstraintDefinition":  "([OrderQty]\u003e(0))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderDetail_UnitPrice",
+                                                    "ConstraintDefinition":  "([UnitPrice]\u003e=(0.00))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderDetail_UnitPriceDiscount",
+                                                    "ConstraintDefinition":  "([UnitPriceDiscount]\u003e=(0.00))"
+                                                }
+                                            ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_SalesOrderDetail_SalesOrderID_SalesOrderDetailID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "SalesOrderID"
+                                                                },
+                                                                {
+                                                                    "name":  "SalesOrderDetailID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_SalesOrderDetail_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "IX_SalesOrderDetail_ProductID",
+                                           "IsUnique":  false,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "ProductID"
+                                                                }
+                                                            ]
+                                       }
+                                   ],
+                       "Triggers":  [
+                                        {
+                                            "TriggerName":  "iduSalesOrderDetail",
+                                            "IsUpdate":  1,
+                                            "IsDelete":  1,
+                                            "IsInsert":  1,
+                                            "TriggerDefinition":  "\r\n\r\nCREATE TRIGGER [SalesLT].[iduSalesOrderDetail] ON [SalesLT].[SalesOrderDetail] \r\nAFTER INSERT, DELETE, UPDATE AS \r\nBEGIN\r\n    DECLARE @Count int;\r\n\r\n    SET @Count = @@ROWCOUNT;\r\n    IF @Count = 0 \r\n        RETURN;\r\n\r\n    SET NOCOUNT ON;\r\n\r\n    BEGIN TRY\r\n        -- If inserting or updating these columns\r\n        IF UPDATE([ProductID]) OR UPDATE([OrderQty]) OR UPDATE([UnitPrice]) OR UPDATE([UnitPriceDiscount]) \r\n\r\n        -- Update SubTotal in SalesOrderHeader record. Note that this causes the \r\n        -- SalesOrderHeader trigger to fire which will update the RevisionNumber.\r\n        UPDATE [SalesLT].[SalesOrderHeader]\r\n        SET [SalesLT].[SalesOrderHeader].[SubTotal] = \r\n            (SELECT SUM([SalesLT].[SalesOrderDetail].[LineTotal])\r\n                FROM [SalesLT].[SalesOrderDetail]\r\n                WHERE [SalesLT].[SalesOrderHeader].[SalesOrderID] = [SalesLT].[SalesOrderDetail].[SalesOrderID])\r\n        WHERE [SalesLT].[SalesOrderHeader].[SalesOrderID] IN (SELECT inserted.[SalesOrderID] FROM inserted);\r\n\r\n    END TRY\r\n    BEGIN CATCH\r\n        EXECUTE [dbo].[uspPrintError];\r\n\r\n        -- Rollback any active or uncommittable transactions before\r\n        -- inserting information in the ErrorLog\r\n        IF @@TRANCOUNT \u003e 0\r\n        BEGIN\r\n            ROLLBACK TRANSACTION;\r\n        END\r\n\r\n        EXECUTE [dbo].[uspLogError];\r\n    END CATCH;\r\nEND;\r\n"
+                                        }
+                                    ]
+                   },
+                   {
+                       "TABLE_SCHEMA":  "SalesLT",
+                       "TABLE_NAME":  "SalesOrderHeader",
+                       "Columns":  [
+                                       {
+                                           "COLUMN_NAME":  "SalesOrderID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  1
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "RevisionNumber",
+                                           "DATA_TYPE":  "tinyint",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "OrderDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "DueDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ShipDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Status",
+                                           "DATA_TYPE":  "tinyint",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "OnlineOrderFlag",
+                                           "DATA_TYPE":  "bit",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "SalesOrderNumber",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  25,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "PurchaseOrderNumber",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  25,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "AccountNumber",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  15,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "CustomerID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ShipToAddressID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "BillToAddressID",
+                                           "DATA_TYPE":  "int",
+                                           "IS_NULLABLE":  "YES",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ShipMethod",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "NO",
+                                           "CHARACTER_MAXIMUM_LENGTH":  50,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "CreditCardApprovalCode",
+                                           "DATA_TYPE":  "varchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  15,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "SubTotal",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "TaxAmt",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Freight",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "TotalDue",
+                                           "DATA_TYPE":  "money",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "Comment",
+                                           "DATA_TYPE":  "nvarchar",
+                                           "IS_NULLABLE":  "YES",
+                                           "CHARACTER_MAXIMUM_LENGTH":  -1,
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "rowguid",
+                                           "DATA_TYPE":  "uniqueidentifier",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       },
+                                       {
+                                           "COLUMN_NAME":  "ModifiedDate",
+                                           "DATA_TYPE":  "datetime",
+                                           "IS_NULLABLE":  "NO",
+                                           "IS_IDENTITY":  0
+                                       }
+                                   ],
+                       "Keys":  [
+                                    {
+                                        "CONSTRAINT_NAME":  "PK_SalesOrderHeader_SalesOrderID",
+                                        "CONSTRAINT_TYPE":  "PRIMARY KEY",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "SalesOrderID"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_SalesOrderHeader_rowguid",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "rowguid"
+                                                        }
+                                                    ]
+                                    },
+                                    {
+                                        "CONSTRAINT_NAME":  "AK_SalesOrderHeader_SalesOrderNumber",
+                                        "CONSTRAINT_TYPE":  "UNIQUE",
+                                        "Columns":  [
+                                                        {
+                                                            "COLUMN_NAME":  "SalesOrderNumber"
+                                                        }
+                                                    ]
+                                    }
+                                ],
+                       "ForeignKeys":  [
+                                           {
+                                               "ForeignKeyName":  "FK_SalesOrderHeader_Customer_CustomerID",
+                                               "ReferencedTable":  "Customer",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "CustomerID",
+                                                                         "ReferencedColumn":  "CustomerID"
+                                                                     }
+                                                                 ]
+                                           },
+                                           {
+                                               "ForeignKeyName":  "FK_SalesOrderHeader_Address_ShipTo_AddressID",
+                                               "ReferencedTable":  "Address",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "ShipToAddressID",
+                                                                         "ReferencedColumn":  "AddressID"
+                                                                     }
+                                                                 ]
+                                           },
+                                           {
+                                               "ForeignKeyName":  "FK_SalesOrderHeader_Address_BillTo_AddressID",
+                                               "ReferencedTable":  "Address",
+                                               "ColumnMapping":  [
+                                                                     {
+                                                                         "ColumnName":  "BillToAddressID",
+                                                                         "ReferencedColumn":  "AddressID"
+                                                                     }
+                                                                 ]
+                                           }
+                                       ],
+                       "CheckConstraints":  [
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderHeader_Status",
+                                                    "ConstraintDefinition":  "([Status]\u003e=(0) AND [Status]\u003c=(8))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderHeader_DueDate",
+                                                    "ConstraintDefinition":  "([DueDate]\u003e=[OrderDate])"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderHeader_ShipDate",
+                                                    "ConstraintDefinition":  "([ShipDate]\u003e=[OrderDate] OR [ShipDate] IS NULL)"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderHeader_SubTotal",
+                                                    "ConstraintDefinition":  "([SubTotal]\u003e=(0.00))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderHeader_TaxAmt",
+                                                    "ConstraintDefinition":  "([TaxAmt]\u003e=(0.00))"
+                                                },
+                                                {
+                                                    "ConstraintName":  "CK_SalesOrderHeader_Freight",
+                                                    "ConstraintDefinition":  "([Freight]\u003e=(0.00))"
+                                                }
+                                            ],
+                       "Indexes":  [
+                                       {
+                                           "IndexName":  "PK_SalesOrderHeader_SalesOrderID",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  true,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "SalesOrderID"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_SalesOrderHeader_rowguid",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "rowguid"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "AK_SalesOrderHeader_SalesOrderNumber",
+                                           "IsUnique":  true,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "SalesOrderNumber"
+                                                                }
+                                                            ]
+                                       },
+                                       {
+                                           "IndexName":  "IX_SalesOrderHeader_CustomerID",
+                                           "IsUnique":  false,
+                                           "IsPrimaryKey":  false,
+                                           "IndexColumns":  [
+                                                                {
+                                                                    "name":  "CustomerID"
+                                                                }
+                                                            ]
+                                       }
+                                   ],
+                       "Triggers":  [
+                                        {
+                                            "TriggerName":  "uSalesOrderHeader",
+                                            "IsUpdate":  1,
+                                            "IsDelete":  0,
+                                            "IsInsert":  0,
+                                            "TriggerDefinition":  "\r\nCREATE TRIGGER [SalesLT].[uSalesOrderHeader] ON [SalesLT].[SalesOrderHeader] \r\nAFTER UPDATE AS \r\nBEGIN\r\n    DECLARE @Count int;\r\n\r\n    SET @Count = @@ROWCOUNT;\r\n    IF @Count = 0 \r\n        RETURN;\r\n\r\n    SET NOCOUNT ON;\r\n\r\n    BEGIN TRY\r\n        -- Update RevisionNumber for modification of any field EXCEPT the Status.\r\n        IF NOT (UPDATE([Status]) OR UPDATE([RevisionNumber]))\r\n        BEGIN\r\n            UPDATE [SalesLT].[SalesOrderHeader]\r\n            SET [SalesLT].[SalesOrderHeader].[RevisionNumber] = \r\n                [SalesLT].[SalesOrderHeader].[RevisionNumber] + 1\r\n            WHERE [SalesLT].[SalesOrderHeader].[SalesOrderID] IN \r\n                (SELECT inserted.[SalesOrderID] FROM inserted);\r\n        END;\r\n    END TRY\r\n    BEGIN CATCH\r\n        EXECUTE [dbo].[uspPrintError];\r\n\r\n        -- Rollback any active or uncommittable transactions before\r\n        -- inserting information in the ErrorLog\r\n        IF @@TRANCOUNT \u003e 0\r\n        BEGIN\r\n            ROLLBACK TRANSACTION;\r\n        END\r\n\r\n        EXECUTE [dbo].[uspLogError];\r\n    END CATCH;\r\nEND;\r\n"
+                                        }
+                                    ]
+                   }
+               ],
+    "StoredProcedures":  [
+                             {
+                                 "SchemaName":  "dbo",
+                                 "ProcedureName":  "uspLogError",
+                                 "ProcedureDefinition":  "-- uspLogError logs error information in the ErrorLog table about the \r\n-- error that caused execution to jump to the CATCH block of a \r\n-- TRY...CATCH construct. This should be executed from within the scope \r\n-- of a CATCH block otherwise it will return without inserting error \r\n-- information. \r\nCREATE PROCEDURE [dbo].[uspLogError] \r\n    @ErrorLogID [int] = 0 OUTPUT -- contains the ErrorLogID of the row inserted\r\nAS                               -- by uspLogError in the ErrorLog table\r\nBEGIN\r\n    SET NOCOUNT ON;\r\n\r\n    -- Output parameter value of 0 indicates that error \r\n    -- information was not logged\r\n    SET @ErrorLogID = 0;\r\n\r\n    BEGIN TRY\r\n        -- Return if there is no error information to log\r\n        IF ERROR_NUMBER() IS NULL\r\n            RETURN;\r\n\r\n        -- Return if inside an uncommittable transaction.\r\n        -- Data insertion/modification is not allowed when \r\n        -- a transaction is in an uncommittable state.\r\n        IF XACT_STATE() = -1\r\n        BEGIN\r\n            PRINT \u0027Cannot log error since the current transaction is in an uncommittable state. \u0027 \r\n                + \u0027Rollback the transaction before executing uspLogError in order to successfully log error information.\u0027;\r\n            RETURN;\r\n        END\r\n\r\n        INSERT [dbo].[ErrorLog] \r\n            (\r\n            [UserName], \r\n            [ErrorNumber], \r\n            [ErrorSeverity], \r\n            [ErrorState], \r\n            [ErrorProcedure], \r\n            [ErrorLine], \r\n            [ErrorMessage]\r\n            ) \r\n        VALUES \r\n            (\r\n            CONVERT(sysname, CURRENT_USER), \r\n            ERROR_NUMBER(),\r\n            ERROR_SEVERITY(),\r\n            ERROR_STATE(),\r\n            ERROR_PROCEDURE(),\r\n            ERROR_LINE(),\r\n            ERROR_MESSAGE()\r\n            );\r\n\r\n        -- Pass back the ErrorLogID of the row inserted\r\n        SET @ErrorLogID = @@IDENTITY;\r\n    END TRY\r\n    BEGIN CATCH\r\n        PRINT \u0027An error occurred in stored procedure uspLogError: \u0027;\r\n        EXECUTE [dbo].[uspPrintError];\r\n        RETURN -1;\r\n    END CATCH\r\nEND;"
+                             },
+                             {
+                                 "SchemaName":  "dbo",
+                                 "ProcedureName":  "uspPrintError",
+                                 "ProcedureDefinition":  "-- uspPrintError prints error information about the error that caused \r\n-- execution to jump to the CATCH block of a TRY...CATCH construct. \r\n-- Should be executed from within the scope of a CATCH block otherwise \r\n-- it will return without printing any error information.\r\nCREATE PROCEDURE [dbo].[uspPrintError] \r\nAS\r\nBEGIN\r\n    SET NOCOUNT ON;\r\n\r\n    -- Print error information. \r\n    PRINT \u0027Error \u0027 + CONVERT(varchar(50), ERROR_NUMBER()) +\r\n          \u0027, Severity \u0027 + CONVERT(varchar(5), ERROR_SEVERITY()) +\r\n          \u0027, State \u0027 + CONVERT(varchar(5), ERROR_STATE()) + \r\n          \u0027, Procedure \u0027 + ISNULL(ERROR_PROCEDURE(), \u0027-\u0027) + \r\n          \u0027, Line \u0027 + CONVERT(varchar(5), ERROR_LINE());\r\n    PRINT ERROR_MESSAGE();\r\nEND;"
+                             }
+                         ],
+    "Views":  [
+                  {
+                      "SchemaName":  "SalesLT",
+                      "ViewName":  "vGetAllCategories",
+                      "ViewDefinition":  "\r\nCREATE VIEW [SalesLT].[vGetAllCategories]\r\nWITH SCHEMABINDING \r\nAS \r\n-- Returns the CustomerID, first name, and last name for the specified customer.\r\n\r\nWITH CategoryCTE([ParentProductCategoryID], [ProductCategoryID], [Name]) AS \r\n(\r\n\tSELECT [ParentProductCategoryID], [ProductCategoryID], [Name]\r\n\tFROM SalesLT.ProductCategory\r\n\tWHERE ParentProductCategoryID IS NULL\r\n\r\nUNION ALL\r\n\r\n\tSELECT C.[ParentProductCategoryID], C.[ProductCategoryID], C.[Name]\r\n\tFROM SalesLT.ProductCategory AS C\r\n\tINNER JOIN CategoryCTE AS BC ON BC.ProductCategoryID = C.ParentProductCategoryID\r\n)\r\n\r\nSELECT PC.[Name] AS [ParentProductCategoryName], CCTE.[Name] as [ProductCategoryName], CCTE.[ProductCategoryID]  \r\nFROM CategoryCTE AS CCTE\r\nJOIN SalesLT.ProductCategory AS PC \r\nON PC.[ProductCategoryID] = CCTE.[ParentProductCategoryID]\r\n\r\n"
+                  },
+                  {
+                      "SchemaName":  "SalesLT",
+                      "ViewName":  "vProductAndDescription",
+                      "ViewDefinition":  "\r\n\r\nCREATE VIEW [SalesLT].[vProductAndDescription] \r\nWITH SCHEMABINDING \r\nAS \r\n-- View (indexed or standard) to display products and product descriptions by language.\r\nSELECT \r\n    p.[ProductID] \r\n    ,p.[Name] \r\n    ,pm.[Name] AS [ProductModel] \r\n    ,pmx.[Culture] \r\n    ,pd.[Description] \r\nFROM [SalesLT].[Product] p \r\n    INNER JOIN [SalesLT].[ProductModel] pm \r\n    ON p.[ProductModelID] = pm.[ProductModelID] \r\n    INNER JOIN [SalesLT].[ProductModelProductDescription] pmx \r\n    ON pm.[ProductModelID] = pmx.[ProductModelID] \r\n    INNER JOIN [SalesLT].[ProductDescription] pd \r\n    ON pmx.[ProductDescriptionID] = pd.[ProductDescriptionID];\r\n"
+                  },
+                  {
+                      "SchemaName":  "SalesLT",
+                      "ViewName":  "vProductModelCatalogDescription",
+                      "ViewDefinition":  "\r\nCREATE VIEW [SalesLT].[vProductModelCatalogDescription] \r\nAS \r\nSELECT \r\n    [ProductModelID] \r\n    ,[Name] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace html=\"http://www.w3.org/1999/xhtml\"; \r\n        (/p1:ProductDescription/p1:Summary/html:p)[1]\u0027, \u0027nvarchar(max)\u0027) AS [Summary] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        (/p1:ProductDescription/p1:Manufacturer/p1:Name)[1]\u0027, \u0027nvarchar(max)\u0027) AS [Manufacturer] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        (/p1:ProductDescription/p1:Manufacturer/p1:Copyright)[1]\u0027, \u0027nvarchar(30)\u0027) AS [Copyright] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        (/p1:ProductDescription/p1:Manufacturer/p1:ProductURL)[1]\u0027, \u0027nvarchar(256)\u0027) AS [ProductURL] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wm=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelWarrAndMain\"; \r\n        (/p1:ProductDescription/p1:Features/wm:Warranty/wm:WarrantyPeriod)[1]\u0027, \u0027nvarchar(256)\u0027) AS [WarrantyPeriod] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wm=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelWarrAndMain\"; \r\n        (/p1:ProductDescription/p1:Features/wm:Warranty/wm:Description)[1]\u0027, \u0027nvarchar(256)\u0027) AS [WarrantyDescription] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wm=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelWarrAndMain\"; \r\n        (/p1:ProductDescription/p1:Features/wm:Maintenance/wm:NoOfYears)[1]\u0027, \u0027nvarchar(256)\u0027) AS [NoOfYears] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wm=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelWarrAndMain\"; \r\n        (/p1:ProductDescription/p1:Features/wm:Maintenance/wm:Description)[1]\u0027, \u0027nvarchar(256)\u0027) AS [MaintenanceDescription] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wf=\"http://www.adventure-works.com/schemas/OtherFeatures\"; \r\n        (/p1:ProductDescription/p1:Features/wf:wheel)[1]\u0027, \u0027nvarchar(256)\u0027) AS [Wheel] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wf=\"http://www.adventure-works.com/schemas/OtherFeatures\"; \r\n        (/p1:ProductDescription/p1:Features/wf:saddle)[1]\u0027, \u0027nvarchar(256)\u0027) AS [Saddle] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wf=\"http://www.adventure-works.com/schemas/OtherFeatures\"; \r\n        (/p1:ProductDescription/p1:Features/wf:pedal)[1]\u0027, \u0027nvarchar(256)\u0027) AS [Pedal] \r\n    ,[CatalogDescription].value(N\u0027declare namespace p1=\"http://schemas.microsoft.com/sqlserver/2004/07/adventure-works/ProductModelDescription\"; \r\n        declare namespace wf=\"http://www.adventure-works.com/schemas/OtherFeatures\"; \r\n        (/p1:ProductDescription/p1:Features/wf:BikeFrame)[1]\u0027, \u0027nvarchar(max)\u0027) AS [BikeFr"
+                  }
+              ],
+    "Functions":  [
+                      {
+                          "SchemaName":  "dbo",
+                          "FunctionName":  "ufnGetAllCategories",
+                          "FunctionDefinition":  "-- DROP FUNCTION [dbo].[ufnGetAllCategories]\r\n\r\nCREATE FUNCTION [dbo].[ufnGetAllCategories]()\r\nRETURNS @retCategoryInformation TABLE \r\n(\r\n    -- Columns returned by the function\r\n    [ParentProductCategoryName] [nvarchar](50) NULL, \r\n    [ProductCategoryName] [nvarchar](50) NOT NULL,\r\n\t[ProductCategoryID] [int] NOT NULL\r\n)\r\nAS \r\n-- Returns the CustomerID, first name, and last name for the specified customer.\r\nBEGIN\r\n\tWITH CategoryCTE([ParentProductCategoryID], [ProductCategoryID], [Name]) AS \r\n\t(\r\n\t\tSELECT [ParentProductCategoryID], [ProductCategoryID], [Name]\r\n\t\tFROM SalesLT.ProductCategory\r\n\t\tWHERE ParentProductCategoryID IS NULL\r\n\r\n\tUNION ALL\r\n\r\n\t\tSELECT C.[ParentProductCategoryID], C.[ProductCategoryID], C.[Name]\r\n\t\tFROM SalesLT.ProductCategory AS C\r\n\t\tINNER JOIN CategoryCTE AS BC ON BC.ProductCategoryID = C.ParentProductCategoryID\r\n\t)\r\n\r\n\tINSERT INTO @retCategoryInformation\r\n\tSELECT PC.[Name] AS [ParentProductCategoryName], CCTE.[Name] as [ProductCategoryName], CCTE.[ProductCategoryID]  \r\n\tFROM CategoryCTE AS CCTE\r\n\tJOIN SalesLT.ProductCategory AS PC \r\n\tON PC.[ProductCategoryID] = CCTE.[ParentProductCategoryID];\r\n\tRETURN;\r\nEND;",
+                          "ReturnType":  "TABLE"
+                      },
+                      {
+                          "SchemaName":  "dbo",
+                          "FunctionName":  "ufnGetCustomerInformation",
+                          "FunctionDefinition":  "CREATE FUNCTION [dbo].[ufnGetCustomerInformation](@CustomerID int)\r\nRETURNS TABLE \r\nAS \r\n-- Returns the CustomerID, first name, and last name for the specified customer.\r\nRETURN (\r\n    SELECT \r\n        CustomerID, \r\n        FirstName, \r\n        LastName\r\n    FROM [SalesLT].[Customer] \r\n    WHERE [CustomerID] = @CustomerID\r\n);",
+                          "ReturnType":  "TABLE"
+                      },
+                      {
+                          "SchemaName":  "dbo",
+                          "FunctionName":  "ufnGetSalesOrderStatusText",
+                          "FunctionDefinition":  "CREATE FUNCTION [dbo].[ufnGetSalesOrderStatusText](@Status [tinyint])\r\nRETURNS [nvarchar](15) \r\nAS \r\n-- Returns the sales order status text representation for the status value.\r\nBEGIN\r\n    DECLARE @ret [nvarchar](15);\r\n\r\n    SET @ret = \r\n        CASE @Status\r\n            WHEN 1 THEN \u0027In process\u0027\r\n            WHEN 2 THEN \u0027Approved\u0027\r\n            WHEN 3 THEN \u0027Backordered\u0027\r\n            WHEN 4 THEN \u0027Rejected\u0027\r\n            WHEN 5 THEN \u0027Shipped\u0027\r\n            WHEN 6 THEN \u0027Cancelled\u0027\r\n            ELSE \u0027** Invalid **\u0027\r\n        END;\r\n    \r\n    RETURN @ret\r\nEND;",
+                          "ReturnType":  "nvarchar"
+                      }
+                  ]
+}

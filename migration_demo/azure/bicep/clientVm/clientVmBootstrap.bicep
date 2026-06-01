@@ -19,7 +19,7 @@ param tenantId string
 @description('The base URL used for accessing artifacts and automation artifacts.')
 param templateBaseUrl string
 
-@description('The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19')
+@description('The naming prefix for the nested virtual machines. Example: MigDem-Win2k19')
 param namingPrefix string
 
 @description('The flavor of ArcBox to deploy. This migration demo supports ITPro only.')

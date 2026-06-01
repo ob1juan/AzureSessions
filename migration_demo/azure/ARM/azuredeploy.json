@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "16838257061631354174"
+      "templateHash": "2644674985463829175"
     }
   },
   "parameters": {
@@ -133,10 +133,10 @@
     },
     "namingPrefix": {
       "type": "string",
-      "defaultValue": "ArcBox",
+      "defaultValue": "MigDem",
       "maxLength": 7,
       "metadata": {
-        "description": "The naming prefix for the nested virtual machines and all Azure resources deployed. The maximum length for the naming prefix is 7 characters,example: `ArcBox-Win2k19`"
+        "description": "The naming prefix for the nested virtual machines and all Azure resources deployed. The maximum length for the naming prefix is 7 characters, example: `MigDem-Win2k19`"
       }
     },
     "autoShutdownEnabled": {
@@ -266,7 +266,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "3090255419199517313"
+              "templateHash": "9477582776774165135"
             }
           },
           "parameters": {
@@ -314,10 +314,10 @@
             },
             "namingPrefix": {
               "type": "string",
-              "defaultValue": "ArcBox",
+              "defaultValue": "MigDem",
               "maxLength": 7,
               "metadata": {
-                "description": "The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19"
+                "description": "The naming prefix for the nested virtual machines. Example: MigDem-Win2k19"
               }
             },
             "deployBastion": {
@@ -663,7 +663,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "14761012401917789676"
+              "templateHash": "4340260990681205208"
             }
           },
           "parameters": {
@@ -781,10 +781,10 @@
             },
             "namingPrefix": {
               "type": "string",
-              "defaultValue": "ArcBox",
+              "defaultValue": "MigDem",
               "maxLength": 7,
               "metadata": {
-                "description": "The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19"
+                "description": "The naming prefix for the nested virtual machines. Example: MigDem-Win2k19"
               }
             },
             "windowsAdminPassword": {
@@ -3949,7 +3949,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "1507239458285869395"
+              "templateHash": "17593420484832775999"
             }
           },
           "parameters": {
@@ -3999,7 +3999,7 @@
             "namingPrefix": {
               "type": "string",
               "metadata": {
-                "description": "The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19"
+                "description": "The naming prefix for the nested virtual machines. Example: MigDem-Win2k19"
               }
             },
             "flavor": {

@@ -23,7 +23,7 @@ Import-Module WebAdministration
 
 New-Item -ItemType Directory -Path $siteRoot -Force | Out-Null
 
-Write-Host 'Downloading ASPX sample pages'
+Write-Host 'Downloading AdventureWorks Web Forms pages'
 Invoke-WebRequest -Uri ($ArtifactBaseUrl + 'artifacts/iis/site/default.aspx') -OutFile (Join-Path $siteRoot 'default.aspx') -UseBasicParsing
 Invoke-WebRequest -Uri ($ArtifactBaseUrl + 'artifacts/iis/site/sql.aspx') -OutFile (Join-Path $siteRoot 'sql.aspx') -UseBasicParsing
 Invoke-WebRequest -Uri ($ArtifactBaseUrl + 'artifacts/iis/site/web.config') -OutFile (Join-Path $siteRoot 'web.config') -UseBasicParsing
