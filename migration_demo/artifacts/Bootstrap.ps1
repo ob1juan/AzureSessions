@@ -134,7 +134,9 @@ if ($vmAutologon -eq "true") {
 
     Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "AutoAdminLogon" "1"
     Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultUserName" $adminUsername
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultDomainName" $env:COMPUTERNAME
     Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "DefaultPassword" $adminPassword
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "ForceAutoLogon" "1"
 } else {
 
     Write-Host "Not configuring VM Autologon"
@@ -328,11 +330,11 @@ $null = Set-AzResourceGroup -ResourceGroupName $resourceGroup -Tag $tags
 
 # Creating scheduled task for WinGet.ps1
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
-$Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument $Env:ArcBoxDir\WinGet.ps1
+$Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Env:ArcBoxDir\WinGet.ps1`""
 Register-ScheduledTask -TaskName "WinGetLogonScript" -Trigger $Trigger -User $adminUsername -Action $Action -RunLevel "Highest" -Force
 
 # Creating scheduled task for ArcServersLogonScript.ps1
-$Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument $Env:ArcBoxDir\ArcServersLogonScript.ps1
+$Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Env:ArcBoxDir\ArcServersLogonScript.ps1`""
 Register-ScheduledTask -TaskName "ArcServersLogonScript" -User $adminUsername -Action $Action -RunLevel "Highest" -Force
 
 # Disabling Windows Server Manager Scheduled Task

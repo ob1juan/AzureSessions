@@ -30,7 +30,7 @@ Start-Transcript -Path $logFilePath -Force -ErrorAction SilentlyContinue
 
 # Remove registry keys that are used to automatically logon the user (only used for first-time setup)
 $registryPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
-$keys = @('AutoAdminLogon', 'DefaultUserName', 'DefaultPassword')
+$keys = @('AutoAdminLogon', 'DefaultUserName', 'DefaultDomainName', 'DefaultPassword', 'ForceAutoLogon')
 
 foreach ($key in $keys) {
     try {
