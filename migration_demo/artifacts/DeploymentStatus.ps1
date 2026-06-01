@@ -16,14 +16,16 @@ $arcNumResources = $arcNumResources -replace "[^0-9]" , ''
 Write-Host "You now have $arcNumResources Azure Arc resources in '$Env:resourceGroup' resource group"
 Write-Host "`n"
 
+$expectedArcResources = 2
+
 # ArcBox IT Pro edition report if applicable
-if ( $arcNumResources -eq 6 )
+if ( [int]$arcNumResources -ge $expectedArcResources )
 {
     Write-Host "Great success!"
     az storage message put --content "Successful Jumpstart ArcBox ($Env:flavor) deployment" --account-name "jumpstartusage" --queue-name "arcboxusage" --time-to-live -1
 }
 
-if ( $arcNumResources -ne 6) {
+if ( [int]$arcNumResources -lt $expectedArcResources) {
     Write-Host "Too bad, not all Azure Arc resources onboarded"
     az storage message put --content "Failed Jumpstart ArcBox ($Env:flavor) deployment" --account-name "jumpstartusage" --queue-name "arcboxusage" --time-to-live -1
 }

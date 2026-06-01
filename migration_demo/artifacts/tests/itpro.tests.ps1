@@ -1,7 +1,7 @@
 
 BeforeDiscovery {
     $namingPrefix = $env:namingPrefix
-    $VMs = @("$namingPrefix-SQL", "$namingPrefix-Ubuntu-01", "$namingPrefix-Ubuntu-02","$namingPrefix-Win2K22","$namingPrefix-Win2K25","$namingPrefix-IIS","$namingPrefix-PG")
+    $VMs = @("$namingPrefix-SQL", "$namingPrefix-Ubuntu")
     $null = Connect-AzAccount -Identity -Tenant $env:tenantId -Subscription $env:subscriptionId
 }
 
@@ -26,5 +26,19 @@ Describe "<vm>" -ForEach $VMs {
     It "Azure Arc Connected Machine is connected" {
         $connectedMachine = Get-AzConnectedMachine -Name $vm -ResourceGroupName $env:resourceGroup -SubscriptionId $env:subscriptionId
         $connectedMachine.Status | Should -Be "Connected"
+    }
+}
+
+Describe "ArcBox demo websites" {
+    It "SQL website responds from ArcBox-SQL" {
+        $ipAddress = (Get-VMNetworkAdapter -VMName "$namingPrefix-SQL").IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+        $response = Invoke-WebRequest -Uri "http://$ipAddress/sql.aspx" -UseBasicParsing -TimeoutSec 30
+        $response.Content | Should -Match 'SQL Server products'
+    }
+
+    It "PostgreSQL website responds from ArcBox-Ubuntu" {
+        $ipAddress = (Get-VMNetworkAdapter -VMName "$namingPrefix-Ubuntu").IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+        $response = Invoke-WebRequest -Uri "http://$ipAddress/" -UseBasicParsing -TimeoutSec 30
+        $response.Content | Should -Match 'PostgreSQL widgets'
     }
 }

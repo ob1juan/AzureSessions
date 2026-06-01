@@ -8,9 +8,6 @@ param passwordLength int = 16
 @description('Secret name in Key Vault for the Windows admin password')
 param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
 
-@description('Secret name in Key Vault for the container registry password')
-param registryPasswordSecretName string = 'registryPassword'
-
 @description('Username for Windows account')
 param windowsAdminUsername string
 
@@ -19,9 +16,6 @@ param vmAutologon bool = true
 
 @description('Override default RDP port using this parameter. Default is 3389. No changes will be made to the client VM.')
 param rdpPort string = '3389'
-
-@description('Name for your log analytics workspace')
-param logAnalyticsWorkspaceName string = 'ArcBox-la'
 
 @description('SQL Server edition to deploy. Valid values are: \'Developer\', \'Standard\', \'Enterprise\'')
 @allowed([
@@ -54,27 +48,13 @@ param deployBastion bool = true
 ])
 param bastionSku string = 'Basic'
 
-@description('User github account where they have forked https://github.com/Azure/jumpstart-apps')
-param githubUser string = 'Azure'
-
-@description('Active directory domain services domain name')
-param addsDomainName string = 'jumpstart.local'
-
-@description('Random GUID for cluster names')
+@description('Seed suffix used for deterministic generated credentials')
 param guid string = substring(uniqueString(resourceGroup().id), 0, 4)
 
 var location = resourceGroup().location
 
-@description('The custom location RPO ID. This parameter is only needed when deploying the DataOps flavor.')
-param customLocationRPOID string = sys.guid(resourceGroup().id, 'customLocationRPOID')
-
 @description('Use this parameter to enable or disable debug mode for the automation scripts on the client VM, effectively configuring PowerShell ErrorActionPreference to Break. Intended for use when troubleshooting automation scripts. Default is false.')
 param debugEnabled bool = false
-
-@description('Tags to assign for all ArcBox resources')
-param resourceTags object = {
-  Solution: 'jumpstart_arcbox_itpro'
-}
 
 @description('Name of the NAT Gateway')
 param natGatewayName string = '${namingPrefix}-NatGateway'
@@ -128,13 +108,8 @@ param enableAzureSpotPricing bool = false
 param zones string = '1'
 
 var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/${githubRepo}/${githubBranch}/${githubRepoPath}'
-var aksArcDataClusterName = '${namingPrefix}-AKS-Data-${guid}'
-var aksDrArcDataClusterName = '${namingPrefix}-AKS-DR-Data-${guid}'
-var k3sArcDataClusterName = '${namingPrefix}-K3s-Data-${guid}'
-var k3sArcClusterName = '${namingPrefix}-K3s-${guid}'
 var randomSeed = uniqueString(resourceGroup().id, guid)
 var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windows'), 0, passwordLength - 4)}'
-var generatedRegistryPassword = 'Bb2!${substring(base64('${randomSeed}-registry'), 0, passwordLength - 4)}'
 var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = 'c4a26bed-72cb-415d-91a3-e2577c7c92f5'
 
@@ -156,28 +131,16 @@ module clientVmDeployment 'clientVm/clientVm.bicep' = {
   }
 }
 
-module stagingStorageAccountDeployment 'mgmt/mgmtStagingStorage.bicep' = {
-  name: 'stagingStorageAccountDeployment'
-  params: {
-    location: location
-    namingPrefix: namingPrefix
-  }
-}
-
 module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
   name: 'mgmtArtifactsAndPolicyDeployment'
   params: {
-    workspaceName: logAnalyticsWorkspaceName
     flavor: flavor
     deployBastion: deployBastion
     bastionSku: bastionSku
     location: location
-    resourceTags: resourceTags
     namingPrefix: namingPrefix
     windowsAdminPassword: generatedWindowsAdminPassword
     windowsAdminPasswordSecretName: windowsAdminPasswordSecretName
-    registryPassword: generatedRegistryPassword
-    registryPasswordSecretName: registryPasswordSecretName
     natGatewayName: natGatewayName
   }
 }
@@ -207,35 +170,15 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
     vmName: '${namingPrefix}-Client'
     windowsAdminUsername: windowsAdminUsername
     tenantId: tenantId
-    workspaceName: logAnalyticsWorkspaceName
-    stagingStorageAccountName: toLower(stagingStorageAccountDeployment.outputs.storageAccountName)
     templateBaseUrl: templateBaseUrl
     flavor: flavor
-    githubBranch: githubBranch
-    githubUser: githubUser
     location: location
-    k3sArcDataClusterName : k3sArcDataClusterName
-    k3sArcClusterName : k3sArcClusterName
-    aksArcClusterName : aksArcDataClusterName
-    aksdrArcClusterName : aksDrArcDataClusterName
     vmAutologon: vmAutologon
     rdpPort: rdpPort
-    addsDomainName: addsDomainName
-    customLocationRPOID: customLocationRPOID
-    resourceTags: resourceTags
     namingPrefix: namingPrefix
     debugEnabled: debugEnabled
     autoShutdownEnabled: autoShutdownEnabled
     sqlServerEdition: sqlServerEdition
-    azdataUsername: 'arcdemo'
-    acceptEula: 'yes'
-    registryUsername: 'registryUser'
-    arcDcName: 'arcdatactrl'
-    mssqlmiName: 'arcsqlmidemo'
-    postgresName: 'arcpg'
-    postgresWorkerNodeCount: 3
-    postgresDatasize: 1024
-    postgresServiceType: 'LoadBalancer'
   }
 }
 

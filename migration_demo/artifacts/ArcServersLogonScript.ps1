@@ -14,7 +14,6 @@ $tenantId = $env:tenantId
 $subscriptionId = $env:subscriptionId
 $azureLocation = $env:azureLocation
 $resourceGroup = $env:resourceGroup
-$resourceTags = $env:resourceTags
 $namingPrefix = $env:namingPrefix
 
 # Moved VHD storage account details here to keep only in place to prevent duplicates.
@@ -35,7 +34,7 @@ $keys = @('AutoAdminLogon', 'DefaultUserName', 'DefaultPassword')
 
 foreach ($key in $keys) {
     try {
-        $property = Get-ItemProperty -Path $registryPath -Name $key -ErrorAction Stop
+        Get-ItemProperty -Path $registryPath -Name $key -ErrorAction Stop | Out-Null
         Remove-ItemProperty -Path $registryPath -Name $key
         Write-Host "Removed registry key that are used to automatically logon the user: $key"
     } catch {
@@ -90,12 +89,6 @@ if ($Env:flavor -ne 'DevOps') {
             -Force
     }
 
-    # Set custom DNS if flaver is DataOps
-    if ($Env:flavor -eq 'DataOps') {
-        Add-DhcpServerInDC -DnsName "$namingPrefix-client.jumpstart.local"
-        Restart-Service dhcpserver
-    }
-
     # Create the NAT network
     Write-Host 'Creating Internal NAT'
     $natName = 'InternalNat'
@@ -123,16 +116,6 @@ if ($Env:flavor -ne 'DevOps') {
         $folder.Attributes += [System.IO.FileAttributes]::Hidden
     }
 
-    # Install Azure CLI extensions
-    Write-Header 'Az CLI extensions'
-
-    az config set extension.use_dynamic_install=yes_without_prompt --only-show-errors
-
-    @('ssh', 'log-analytics-solution', 'connectedmachine', 'monitor-control-service') |
-    ForEach-Object -Parallel {
-        az extension add --name $PSItem --yes --only-show-errors
-    }
-
     # Required for CLI commands
     Write-Header 'Az CLI Login'
     az login --identity
@@ -142,8 +125,6 @@ if ($Env:flavor -ne 'DevOps') {
     $requiredResourceProviders = @(
         'Microsoft.HybridCompute'
         'Microsoft.GuestConfiguration'
-        'Microsoft.HybridConnectivity'
-        'Microsoft.AzureArcData'
     )
 
     foreach ($providerNamespace in $requiredResourceProviders) {
@@ -181,13 +162,6 @@ if ($Env:flavor -ne 'DevOps') {
 
     # Update disk IOPS and throughput before downloading nested VMs
     az disk update --resource-group $env:resourceGroup --name $existingVMDisk.Name --disk-iops-read-write 80000 --disk-mbps-read-write 1200
-
-    # Enable defender for cloud for SQL Server
-    # Get workspace information
-    $workspaceResourceID = (az monitor log-analytics workspace show --resource-group $resourceGroup --workspace-name $Env:workspaceName --query 'id' -o tsv)
-
-    # Before deploying ArcBox SQL set resource group tag ArcSQLServerExtensionDeployment=Disabled to opt out of automatic SQL onboarding
-    az tag create --resource-id "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup" --tags ArcSQLServerExtensionDeployment=Disabled
 
     $vhdImageToDownload = 'ArcBox-SQL-DEV.vhdx'
     if ($Env:sqlServerEdition -eq 'Standard') {
@@ -262,11 +236,6 @@ if ($Env:flavor -ne 'DevOps') {
     # Enable Windows Firewall rule for SQL Server
     Invoke-Command -VMName $SQLvmName -ScriptBlock { New-NetFirewallRule -DisplayName 'Allow SQL Server TCP 1433' -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow } -Credential $winCreds
 
-    # Download SQL assessment preparation script
-    Invoke-WebRequest ($Env:templateBaseUrl + 'artifacts/prepareSqlServerForAssessment.ps1') -OutFile $nestedVMArcBoxDir\prepareSqlServerForAssessment.ps1
-    Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\prepareSqlServerForAssessment.ps1" -DestinationPath "$nestedVMArcBoxDir\prepareSqlServerForAssessment.ps1" -CreateFullPath -FileSource Host -Force
-    Invoke-Command -VMName $SQLvmName -ScriptBlock { powershell -File $Using:nestedVMArcBoxDir\prepareSqlServerForAssessment.ps1 } -Credential $winCreds
-
     # Copy installation script to nested Windows VMs
     Write-Output 'Transferring installation script to nested Windows VMs...'
     Copy-VMFile $SQLvmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
@@ -277,192 +246,16 @@ if ($Env:flavor -ne 'DevOps') {
     Write-Output 'Onboarding the nested Windows VMs as Azure Arc-enabled servers'
     $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
     Invoke-Command -VMName $SQLvmName -ScriptBlock { powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation } -Credential $winCreds
+    Write-Output 'Azure Arc client installation command completed on SQL VM.'
 
-    # Wait for the Arc-enabled server installation to be completed
-    $sqlArcOnboarded = $false
-    $retryCount = 0
-    do {
-        $ArcServer = Get-AzConnectedMachine -Name $SQLvmName -ResourceGroupName $resourceGroup
-        if (($null -ne $ArcServer) -and ($ArcServer.ProvisioningState -eq 'Succeeded')) {
-            Write-Host 'Onboarding the nested SQL VM as Azure Arc-enabled server successful.'
-            $azConnectedMachineId = $ArcServer.Id
-            $sqlArcOnboarded = $true
-            break;
-        } else {
-            $retryCount = $retryCount + 1
-            if ($retryCount -gt 5) {
-                Write-Host "WARNING: Timeout exceeded for onboarding nested SQL VM as Azure Arc-enabled server ... Retry count: $retryCount."
-                Write-Warning 'Continuing with remaining VM deployment steps. SQL Arc-specific post-onboarding steps will be skipped.'
-                break
-            } else {
-                Write-Host "Waiting for onboarding nested SQL VM as Azure Arc-enabled server ... Retry count: $retryCount"
-                Start-Sleep(30)
-            }
-        }
-    } while ($retryCount -le 5)
-
-    if ($sqlArcOnboarded) {
-        # Create SQL server extension as policy to auto deployment is disabled
-        Write-Host "Installing SQL Server extension on the Arc-enabled Server.`n"
-        az connectedmachine extension create --machine-name $SQLvmName --name 'WindowsAgent.SqlServer' --resource-group $resourceGroup --type 'WindowsAgent.SqlServer' --publisher 'Microsoft.AzureData' --settings '{\"LicenseType\":\"Paid\", \"SqlManagement\": {\"IsEnabled\":true}}' --tags $resourceTags --location $azureLocation --only-show-errors --no-wait
-        Write-Host 'SQL Server extension installation on the Arc-enabled Server successful.'
-
-    $retryCount = 0
-    do {
-        # Verify if Arc-enabled server and SQL server extensions are installed
-        $sqlExtension = Get-AzConnectedMachine -Name $SQLvmName -ResourceGroupName $resourceGroup | Select-Object -ExpandProperty Resource | Where-Object { $PSItem.Name -eq 'WindowsAgent.SqlServer' }
-        if ($sqlExtension -and ($sqlExtension.ProvisioningState -eq 'Succeeded')) {
-            # SQL server extension is installed and ready to run SQL BPA
-            Write-Host "SQL server extension is installed and ready to run SQL BPA.`n"
-            break;
-        } else {
-            # Arc SQL Server extension is not installed or still in progress.
-            $retryCount = $retryCount + 1
-            if ($retryCount -gt 10) {
-                Write-Warning "Timeout exceeded installing SQL server extension. Retry count: $retryCount."
-            } else {
-                Write-Host "Waiting for SQL server extension installation ... Retry count: $retryCount"
-                Start-Sleep(30)
-            }
-        }
-    } while ($retryCount -le 10)
-
-    # Azure Monitor Agent extension is deployed automatically using Azure Policy. Wait until extension status is Succeded.
-    Write-Host "Installing Azure Monitoring Agent extension.`n"
-    az connectedmachine extension create --machine-name $SQLvmName --name AzureMonitorWindowsAgent --publisher Microsoft.Azure.Monitor --type AzureMonitorWindowsAgent --resource-group $resourceGroup --location $azureLocation --only-show-errors --no-wait
-
-    $retryCount = 0
-    do {
-        $amaExtension = Get-AzConnectedMachine -Name $SQLvmName -ResourceGroupName $resourceGroup | Select-Object -ExpandProperty Resource | Where-Object { $PSItem.Name -eq 'AzureMonitorWindowsAgent' }
-        if ($amaExtension.StatusCode -eq 0) {
-            Write-Host 'Azure Monitoring Agent extension installation complete.'
-            break
-        } else {
-            $retryCount = $retryCount + 1
-            if ($retryCount -gt 10) {
-                Write-Host 'WARNING: Azure Monitor Agent extenstion is taking longger than expected. Enable SQL BPA later through Azure portal.'
-                break
-            } else {
-                Write-Host "Waiting for Azure Monitoring Agent extension installation to complete ... Retry count: $retryCount"
-                Start-Sleep(60)
-            }
-        }
-    } while ($retryCount -le 10)
-
-    # Get access token to make ARM REST API call for SQL server BPA and migration assessments
-    $token = (az account get-access-token --subscription $subscriptionId --query accessToken --output tsv)
-    $headers = @{'Authorization' = "Bearer $token"; 'Content-Type' = 'application/json' }
-
-    # Enable Best practices assessment
-    if ($amaExtension.StatusCode -eq 0) {
-
-        # Create custom log analytics table for SQL assessment
-        Write-Host "Creating Log Analytis workspace table for SQL best practices assessment.`n"
-        az monitor log-analytics workspace table create --resource-group $resourceGroup --workspace-name $Env:workspaceName -n SqlAssessment_CL --columns RawData=string TimeGenerated=datetime --only-show-errors
-
-        # Verify if ArcBox SQL resource is created
-        Write-Host "Enabling SQL server best practices assessment.`n"
-        $bpaDeploymentTemplateUrl = "$Env:templateBaseUrl/artifacts/sqlbpa.json"
-        az deployment group create --resource-group $resourceGroup --template-uri $bpaDeploymentTemplateUrl --parameters workspaceName=$Env:workspaceName vmName=$SQLvmName arcSubscriptionId=$subscriptionId
-
-        # Run Best practices assessment
-        Write-Host "Execute SQL server best practices assessment.`n"
-
-        # Wait for a minute to finish everyting and run assessment
-        Start-Sleep(60)
-
-        $armRestApiEndpoint = "https://management.azure.com/subscriptions/$subscriptionId/resourcegroups/$resourceGroup/providers/Microsoft.HybridCompute/machines/$SQLvmName/extensions/WindowsAgent.SqlServer?api-version=2019-08-02-preview"
-
-        # Build API request payload
-        $worspaceResourceId = "/subscriptions/$subscriptionId/resourcegroups/$resourceGroup/providers/microsoft.operationalinsights/workspaces/$Env:workspaceName".ToLower()
-        $sqlExtensionId = "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.HybridCompute/machines/$SQLvmName/extensions/WindowsAgent.SqlServer"
-        $sqlbpaPayloadTemplate = "$Env:templateBaseUrl/artifacts/sqlbpa.payload.json"
-        $settingsSaveTime = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $apiPayload = (Invoke-WebRequest -Uri $sqlbpaPayloadTemplate).Content -replace '{{RESOURCEID}}', $sqlExtensionId -replace '{{LOCATION}}', $azureLocation -replace '{{WORKSPACEID}}', $worspaceResourceId -replace '{{SAVETIME}}', $settingsSaveTime
-
-        # Call REST API to run best practices assessment
-        $httpResp = Invoke-WebRequest -Method Patch -Uri $armRestApiEndpoint -Body $apiPayload -Headers $headers
-        if (($httpResp.StatusCode -eq 200) -or ($httpResp.StatusCode -eq 202)) {
-            Write-Host 'Arc-enabled SQL server best practices assessment executed. Wait for assessment to complete to view results.'
-        } else {
-            <# Action when all if and elseif conditions are false #>
-            Write-Host 'SQL Best Practices Assessment faild. Please refer troubleshooting guide to run manually.'
-        }
-    } # End of SQL BPA
-
-    # Run SQL Server Azure Migration Assessment
-    Write-Host "Enabling SQL Server Azure Migration Assessment.`n"
-    $migrationApiURL = 'https://management.azure.com/batch?api-version=2020-06-01'
-    $assessmentName = (New-Guid).Guid
-    $payLoad = @"
-{"requests":[{"httpMethod":"POST","name":"$assessmentName","requestHeaderDetails":{"commandName":"Microsoft_Azure_HybridData_Platform."},"url":"https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.AzureArcData/SqlServerInstances/$SQLvmName/runMigrationAssessment?api-version=2024-05-01-preview"}]}
-"@
-
-    $httpResp = Invoke-WebRequest -Method Post -Uri $migrationApiURL -Body $payLoad -Headers $headers
-    if (($httpResp.StatusCode -eq 200) -or ($httpResp.StatusCode -eq 202)) {
-        Write-Host 'Arc-enabled SQL server migration assessment executed. Wait for assessment to complete to view results.'
-    } else {
-        <# Action when all if and elseif conditions are false #>
-        Write-Host 'SQL Server Migration Assessment faild. Please refer troubleshooting guide to run manually.'
-    }
-
-    #Install SQLAdvancedThreatProtection solution
-    Write-Host "Installing SQLAdvancedThreatProtection Log Analytics solution.`n"
-    az monitor log-analytics solution create --resource-group $resourceGroup --solution-type SQLAdvancedThreatProtection --workspace $Env:workspaceName --only-show-errors
-
-    #Install SQLVulnerabilityAssessment solution
-    Write-Host "Install SQLVulnerabilityAssessment Log Analytics solution.`n"
-    az monitor log-analytics solution create --resource-group $resourceGroup --solution-type SQLVulnerabilityAssessment --workspace $Env:workspaceName --only-show-errors
-
-    # Update Azure Monitor data collection rule template with Log Analytics workspace resource ID
-    $sqlDefenderDcrFile = "$Env:ArcBoxDir\defendersqldcrtemplate.json"
-    (Get-Content -Path $sqlDefenderDcrFile) -replace '{LOGANLYTICS_WORKSPACEID}', $workspaceResourceID | Set-Content -Path $sqlDefenderDcrFile
-
-    # Create data collection rules for Defender for SQL
-    Write-Host "Creating Azure Monitor data collection rule.`n"
-    $dcrName = 'Jumpstart-DefenderForSQL-DCR'
-    az monitor data-collection rule create --resource-group $resourceGroup --location $env:azureLocation --name $dcrName --rule-file $sqlDefenderDcrFile
-
-    # Associate DCR with Azure Arc-enabled Server resource
-    Write-Host "Creating Azure Monitor data collection rule assocation for Arc-enabled server.`n"
-    $dcrRuleId = "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.Insights/dataCollectionRules/$dcrName"
-    az monitor data-collection rule association create --name "$SQLvmName" --rule-id $dcrRuleId --resource $azConnectedMachineId
-
-    # Test Defender for SQL
-    Write-Header "Simulating SQL threats to generate alerts from Defender for Cloud.`n"
-    $remoteScriptFileFile = "$Env:ArcBoxDir\testDefenderForSQL.ps1"
-    Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\SqlAdvancedThreatProtectionShell.psm1" -DestinationPath "$Env:ArcBoxDir\SqlAdvancedThreatProtectionShell.psm1" -CreateFullPath -FileSource Host -Force
-    Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\testDefenderForSQL.ps1" -DestinationPath $remoteScriptFileFile -CreateFullPath -FileSource Host -Force
-    Invoke-Command -VMName $SQLvmName -ScriptBlock { powershell -File $Using:remoteScriptFileFile } -Credential $winCreds
-
-    # Enable least privileged access
-    Write-Host "Enabling Arc-enabled SQL server least privileged access.`n"
-    az sql server-arc extension feature-flag set --name LeastPrivilege --enable true --resource-group $resourceGroup --machine-name $SQLvmName
-
-        # Enable automated backups
-        Write-Host "Enabling Arc-enabled SQL server automated backups.`n"
-        az sql server-arc backups-policy set --name $SQLvmName --resource-group $resourceGroup --retention-days 31 --full-backup-days 7 --diff-backup-hours 12 --tlog-backup-mins 5
-    } else {
-        Write-Warning 'Skipping SQL Arc extension/BPA/Defender/backup steps because SQL Arc onboarding did not complete in time.'
-    }
-
-    # Onboard nested Windows and Linux VMs to Azure Arc
+    # Deploy the single Ubuntu nested VM and configure the two legacy app stacks.
     if ($Env:flavor -eq 'ITPro') {
-        Write-Header 'Fetching Nested VMs'
+        Write-Header 'Fetching Ubuntu VM'
 
-        $Win2k22vmName = "$namingPrefix-Win2K22"
-        $Win2k22vmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Win2K22.vhdx"
-
-        $Win2k25vmName = "$namingPrefix-Win2K25"
-        $Win2k25vmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Win2K25.vhdx"
-
-        $Ubuntu01vmName = "$namingPrefix-Ubuntu-01"
-        $Ubuntu01vmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Ubuntu-01.vhdx"
-
-        $Ubuntu02vmName = "$namingPrefix-Ubuntu-02"
-        $Ubuntu02vmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Ubuntu-02.vhdx"
-
-        $files = 'ArcBox-Win2K22.vhdx;ArcBox-Win2K25.vhdx;ArcBox-Ubuntu-01.vhdx;ArcBox-Ubuntu-02.vhdx;'
+        $ubuntuVmName = "$namingPrefix-Ubuntu"
+        $ubuntuVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Ubuntu.vhdx"
+        $ubuntuSourceVhdName = 'ArcBox-Ubuntu-01.vhdx'
+        $ubuntuSourceVhdPath = Join-Path -Path $Env:ArcBoxVMDir -ChildPath $ubuntuSourceVhdName
 
         $DeploymentProgressString = 'Downloading and configuring nested VMs'
 
@@ -477,254 +270,85 @@ if ($Env:flavor -ne 'DevOps') {
         $null = Set-AzResourceGroup -ResourceGroupName $env:resourceGroup -Tag $tags
         $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $env:resourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force
 
-        # Verify if VHD files already downloaded especially when re-running this script
-        if (!((Test-Path $Win2K25vmvhdPath) -and (Test-Path $Win2k22vmvhdPath) -and (Test-Path $Ubuntu01vmvhdPath) -and (Test-Path $Ubuntu02vmvhdPath))) {
-            <# Action when all if and elseif conditions are false #>
+        # Verify if VHD file is already downloaded especially when re-running this script
+        if (!(Test-Path $ubuntuVhdPath)) {
             $Env:AZCOPY_BUFFER_GB = 4
-            Write-Output 'Downloading nested VMs VHDX files. This can take some time, hold tight...'
-            azcopy cp $vhdSourceFolder $Env:ArcBoxVMDir --include-pattern $files --recursive=true --check-length=false --log-level=ERROR
-        }
-
-        if ($namingPrefix -ne 'ArcBox') {
-
-            # Split the string into an array
-            $fileList = $files -split ';' | Where-Object { $_ -ne '' }
-
-            # Set the path to search for files
-            $searchPath = $Env:ArcBoxVMDir
-
-            # Loop through each file and rename if found
-            foreach ($file in $fileList) {
-                $filePath = Join-Path -Path $searchPath -ChildPath $file
-                if (Test-Path $filePath) {
-                    $newFileName = $file -replace 'ArcBox', $namingPrefix
-
-                    Rename-Item -Path $filePath -NewName $newFileName
-                    Write-Output "Renamed $file to $newFileName"
-                } else {
-                    Write-Output "$file not found in $searchPath"
-                }
+            if (!(Test-Path $ubuntuSourceVhdPath)) {
+                Write-Output 'Downloading nested Ubuntu VHDX file. This can take some time, hold tight...'
+                azcopy cp $vhdSourceFolder $Env:ArcBoxVMDir --include-pattern $ubuntuSourceVhdName --recursive=true --check-length=false --log-level=ERROR
             }
+
+            if (!(Test-Path $ubuntuSourceVhdPath)) {
+                throw "Unable to locate downloaded VHDX file $ubuntuSourceVhdName"
+            }
+
+            Move-Item -Path $ubuntuSourceVhdPath -Destination $ubuntuVhdPath -Force
         }
 
         # Update disk IOPS and throughput after downloading nested VMs (note: a disk's performance tier can be downgraded only once every 12 hours)
         az disk update --resource-group $env:resourceGroup --name $existingVMDisk.Name --disk-iops-read-write $existingVMDisk.DiskIOPSReadWrite --disk-mbps-read-write $existingVMDisk.DiskMBpsReadWrite
 
-        # Clone source VHDXs for the IIS and PG demo VMs before Hyper-V takes an exclusive lock on them.
-        $IISvmName = "$namingPrefix-IIS"
-        $PGvmName = "$namingPrefix-PG"
-        $IISvmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-IIS.vhdx"
-        $PGvmvhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-PG.vhdx"
-
-        if (-not (Test-Path $IISvmvhdPath)) {
-            Write-Output 'Cloning Win2K25 VHDX for IIS demo VM'
-            Copy-Item -Path $Win2k25vmvhdPath -Destination $IISvmvhdPath -Force
-        }
-        if (-not (Test-Path $PGvmvhdPath)) {
-            Write-Output 'Cloning Ubuntu-01 VHDX for PostgreSQL demo VM'
-            Copy-Item -Path $Ubuntu01vmvhdPath -Destination $PGvmvhdPath -Force
-        }
-
-        # Create the nested VMs if not already created
-        Write-Header 'Create Hyper-V VMs'
+        # Create the nested Ubuntu VM if not already created
+        Write-Header 'Create Hyper-V VM'
         $serversDscConfigurationFile = "$Env:ArcBoxDscDir\virtual_machines_itpro.dsc.yml"
         (Get-Content -Path $serversDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $serversDscConfigurationFile
         winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
 
-        $iisPgDscConfigurationFile = "$Env:ArcBoxDscDir\virtual_machines_iis_pg.dsc.yml"
-        (Get-Content -Path $iisPgDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $iisPgDscConfigurationFile
-        winget configure --file C:\ArcBox\DSC\virtual_machines_iis_pg.dsc.yml --accept-configuration-agreements --disable-interactivity
-
-    # Configure automatic start & stop action for the nested VMs
-    Get-VM | Where-Object {$_.State -eq "Running"} |
-        ForEach-Object -Parallel {
-            Stop-VM -Force -Name $PSItem.Name
-            Set-VM -Name $PSItem.Name -AutomaticStopAction ShutDown -AutomaticStartAction Start
-            Start-VM -Name $PSItem.Name
-        }
-    Start-Sleep -Seconds 30
+        # Configure automatic start & stop action for the nested VMs
+        Get-VM -Name $SQLvmName, $ubuntuVmName | Where-Object { $_.State -eq 'Running' } |
+            ForEach-Object -Parallel {
+                Stop-VM -Force -Name $PSItem.Name
+                Set-VM -Name $PSItem.Name -AutomaticStopAction ShutDown -AutomaticStartAction Start
+                Start-VM -Name $PSItem.Name
+            }
+        Start-Sleep -Seconds 30
 
         Write-Header 'Creating VM Credentials'
-        # Hard-coded username and password for the nested VMs
+        # Hard-coded username and password for the nested Linux VM
         $nestedLinuxUsername = 'jumpstart'
-        $nestedLinuxPassword = 'JS123!!'
-
-        # Create Linux credential object
-        $secLinuxPassword = ConvertTo-SecureString $nestedLinuxPassword -AsPlainText -Force
-        $linCreds = New-Object System.Management.Automation.PSCredential ($nestedLinuxUsername, $secLinuxPassword)
-
-        # Restarting Windows VM Network Adapters
-        Write-Header 'Restarting Network Adapters'
-        Start-Sleep -Seconds 5
-        Invoke-Command -VMName $Win2k22vmName -ScriptBlock { Get-NetAdapter | Restart-NetAdapter } -Credential $winCreds
-        Invoke-Command -VMName $Win2k25vmName -ScriptBlock { Get-NetAdapter | Restart-NetAdapter } -Credential $winCreds
-        Start-Sleep -Seconds 10
-
-        if ($namingPrefix -ne 'ArcBox') {
-
-            # Renaming the nested VMs
-            Write-Header 'Renaming the nested Windows VMs'
-            Invoke-Command -VMName $Win2k22vmName -ScriptBlock {
-
-                if ($env:computername -cne $using:Win2k22vmName) {
-                    Rename-Computer -NewName $using:Win2k22vmName -Restart
-                }
-
-            } -Credential $winCreds
-
-            Invoke-Command -VMName $Win2k25vmName -ScriptBlock {
-
-                if ($env:computername -cne $using:Win2k25vmName) {
-                    Rename-Computer -NewName $using:Win2k25vmName -Restart
-                }
-
-            } -Credential $winCreds
-
-            Write-Host 'Waiting for the nested Windows VMs to come back online...'
-
-            Get-VM *Win* | Restart-VM -Force
-            Get-VM *Win* | Wait-VM -For Heartbeat
-
-
-        }
-
-        # Getting the Ubuntu nested VM IP address
-        $Ubuntu01VmIp = Get-VM -Name $Ubuntu01vmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Select-Object -Index 0
-        $Ubuntu02VmIp = Get-VM -Name $Ubuntu02vmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Select-Object -Index 0
 
         # Configuring SSH for accessing Linux VMs
         Write-Output 'Generating SSH key for accessing nested Linux VMs'
 
-        $null = New-Item -Path ~ -Name .ssh -ItemType Directory
-        ssh-keygen -t rsa -N '' -f $Env:USERPROFILE\.ssh\id_rsa
-
-        Copy-Item -Path "$Env:USERPROFILE\.ssh\id_rsa.pub" -Destination "$Env:TEMP\authorized_keys"
-
-        # Automatically accept unseen keys but will refuse connections for changed or invalid hostkeys.
-        Add-Content -Path "$Env:USERPROFILE\.ssh\config" -Value 'StrictHostKeyChecking=accept-new'
-
-        Get-VM *Ubuntu*  | Wait-VM -For Heartbeat
-        Get-VM *Ubuntu* | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
-
-        if ($namingPrefix -ne 'ArcBox') {
-
-            # Renaming the nested linux VMs
-            Write-Output 'Renaming the nested Linux VMs'
-
-            Invoke-Command -HostName $Ubuntu01VmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername -ScriptBlock {
-
-                Invoke-Expression "sudo hostnamectl set-hostname $using:ubuntu01vmName;sudo systemctl reboot"
-
-            }
-
-            Restart-VM -Name $ubuntu01vmName -Force
-
-            Invoke-Command -HostName $Ubuntu02VmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername -ScriptBlock {
-
-                Invoke-Expression "sudo hostnamectl set-hostname $using:ubuntu02vmName;sudo systemctl reboot"
-
-            }
-
-            Restart-VM -Name $ubuntu02vmName -Force
-
+        $sshDir = Join-Path -Path $Env:USERPROFILE -ChildPath '.ssh'
+        $sshKeyPath = Join-Path -Path $sshDir -ChildPath 'id_rsa'
+        $null = New-Item -Path $sshDir -ItemType Directory -Force
+        if (!(Test-Path $sshKeyPath)) {
+            ssh-keygen -t rsa -N '' -f $sshKeyPath
         }
 
-        Get-VM *Ubuntu* | Wait-VM -For IPAddress
+        Copy-Item -Path "$sshKeyPath.pub" -Destination "$Env:TEMP\authorized_keys" -Force
 
-        Write-Host 'Waiting for the nested Linux VMs to come back online...waiting for 10 seconds'
+        # Automatically accept unseen keys but will refuse connections for changed or invalid hostkeys.
+        $sshConfigPath = Join-Path -Path $sshDir -ChildPath 'config'
+        if (!(Test-Path $sshConfigPath) -or -not (Select-String -Path $sshConfigPath -Pattern '^StrictHostKeyChecking=accept-new$' -Quiet)) {
+            Add-Content -Path $sshConfigPath -Value 'StrictHostKeyChecking=accept-new'
+        }
+
+        Get-VM $ubuntuVmName | Wait-VM -For Heartbeat
+        Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
+        Get-VM $ubuntuVmName | Wait-VM -For IPAddress
+
+        $ubuntuVmIp = Get-VM -Name $ubuntuVmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+
+        Write-Output 'Ensuring nested Ubuntu VM hostname matches its Hyper-V name'
+        Invoke-Command -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ScriptBlock {
+            if ((hostname) -cne $using:ubuntuVmName) {
+                Invoke-Expression "sudo hostnamectl set-hostname $using:ubuntuVmName"
+            }
+        }
+
+        Get-VM $ubuntuVmName | Wait-VM -For IPAddress
+
+        Write-Host 'Waiting for the nested Linux VM to come back online...waiting for 10 seconds'
 
         Start-Sleep -Seconds 10
 
-        # Copy installation script to nested Windows VMs
-        Write-Output 'Transferring installation script to nested Windows VMs...'
-        Copy-VMFile $Win2k22vmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
-        Copy-VMFile $Win2k25vmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
+        $SQLvmIp = Get-VM -Name $SQLvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+        $ubuntuVmIp = Get-VM -Name $ubuntuVmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
 
-        # Update Linux VM onboarding script connect to Azure Arc, get new token as it might have been expired by the time execution reached this line.
-        $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
-        (Get-Content -Path "$agentScript\installArcAgentUbuntu.sh" -Raw) -replace '\$accessToken', "'$accessToken'" -replace '\$resourceGroup', "'$resourceGroup'" -replace '\$tenantId', "'$Env:tenantId'" -replace '\$azureLocation', "'$Env:azureLocation'" -replace '\$subscriptionId', "'$subscriptionId'" | Set-Content -Path "$agentScript\installArcAgentModifiedUbuntu.sh"
-
-        # Copy installation script to nested Linux VMs
-        Write-Output 'Transferring installation script to nested Linux VMs...'
-
-        Get-VM *Ubuntu* | Copy-VMFile -SourcePath "$agentScript\installArcAgentModifiedUbuntu.sh" -DestinationPath "/home/$nestedLinuxUsername" -FileSource Host -Force
-
-        Write-Output 'Activating operating system on Windows VMs...'
-
-        Invoke-Command -VMName $Win2k22vmName -ScriptBlock {
-
-            cscript C:\Windows\system32\slmgr.vbs -ipk VDYBN-27WPP-V4HQT-9VMD4-VMK7H
-            cscript C:\Windows\system32\slmgr.vbs -skms kms.core.windows.net
-            cscript C:\Windows\system32\slmgr.vbs -ato
-            cscript C:\Windows\system32\slmgr.vbs -dlv
-
-        } -Credential $winCreds
-
-        Invoke-Command -VMName $Win2k25vmName -ScriptBlock {
-
-            cscript C:\Windows\system32\slmgr.vbs -ipk D764K-2NDRG-47T6Q-P8T8W-YP6DF
-            cscript C:\Windows\system32\slmgr.vbs -skms kms.core.windows.net
-            cscript C:\Windows\system32\slmgr.vbs -ato
-            cscript C:\Windows\system32\slmgr.vbs -dlv
-
-        } -Credential $winCreds
-
-        Write-Header 'Onboarding Arc-enabled servers'
-
-        # Onboarding the nested VMs as Azure Arc-enabled servers
-        Write-Output 'Onboarding the nested Windows VMs as Azure Arc-enabled servers'
-        Invoke-Command -VMName $Win2k22vmName, $Win2k25vmName -ScriptBlock { powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation } -Credential $winCreds
-
-        Write-Output 'Onboarding the nested Linux VMs as an Azure Arc-enabled servers'
-        $UbuntuSessions = New-PSSession -HostName $Ubuntu01VmIp, $Ubuntu02VmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername
-        Invoke-JSSudoCommand -Session $UbuntuSessions -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
-
-        Write-Header 'Installing Dependency Agent for Arc-enabled Windows servers'
-        $VMs = @("$namingPrefix-SQL", "$namingPrefix-Win2K22", "$namingPrefix-Win2K25")
-        $VMs | ForEach-Object -Parallel {
-
-            $null = Connect-AzAccount -Identity -Tenant $using:tenantId -Subscription $using:subscriptionId -Scope Process -WarningAction SilentlyContinue
-
-            $vm = $PSItem
-
-            Write-Output "Invoking installation on $vm"
-
-            # Install Dependency Agent
-            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $vm -Name DependencyAgentWindows -Publisher Microsoft.Azure.Monitoring.DependencyAgent -ExtensionType DependencyAgentWindows -Location $using:azureLocation -Settings @{"enableAMA" = $true} -NoWait
-
-        }
-
-        Write-Header 'Enabling SSH access and triggering update assessment for Arc-enabled servers'
-        $VMs = @("$namingPrefix-SQL", "$namingPrefix-Ubuntu-01", "$namingPrefix-Ubuntu-02", "$namingPrefix-Win2K22", "$namingPrefix-Win2K25")
-        $VMs | ForEach-Object -Parallel {
-            $null = Connect-AzAccount -Identity -Tenant $using:tenantId -Subscription $using:subscriptionId -Scope Process -WarningAction SilentlyContinue
-
-            $vm = $PSItem
-            $connectedMachine = Get-AzConnectedMachine -Name $vm -ResourceGroupName $using:resourceGroup -SubscriptionId $using:subscriptionId
-            $connectedMachineEndpoint = (Invoke-AzRestMethod -Method get -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default?api-version=2023-03-15").Content | ConvertFrom-Json
-
-            if (-not ($connectedMachineEndpoint.properties | Where-Object { $_.type -eq 'default' -and $_.provisioningState -eq 'Succeeded' })) {
-                Write-Output "Creating default endpoint for $($connectedMachine.Name)"
-                $null = Invoke-AzRestMethod -Method put -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default?api-version=2023-03-15" -Payload '{"properties": {"type": "default"}}'
-            }
-            $connectedMachineSshEndpoint = (Invoke-AzRestMethod -Method get -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default/serviceconfigurations/SSH?api-version=2023-03-15").Content | ConvertFrom-Json
-
-            if (-not ($connectedMachineSshEndpoint.properties | Where-Object { $_.serviceName -eq 'SSH' -and $_.provisioningState -eq 'Succeeded' })) {
-                Write-Output "Enabling SSH on $($connectedMachine.Name)"
-                $null = Invoke-AzRestMethod -Method put -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default/serviceconfigurations/SSH?api-version=2023-03-15" -Payload '{"properties": {"serviceName": "SSH", "port": 22}}'
-            } else {
-                Write-Output "SSH already enabled on $($connectedMachine.Name)"
-            }
-
-            Write-Output "Triggering Update Manager assessment on $($connectedMachine.Name)"
-            $null = Invoke-AzRestMethod -Method POST -Path "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.HybridCompute/machines/$($connectedMachine.Name)/assessPatches?api-version=2020-08-15-preview" -Payload '{}'
-
-        }
-
-        # ---------------------------------------------------------------------
-        # IIS demo VM and PostgreSQL demo VM
-        # ---------------------------------------------------------------------
-        Write-Header 'Configuring IIS and PostgreSQL demo VMs'
+        Write-Output "SQL VM IP    : $SQLvmIp"
+        Write-Output "Ubuntu VM IP : $ubuntuVmIp"
 
         $arcBoxWebSqlPassword = 'ArcBoxWeb1!'
         $arcBoxWebPgPassword = 'ArcBoxWeb1!'
@@ -733,129 +357,47 @@ if ($Env:flavor -ne 'DevOps') {
         $arcBoxSqlDb = 'ArcBoxDemo'
         $arcBoxWebSqlUser = 'arcboxweb'
 
-        # Wait for the new VMs to come online and acquire IPs
-        Write-Output 'Waiting for IIS and PG VMs to become reachable'
-        Get-VM $IISvmName, $PGvmName | Wait-VM -For Heartbeat
-        Get-VM $IISvmName, $PGvmName | Wait-VM -For IPAddress
-        Start-Sleep -Seconds 20
-
-        # Restart adapters on the IIS VM so DHCP lease is fresh
-        Invoke-Command -VMName $IISvmName -ScriptBlock { Get-NetAdapter | Restart-NetAdapter } -Credential $winCreds
-        Start-Sleep -Seconds 15
-
-        if ($namingPrefix -ne 'ArcBox') {
-            Write-Header 'Renaming IIS and PG nested VMs'
-            Invoke-Command -VMName $IISvmName -ScriptBlock {
-                if ($env:computername -cne $using:IISvmName) {
-                    Rename-Computer -NewName $using:IISvmName -Restart
-                }
-            } -Credential $winCreds
-
-            Get-VM $IISvmName | Wait-VM -For Heartbeat
-
-            $PGvmIp = Get-VM -Name $PGvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Select-Object -Index 0
-            Get-VM $PGvmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
-            Invoke-Command -HostName $PGvmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername -ScriptBlock {
-                Invoke-Expression "sudo hostnamectl set-hostname $using:PGvmName;sudo systemctl reboot"
-            }
-            Restart-VM -Name $PGvmName -Force
-            Get-VM $PGvmName | Wait-VM -For IPAddress
-            Start-Sleep -Seconds 15
-        } else {
-            Get-VM $PGvmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
-        }
-
-        # Discover IPs (re-discover after renames/restarts)
-        $SQLvmIp = Get-VM -Name $SQLvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
-        $PGvmIp = Get-VM -Name $PGvmName | Select-Object -ExpandProperty NetworkAdapters | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
-
-        Write-Output "SQL VM IP: $SQLvmIp"
-        Write-Output "PG VM IP : $PGvmIp"
-
-        # Seed the SQL demo database and arcboxweb login on ArcBox-SQL
-        Write-Header 'Seeding ArcBoxDemo database on SQL VM'
+        Write-Header 'Seeding SQL Server and configuring IIS on SQL VM'
         Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -DestinationPath "$nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -CreateFullPath -FileSource Host -Force
+        Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Configure-IIS.ps1" -DestinationPath "$nestedVMArcBoxDir\Configure-IIS.ps1" -CreateFullPath -FileSource Host -Force
+        $artifactBaseUrl = $Env:templateBaseUrl
         Invoke-Command -VMName $SQLvmName -ScriptBlock {
             powershell.exe -ExecutionPolicy Bypass -File $Using:nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1 -WebSqlPassword $Using:arcBoxWebSqlPassword
-        } -Credential $winCreds
-
-        # Configure PostgreSQL on the PG VM
-        Write-Header 'Installing and configuring PostgreSQL on PG VM'
-        Get-VM $PGvmName | Copy-VMFile -SourcePath "$Env:ArcBoxDir\Configure-Postgres.sh" -DestinationPath "/home/$nestedLinuxUsername/Configure-Postgres.sh" -FileSource Host -Force -CreateFullPath
-        $pgSession = New-PSSession -HostName $PGvmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername
-        Invoke-Command -Session $pgSession -ScriptBlock {
-            chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
-        }
-        Invoke-JSSudoCommand -Session $pgSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgPassword' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
-        Remove-PSSession $pgSession
-
-        # Install IIS and deploy the sample web app
-        Write-Header 'Installing IIS and deploying sample web app'
-        Copy-VMFile $IISvmName -SourcePath "$Env:ArcBoxDir\Configure-IIS.ps1" -DestinationPath "$nestedVMArcBoxDir\Configure-IIS.ps1" -CreateFullPath -FileSource Host -Force
-        $artifactBaseUrl = $Env:templateBaseUrl
-        Invoke-Command -VMName $IISvmName -ScriptBlock {
             powershell.exe -ExecutionPolicy Bypass -File $Using:nestedVMArcBoxDir\Configure-IIS.ps1 `
-                -SqlServerAddress $Using:SQLvmIp `
+                -SqlServerAddress 'localhost' `
                 -SqlDatabase $Using:arcBoxSqlDb `
                 -SqlUser $Using:arcBoxWebSqlUser `
                 -SqlPassword $Using:arcBoxWebSqlPassword `
-                -PgServerAddress $Using:PGvmIp `
-                -PgDatabase $Using:arcBoxWebPgDb `
-                -PgUser $Using:arcBoxWebPgUser `
-                -PgPassword $Using:arcBoxWebPgPassword `
                 -ArtifactBaseUrl $Using:artifactBaseUrl
         } -Credential $winCreds
 
-        # Onboard the new VMs to Azure Arc
-        Write-Header 'Onboarding IIS and PG VMs to Azure Arc'
+        Write-Header 'Installing PostgreSQL and web services on Ubuntu VM'
+        Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:ArcBoxDir\Configure-Postgres.sh" -DestinationPath "/home/$nestedLinuxUsername/Configure-Postgres.sh" -FileSource Host -Force -CreateFullPath
+        $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+        Invoke-Command -Session $ubuntuSession -ScriptBlock {
+            chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
+        }
+        Invoke-JSSudoCommand -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgPassword' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
+        Remove-PSSession $ubuntuSession
+
+        # Update Linux VM onboarding script connect to Azure Arc, get new token as it might have been expired by the time execution reached this line.
         $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
-
-        Copy-VMFile $IISvmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
-        Invoke-Command -VMName $IISvmName -ScriptBlock {
-            powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation
-        } -Credential $winCreds
-
         (Get-Content -Path "$agentScript\installArcAgentUbuntu.sh" -Raw) -replace '\$accessToken', "'$accessToken'" -replace '\$resourceGroup', "'$resourceGroup'" -replace '\$tenantId', "'$Env:tenantId'" -replace '\$azureLocation', "'$Env:azureLocation'" -replace '\$subscriptionId', "'$subscriptionId'" | Set-Content -Path "$agentScript\installArcAgentModifiedUbuntu.sh"
-        Get-VM $PGvmName | Copy-VMFile -SourcePath "$agentScript\installArcAgentModifiedUbuntu.sh" -DestinationPath "/home/$nestedLinuxUsername" -FileSource Host -Force
-        $pgSession = New-PSSession -HostName $PGvmIp -KeyFilePath "$Env:USERPROFILE\.ssh\id_rsa" -UserName $nestedLinuxUsername
-        Invoke-JSSudoCommand -Session $pgSession -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
-        Remove-PSSession $pgSession
 
-        # Install monitoring extensions on the new Arc-enabled servers
-        Write-Header 'Installing monitoring extensions on IIS and PG VMs'
-        @($IISvmName) | ForEach-Object -Parallel {
-            $null = Connect-AzAccount -Identity -Tenant $using:tenantId -Subscription $using:subscriptionId -Scope Process -WarningAction SilentlyContinue
-            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name DependencyAgentWindows -Publisher Microsoft.Azure.Monitoring.DependencyAgent -ExtensionType DependencyAgentWindows -Location $using:azureLocation -Settings @{"enableAMA" = $true} -NoWait
-            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ExtensionType AzureMonitorWindowsAgent -Location $using:azureLocation -NoWait
-        }
-        @($PGvmName) | ForEach-Object -Parallel {
-            $null = Connect-AzAccount -Identity -Tenant $using:tenantId -Subscription $using:subscriptionId -Scope Process -WarningAction SilentlyContinue
-            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name DependencyAgentLinux -Publisher Microsoft.Azure.Monitoring.DependencyAgent -ExtensionType DependencyAgentLinux -Location $using:azureLocation -Settings @{"enableAMA" = $true} -NoWait
-            $null = New-AzConnectedMachineExtension -ResourceGroupName $using:resourceGroup -MachineName $PSItem -Name AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ExtensionType AzureMonitorLinuxAgent -Location $using:azureLocation -NoWait
-        }
+        # Copy installation script to nested Linux VM
+        Write-Output 'Transferring installation script to nested Linux VM...'
 
-        Write-Header 'IIS sample app reachable at http://<ArcBox-IIS-IP>/ (and /pg/pg.aspx)'
-    } elseif ($Env:flavor -eq 'DataOps') {
-        Write-Header 'Enabling SSH access to Arc-enabled servers'
-        $null = Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId -Scope Process -WarningAction SilentlyContinue
-        $connectedMachine = Get-AzConnectedMachine -Name $SQLvmName -ResourceGroupName $resourceGroup -SubscriptionId $subscriptionId
-        $connectedMachineEndpoint = (Invoke-AzRestMethod -Method get -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default?api-version=2023-03-15").Content | ConvertFrom-Json
-        if (-not ($connectedMachineEndpoint.properties | Where-Object { $_.type -eq 'default' -and $_.provisioningState -eq 'Succeeded' })) {
-            Write-Output "Creating default endpoint for $($connectedMachine.Name)"
-            $null = Invoke-AzRestMethod -Method put -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default?api-version=2023-03-15" -Payload '{"properties": {"type": "default"}}'
-        }
+        Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$agentScript\installArcAgentModifiedUbuntu.sh" -DestinationPath "/home/$nestedLinuxUsername" -FileSource Host -Force
 
-        $connectedMachineSshEndpoint = (Invoke-AzRestMethod -Method get -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default/serviceconfigurations/SSH?api-version=2023-03-15").Content | ConvertFrom-Json
-        if (-not ($connectedMachineSshEndpoint.properties | Where-Object { $_.serviceName -eq 'SSH' -and $_.provisioningState -eq 'Succeeded' })) {
-            Write-Output "Enabling SSH on $($connectedMachine.Name)"
-            $null = Invoke-AzRestMethod -Method put -Path "$($connectedMachine.Id)/providers/Microsoft.HybridConnectivity/endpoints/default/serviceconfigurations/SSH?api-version=2023-03-15" -Payload '{"properties": {"serviceName": "SSH", "port": 22}}'
-        } else {
-            Write-Output "SSH already enabled on $($connectedMachine.Name)"
-        }
+        Write-Header 'Onboarding Arc-enabled servers'
 
-        Write-Output "Triggering Update Manager assessment on $($connectedMachine.Name)"
-        $null = Invoke-AzRestMethod -Method POST -Path "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.HybridCompute/machines/$($connectedMachine.Name)/assessPatches?api-version=2020-08-15-preview" -Payload '{}'
+        Write-Output 'Onboarding the nested Linux VM as an Azure Arc-enabled server'
+        $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+        Invoke-JSSudoCommand -Session $ubuntuSession -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+        Remove-PSSession $ubuntuSession
 
+        Write-Header "Legacy SQL site reachable at http://$SQLvmIp/"
+        Write-Header "Legacy PostgreSQL site reachable at http://$ubuntuVmIp/"
     }
 
     # Removing the LogonScript Scheduled Task so it won't run on next reboot
@@ -863,24 +405,4 @@ if ($Env:flavor -ne 'DevOps') {
     if ($null -ne (Get-ScheduledTask -TaskName 'ArcServersLogonScript' -ErrorAction SilentlyContinue)) {
         Unregister-ScheduledTask -TaskName 'ArcServersLogonScript' -Confirm:$false
     }
-}
-
-# Triggering Azure Policy compliance scan
-Write-Header 'Triggering Azure Policy compliance scan'
-Start-AzPolicyComplianceScan -ResourceGroupName $resourceGroup -AsJob
-
-#Changing to Jumpstart ArcBox wallpaper
-Write-Header 'Changing wallpaper'
-
-# bmp file is required for BGInfo
-Convert-JSImageToBitMap -SourceFilePath "$Env:ArcBoxDir\wallpaper.png" -DestinationFilePath "$Env:ArcBoxDir\wallpaper.bmp"
-
-Set-JSDesktopBackground -ImagePath "$Env:ArcBoxDir\wallpaper.bmp"
-
-if ($Env:flavor -eq 'ITPro') {
-
-    Write-Header 'Running tests to verify infrastructure'
-
-    & "$Env:ArcBoxTestsDir\Invoke-Test.ps1"
-
 }

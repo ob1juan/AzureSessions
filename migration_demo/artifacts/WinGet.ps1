@@ -43,8 +43,8 @@ Repair-WinGetPackageManager -AllUsers -Force -Latest -Verbose
 winget configure --file C:\ArcBox\DSC\common.dsc.yml --accept-configuration-agreements --disable-interactivity
 winget configure --file C:\ArcBox\DSC\itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
 
-# Start remaining logon scripts
-Get-ScheduledTask -TaskName 'ArcServersLogonScript', 'MonitorWorkbookLogonScript' | Start-ScheduledTask
+# Start remaining logon script
+Get-ScheduledTask -TaskName 'ArcServersLogonScript' | Start-ScheduledTask
 
 #Cleanup
 Unregister-ScheduledTask -TaskName 'WinGetLogonScript' -Confirm:$false

@@ -4,6 +4,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if (-not (Get-Service -Name MSSQLSERVER -ErrorAction SilentlyContinue)) {
+    throw 'SQL Server default instance MSSQLSERVER was not found on this VM.'
+}
+
 if (-not (Get-Module -ListAvailable -Name SqlServer)) {
     Install-PackageProvider -Name NuGet -Force | Out-Null
     Install-Module -Name SqlServer -AllowClobber -Force -Scope AllUsers | Out-Null
@@ -66,7 +70,10 @@ $tsql = @"
 USE ArcBoxDemo;
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'arcboxweb')
     CREATE USER [arcboxweb] FOR LOGIN [arcboxweb];
-ALTER ROLE db_datareader ADD MEMBER [arcboxweb];
+IF IS_ROLEMEMBER(N'db_datareader', N'arcboxweb') <> 1
+    ALTER ROLE db_datareader ADD MEMBER [arcboxweb];
+IF IS_ROLEMEMBER(N'db_datawriter', N'arcboxweb') <> 1
+    ALTER ROLE db_datawriter ADD MEMBER [arcboxweb];
 "@
 Invoke-Sqlcmd -Query $tsql -TrustServerCertificate
 

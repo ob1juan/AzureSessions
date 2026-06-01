@@ -22,9 +22,6 @@ param natGatewayName string = '${namingPrefix}-NatGateway'
 @description('Name of the DR network NAT Gateway')
 param drNatGatewayName string = '${namingPrefix}-DR-NatGateway'
 
-@description('Name for your log analytics workspace')
-param workspaceName string
-
 @description('The flavor of ArcBox to deploy. This migration demo supports ITPro only.')
 @allowed([
   'ITPro'
@@ -33,9 +30,6 @@ param flavor string
 
 @description('Azure Region to deploy the Log Analytics Workspace')
 param location string = resourceGroup().location
-
-@description('SKU, leave default pergb2018')
-param sku string = 'pergb2018'
 
 @description('Choice to deploy Bastion to connect to the client VM')
 param deployBastion bool = false
@@ -57,11 +51,6 @@ param bastionNetworkSecurityGroupName string = '${namingPrefix}-Bastion-NSG'
 @description('DNS Server configuration')
 param dnsServers array = []
 
-@description('Tags to assign for all ArcBox resources')
-param resourceTags object = {
-  Solution: 'jumpstart_arcbox'
-}
-
 @maxLength(7)
 @description('The naming prefix for the nested virtual machines. Example: ArcBox-Win2k19')
 param namingPrefix string = 'ArcBox'
@@ -75,18 +64,7 @@ param windowsAdminPassword string?
 @description('Key Vault secret name for the generated Windows admin password')
 param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
 
-@secure()
-param registryPassword string?
-
-@description('Key Vault secret name for the generated container registry password')
-param registryPasswordSecretName string = 'registryPassword'
-
 var keyVaultName = toLower('${namingPrefix}${uniqueString(resourceGroup().id)}')
-
-var security = {
-  name: 'Security(${workspaceName})'
-  galleryName: 'Security'
-}
 
 var subnetAddressPrefix = '10.16.1.0/24'
 var addressPrefix = '10.16.0.0/16'
@@ -168,9 +146,6 @@ var dataOpsSubnets = [
 resource arcVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-07-01' = {
   name: virtualNetworkName
   location: location
-  dependsOn: [
-    policyDeployment
-  ]
   properties: {
     addressSpace: {
       addressPrefixes: [
@@ -195,9 +170,6 @@ resource arcVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-07-01' = {
 resource drVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-07-01' = if (flavor == 'DataOps') {
   name: drVirtualNetworkName
   location: location
-  dependsOn: [
-    policyDeployment
-  ]
   properties: {
     addressSpace: {
       addressPrefixes: [
@@ -286,9 +258,6 @@ resource natGatewayDR 'Microsoft.Network/natGateways@2024-07-01' = if (deployBas
 resource virtualNetworkName_peering_to_DR_vnet 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2024-07-01' = if (flavor == 'DataOps') {
   parent: arcVirtualNetwork
   name: 'peering-to-DR-vnet'
-  dependsOn: [
-    policyDeployment
-  ]
   properties: {
     allowVirtualNetworkAccess: true
     allowForwardedTraffic: true
@@ -303,9 +272,6 @@ resource virtualNetworkName_peering_to_DR_vnet 'Microsoft.Network/virtualNetwork
 resource drVirtualNetworkName_peering_to_primary_vnet 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2024-07-01' = if (flavor == 'DataOps') {
   parent: drVirtualNetwork
   name: 'peering-to-primary-vnet'
-  dependsOn: [
-    policyDeployment
-  ]
   properties: {
     allowVirtualNetworkAccess: true
     allowForwardedTraffic: true
@@ -320,9 +286,6 @@ resource drVirtualNetworkName_peering_to_primary_vnet 'Microsoft.Network/virtual
 resource networkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: networkSecurityGroupName
   location: location
-  dependsOn: [
-    policyDeployment
-  ]
   properties: {
     securityRules: [
       {
@@ -436,9 +399,6 @@ resource networkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2024-05-0
 resource bastionNetworkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2024-05-01' = if (deployBastion == true) {
   name: bastionNetworkSecurityGroupName
   location: location
-  dependsOn: [
-    policyDeployment
-  ]
   properties: {
     securityRules: [
       {
@@ -561,37 +521,9 @@ resource bastionNetworkSecurityGroup 'Microsoft.Network/networkSecurityGroups@20
   }
 }
 
-resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: workspaceName
-  location: location
-  tags: resourceTags
-  properties: {
-    sku: {
-      name: sku
-    }
-  }
-}
-
-resource securityGallery 'Microsoft.OperationsManagement/solutions@2015-11-01-preview' = {
-  name: security.name
-  location: location
-  properties: {
-    workspaceResourceId: workspace.id
-  }
-  plan: {
-    name: security.name
-    promotionCode: ''
-    product: 'OMSGallery/${security.galleryName}'
-    publisher: 'Microsoft'
-  }
-}
-
 resource publicIpAddress 'Microsoft.Network/publicIPAddresses@2024-05-01' = if (deployBastion == true) {
   name: bastionPublicIpAddressName
   location: location
-  dependsOn: [
-    policyDeployment
-  ]
   properties: {
     publicIPAllocationMethod: 'Static'
     publicIPAddressVersion: 'IPv4'
@@ -605,9 +537,6 @@ resource publicIpAddress 'Microsoft.Network/publicIPAddresses@2024-05-01' = if (
 resource bastionHost 'Microsoft.Network/bastionHosts@2024-05-01' = if (deployBastion == true) {
   name: bastionName
   location: location
-  dependsOn: [
-    policyDeployment
-  ]
   sku: {
     name: bastionSku
   }
@@ -635,21 +564,8 @@ resource bastionHost 'Microsoft.Network/bastionHosts@2024-05-01' = if (deployBas
   }
 }
 
-module policyDeployment './policyAzureArc.bicep' = {
-  name: 'policyDeployment'
-  params: {
-    azureLocation: location
-    logAnalyticsWorkspaceId: workspace.id
-    flavor: flavor
-    resourceTags: resourceTags
-  }
-}
-
 module keyVault 'br/public:avm/res/key-vault/vault:0.5.1' = {
   name: 'keyVaultDeployment'
-  dependsOn: [
-    policyDeployment
-  ]
   params: {
     name: toLower(keyVaultName)
     enablePurgeProtection: false
@@ -670,17 +586,6 @@ resource windowsAdminPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-
   parent: kv
   properties: {
     value: windowsAdminPassword
-  }
-  dependsOn: [
-    keyVault
-  ]
-}
-
-resource registryPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-04-01-preview' = if (!empty(registryPassword)) {
-  name: registryPasswordSecretName
-  parent: kv
-  properties: {
-    value: registryPassword
   }
   dependsOn: [
     keyVault
