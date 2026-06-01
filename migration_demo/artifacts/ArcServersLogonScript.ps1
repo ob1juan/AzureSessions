@@ -28,6 +28,43 @@ if (Test-Path $logFilePath) {
 
 Start-Transcript -Path $logFilePath -Force -ErrorAction SilentlyContinue
 
+$DeploymentStatusScript = Join-Path -Path $Env:ArcBoxDir -ChildPath 'DeploymentStatus.ps1'
+$CurrentDeploymentComponent = 'Hyper-V network setup'
+
+function Start-DeploymentComponent {
+    param(
+        [string]$Name,
+        [string]$Message = ''
+    )
+
+    $script:CurrentDeploymentComponent = $Name
+    if (Test-Path $script:DeploymentStatusScript) {
+        & $script:DeploymentStatusScript -Action Start -Component $Name -Message $Message
+    }
+}
+
+function Complete-DeploymentComponent {
+    param(
+        [string]$Name = $script:CurrentDeploymentComponent,
+        [string]$Message = '',
+        [ValidateSet('Completed', 'Failed', 'Skipped')]
+        [string]$Status = 'Completed'
+    )
+
+    if (Test-Path $script:DeploymentStatusScript) {
+        & $script:DeploymentStatusScript -Action Complete -Component $Name -Status $Status -Message $Message
+    }
+}
+
+trap {
+    if (Test-Path $DeploymentStatusScript) {
+        Complete-DeploymentComponent -Name $CurrentDeploymentComponent -Status Failed -Message $_.Exception.Message
+        & $DeploymentStatusScript -Action Report -Open
+    }
+    try { Stop-Transcript } catch { }
+    throw
+}
+
 # Remove registry keys that are used to automatically logon the user (only used for first-time setup)
 $registryPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
 $keys = @('AutoAdminLogon', 'DefaultUserName', 'DefaultDomainName', 'DefaultPassword', 'ForceAutoLogon')
@@ -67,6 +104,8 @@ if (Test-Path $registryPath) {
 # Setup Hyper-V server before deploying VMs for each flavor
 ################################################
 if ($Env:flavor -ne 'DevOps') {
+    Start-DeploymentComponent -Name 'Hyper-V network setup' -Message 'Configuring DHCP, NAT, VM credentials, and Hyper-V host shortcuts.'
+
     # Install and configure DHCP service (used by Hyper-V nested VMs)
     Write-Host 'Configuring DHCP Service'
     $dnsClient = Get-DnsClient | Where-Object { $_.InterfaceAlias -eq 'Ethernet' }
@@ -116,6 +155,10 @@ if ($Env:flavor -ne 'DevOps') {
         $folder.Attributes += [System.IO.FileAttributes]::Hidden
     }
 
+    Complete-DeploymentComponent -Name 'Hyper-V network setup' -Message 'DHCP, NAT, credentials, and Hyper-V host shortcuts are ready.'
+
+    Start-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Logging in with managed identity and registering required Arc providers.'
+
     # Required for CLI commands
     Write-Header 'Az CLI Login'
     az login --identity
@@ -141,6 +184,8 @@ if ($Env:flavor -ne 'DevOps') {
 
         Write-Host "Provider $providerNamespace is Registered"
     }
+
+    Complete-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Required Arc resource providers are registered.'
 
     Write-Header 'Az PowerShell Login'
     Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId
@@ -170,6 +215,8 @@ if ($Env:flavor -ne 'DevOps') {
         $vhdImageToDownload = 'ArcBox-SQL-ENT.vhdx'
     }
 
+
+    Start-DeploymentComponent -Name 'ArcBox-SQL VM' -Message 'Downloading SQL VHD and creating the nested SQL Hyper-V VM.'
 
     $DeploymentProgressString = 'Downloading and configuring nested SQL VM'
 
@@ -240,6 +287,10 @@ if ($Env:flavor -ne 'DevOps') {
     Write-Output 'Transferring installation script to nested Windows VMs...'
     Copy-VMFile $SQLvmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
 
+    Complete-DeploymentComponent -Name 'ArcBox-SQL VM' -Message 'SQL VM is created, renamed, networked, and ready for Arc onboarding.'
+
+    Start-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the SQL VM.'
+
     Write-Header 'Onboarding Arc-enabled servers'
 
     # Onboarding the nested VMs as Azure Arc-enabled servers
@@ -247,9 +298,12 @@ if ($Env:flavor -ne 'DevOps') {
     $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
     Invoke-Command -VMName $SQLvmName -ScriptBlock { powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation } -Credential $winCreds
     Write-Output 'Azure Arc client installation command completed on SQL VM.'
+    Complete-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Message 'SQL VM Azure Connected Machine onboarding command completed.'
 
     # Deploy the single Ubuntu nested VM and configure the two legacy app stacks.
     if ($Env:flavor -eq 'ITPro') {
+        Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM.'
+
         Write-Header 'Fetching Ubuntu VM'
 
         $ubuntuVmName = "$namingPrefix-Ubuntu"
@@ -350,6 +404,8 @@ if ($Env:flavor -ne 'DevOps') {
         Write-Output "SQL VM IP    : $SQLvmIp"
         Write-Output "Ubuntu VM IP : $ubuntuVmIp"
 
+        Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message "Ubuntu VM is created and reachable at $ubuntuVmIp."
+
         $arcBoxWebSqlPassword = 'ArcBoxWeb1!'
         $arcBoxWebPgPassword = 'ArcBoxWeb1!'
         $arcBoxWebPgUser = 'arcboxweb'
@@ -357,6 +413,7 @@ if ($Env:flavor -ne 'DevOps') {
         $arcBoxSqlDb = 'ArcBoxDemo'
         $arcBoxWebSqlUser = 'arcboxweb'
 
+        Start-DeploymentComponent -Name 'ArcBox-SQL website and database' -Message 'Seeding the SQL database and configuring IIS/ASP.NET on the SQL VM.'
         Write-Header 'Seeding SQL Server and configuring IIS on SQL VM'
         Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -DestinationPath "$nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -CreateFullPath -FileSource Host -Force
         Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Configure-IIS.ps1" -DestinationPath "$nestedVMArcBoxDir\Configure-IIS.ps1" -CreateFullPath -FileSource Host -Force
@@ -370,7 +427,9 @@ if ($Env:flavor -ne 'DevOps') {
                 -SqlPassword $Using:arcBoxWebSqlPassword `
                 -ArtifactBaseUrl $Using:artifactBaseUrl
         } -Credential $winCreds
+            Complete-DeploymentComponent -Name 'ArcBox-SQL website and database' -Message "Legacy SQL site is configured at http://$SQLvmIp/."
 
+            Start-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message 'Installing PostgreSQL, Apache/PHP, and the legacy CRUD site on Ubuntu.'
         Write-Header 'Installing PostgreSQL and web services on Ubuntu VM'
         Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:ArcBoxDir\Configure-Postgres.sh" -DestinationPath "/home/$nestedLinuxUsername/Configure-Postgres.sh" -FileSource Host -Force -CreateFullPath
         $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
@@ -379,7 +438,9 @@ if ($Env:flavor -ne 'DevOps') {
         }
         Invoke-JSSudoCommand -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgPassword' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
         Remove-PSSession $ubuntuSession
+        Complete-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message "Legacy PostgreSQL site is configured at http://$ubuntuVmIp/."
 
+        Start-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the Ubuntu VM.'
         # Update Linux VM onboarding script connect to Azure Arc, get new token as it might have been expired by the time execution reached this line.
         $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
         (Get-Content -Path "$agentScript\installArcAgentUbuntu.sh" -Raw) -replace '\$accessToken', "'$accessToken'" -replace '\$resourceGroup', "'$resourceGroup'" -replace '\$tenantId', "'$Env:tenantId'" -replace '\$azureLocation', "'$Env:azureLocation'" -replace '\$subscriptionId', "'$subscriptionId'" | Set-Content -Path "$agentScript\installArcAgentModifiedUbuntu.sh"
@@ -395,9 +456,31 @@ if ($Env:flavor -ne 'DevOps') {
         $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
         Invoke-JSSudoCommand -Session $ubuntuSession -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
         Remove-PSSession $ubuntuSession
+        Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Ubuntu VM Azure Connected Machine onboarding command completed.'
 
         Write-Header "Legacy SQL site reachable at http://$SQLvmIp/"
         Write-Header "Legacy PostgreSQL site reachable at http://$ubuntuVmIp/"
+    }
+
+    Start-DeploymentComponent -Name 'Deployment report' -Message 'Collecting Azure deployment/resource status and writing the final HTML report.'
+
+    $DeploymentProgressString = 'Completed'
+    $tags = Get-AzResourceGroup -Name $env:resourceGroup | Select-Object -ExpandProperty Tags
+    if ($null -ne $tags) {
+        $tags['DeploymentProgress'] = $DeploymentProgressString
+        $tags['DeploymentStatus'] = 'Completed'
+    } else {
+        $tags = @{
+            'DeploymentProgress' = $DeploymentProgressString
+            'DeploymentStatus' = 'Completed'
+        }
+    }
+
+    $null = Set-AzResourceGroup -ResourceGroupName $env:resourceGroup -Tag $tags
+    $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $env:resourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force
+
+    if (Test-Path $DeploymentStatusScript) {
+        & $DeploymentStatusScript -Action Report -Open
     }
 
     # Removing the LogonScript Scheduled Task so it won't run on next reboot
@@ -405,4 +488,6 @@ if ($Env:flavor -ne 'DevOps') {
     if ($null -ne (Get-ScheduledTask -TaskName 'ArcServersLogonScript' -ErrorAction SilentlyContinue)) {
         Unregister-ScheduledTask -TaskName 'ArcServersLogonScript' -Confirm:$false
     }
+
+    Stop-Transcript
 }

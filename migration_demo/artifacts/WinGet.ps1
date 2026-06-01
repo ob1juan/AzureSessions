@@ -10,6 +10,21 @@ $logFilePath = Join-Path -Path $Env:ArcBoxLogsDir -ChildPath ('WinGet-provisioni
 
 Start-Transcript -Path $logFilePath -Force -ErrorAction SilentlyContinue
 
+$DeploymentStatusScript = Join-Path -Path $Env:ArcBoxDir -ChildPath 'DeploymentStatus.ps1'
+$CurrentDeploymentComponent = 'WinGet and host configuration'
+trap {
+    if (Test-Path $DeploymentStatusScript) {
+        & $DeploymentStatusScript -Action Complete -Component $CurrentDeploymentComponent -Status Failed -Message $_.Exception.Message
+        & $DeploymentStatusScript -Action Report -Open
+    }
+    try { Stop-Transcript } catch { }
+    throw
+}
+
+if (Test-Path $DeploymentStatusScript) {
+    & $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Installing WinGet, DSC resources, and Hyper-V host configuration.'
+}
+
 $DeploymentProgressString = "Installing WinGet packages..."
 
 Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId
@@ -42,6 +57,10 @@ Repair-WinGetPackageManager -AllUsers -Force -Latest -Verbose
 # Apply WinGet Configuration files
 winget configure --file C:\ArcBox\DSC\common.dsc.yml --accept-configuration-agreements --disable-interactivity
 winget configure --file C:\ArcBox\DSC\itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
+
+if (Test-Path $DeploymentStatusScript) {
+    & $DeploymentStatusScript -Action Complete -Component $CurrentDeploymentComponent -Status Completed -Message 'WinGet packages and host DSC configuration completed.'
+}
 
 # Start remaining logon script
 Get-ScheduledTask -TaskName 'ArcServersLogonScript' | Start-ScheduledTask

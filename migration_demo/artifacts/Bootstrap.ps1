@@ -68,6 +68,21 @@ New-Item -Path $Env:ArcBoxTestsDir -ItemType directory -Force
 
 Start-Transcript -Path $Env:ArcBoxLogsDir\Bootstrap.log
 
+$DeploymentStatusScript = Join-Path -Path $Env:ArcBoxDir -ChildPath 'DeploymentStatus.ps1'
+$CurrentDeploymentComponent = 'Client bootstrap'
+trap {
+    if (Test-Path $DeploymentStatusScript) {
+        & $DeploymentStatusScript -Action Complete -Component $CurrentDeploymentComponent -Status Failed -Message $_.Exception.Message
+        & $DeploymentStatusScript -Action Report -Open
+    }
+    try { Stop-Transcript } catch { }
+    throw
+}
+
+Invoke-WebRequest ($templateBaseUrl + "artifacts/DeploymentStatus.ps1") -OutFile $DeploymentStatusScript
+& $DeploymentStatusScript -Action Init
+& $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Bootstrap extension started.'
+
 # Set SyncForegroundPolicy to 1 to ensure that the scheduled task runs after the client VM joins the domain
 Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "SyncForegroundPolicy" 1
 
@@ -187,6 +202,7 @@ Invoke-WebRequest ($templateBaseUrl + "artifacts/LogInstructions.txt") -OutFile 
 Invoke-WebRequest ($templateBaseUrl + "artifacts/dsc/common.dsc.yml") -OutFile $Env:ArcBoxDscDir\common.dsc.yml
 Invoke-WebRequest ($templateBaseUrl + "artifacts/dsc/virtual_machines_sql.dsc.yml") -OutFile $Env:ArcBoxDscDir\virtual_machines_sql.dsc.yml
 Invoke-WebRequest ($templateBaseUrl + "artifacts/WinGet.ps1") -OutFile $Env:ArcBoxDir\WinGet.ps1
+Invoke-WebRequest ($templateBaseUrl + "artifacts/DeploymentStatus.ps1") -OutFile $DeploymentStatusScript
 
 # ITPro
 Write-Host "Fetching Artifacts for ITPro Flavor"
@@ -340,11 +356,16 @@ Register-ScheduledTask -TaskName "ArcServersLogonScript" -User $adminUsername -A
 # Disabling Windows Server Manager Scheduled Task
 Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask
 
+& $DeploymentStatusScript -Action Complete -Component 'Client bootstrap' -Status Completed -Message 'Artifacts downloaded and startup scheduled tasks registered.'
+
 Write-Header "Installing Hyper-V"
 Write-Host "Installing Hyper-V and restart"
+$CurrentDeploymentComponent = 'Hyper-V feature installation'
+& $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Installing Windows features required for nested virtualization.'
 Enable-WindowsOptionalFeature -Online -FeatureName Containers -All -NoRestart
 Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart
-Install-WindowsFeature -Name Hyper-V -IncludeAllSubFeature -IncludeManagementTools -Restart
+Install-WindowsFeature -Name Hyper-V -IncludeAllSubFeature -IncludeManagementTools
+& $DeploymentStatusScript -Action Complete -Component $CurrentDeploymentComponent -Status Completed -Message 'Hyper-V features installed; restarting the client VM.'
 
 # Clean up Bootstrap.log
 Write-Host "Clean up Bootstrap.log"
