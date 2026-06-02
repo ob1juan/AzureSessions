@@ -136,7 +136,7 @@ resource migrateUtilityStorageAccount 'Microsoft.Storage/storageAccounts@2023-05
   }
 }
 
-resource migrateProject 'Microsoft.Migrate/migrateProjects@2023-01-01' = {
+resource migrateProject 'Microsoft.Migrate/migrateProjects@2020-05-01' = {
   name: migrateProjectName
   location: location
   properties: {

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "6909153460173796087"
+      "templateHash": "12975121956051691388"
     }
   },
   "parameters": {
@@ -244,7 +244,7 @@
     },
     {
       "type": "Microsoft.Migrate/migrateProjects",
-      "apiVersion": "2023-01-01",
+      "apiVersion": "2020-05-01",
       "name": "[parameters('migrateProjectName')]",
       "location": "[variables('location')]",
       "properties": {
