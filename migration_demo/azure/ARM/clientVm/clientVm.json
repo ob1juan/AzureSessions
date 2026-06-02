@@ -5,13 +5,13 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "9477582776774165135"
+      "templateHash": "4116840687574818810"
     }
   },
   "parameters": {
     "vmName": {
       "type": "string",
-      "defaultValue": "[format('{0}-Client', parameters('namingPrefix'))]",
+      "defaultValue": "[format('{0}-Host', parameters('namingPrefix'))]",
       "metadata": {
         "description": "The name of your Virtual Machine"
       }

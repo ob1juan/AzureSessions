@@ -1,5 +1,5 @@
 @description('The name of your Virtual Machine')
-param vmName string = '${namingPrefix}-Client'
+param vmName string = '${namingPrefix}-Host'
 
 @description('Username for the Virtual Machine')
 param windowsAdminUsername string = 'arcdemo'

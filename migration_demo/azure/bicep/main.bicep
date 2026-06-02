@@ -199,7 +199,7 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
     arcOnboardingSubRoleAssignment
   ]
   params: {
-    vmName: '${namingPrefix}-Client'
+    vmName: '${namingPrefix}-Host'
     windowsAdminUsername: windowsAdminUsername
     tenantId: tenantId
     templateBaseUrl: templateBaseUrl
