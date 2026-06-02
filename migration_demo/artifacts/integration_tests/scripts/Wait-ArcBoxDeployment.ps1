@@ -2,21 +2,23 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$ResourceGroupName,
     [Parameter(Mandatory=$true)]
+    [string]$AzureVmName,
+    [Parameter(Mandatory=$true)]
     [string]$githubAccount,
     [Parameter(Mandatory=$true)]
     [string]$githubBranch
 )
 
-Write-Host "Starting VM Run Command to wait for deployment and retrieve Pester test results from ArcBox-Host in resource group $ResourceGroupName"
+Write-Host "Starting VM Run Command to wait for deployment and retrieve Pester test results from $AzureVmName in resource group $ResourceGroupName"
 
-$Location = (Get-AzVM -ResourceGroupName $ResourceGroupName -Name ArcBox-Host).Location
+$Location = (Get-AzVM -ResourceGroupName $ResourceGroupName -Name $AzureVmName).Location
 
 # Check if a RetrievePesterResults run command is already running
-$existingJob = Get-AzVMRunCommand -ResourceGroupName $ResourceGroupName -VMName ArcBox-Host -RunCommandName RetrievePesterResults -ErrorAction SilentlyContinue
+$existingJob = Get-AzVMRunCommand -ResourceGroupName $ResourceGroupName -VMName $AzureVmName -RunCommandName RetrievePesterResults -ErrorAction SilentlyContinue
 if ($existingJob) {
     Write-Host "A RetrievePesterResults run command is already provisioned. Skipping new execution." -ForegroundColor Yellow
 } else {
-    Set-AzVMRunCommand -ResourceGroupName $ResourceGroupName -VMName ArcBox-Host -RunCommandName RetrievePesterResults -Location $Location -SourceScriptUri "https://raw.githubusercontent.com/$githubAccount/azure_arc/$githubBranch/azure_jumpstart_arcbox/artifacts/integration_tests/scripts/Send-PesterResult.ps1" -AsyncExecution
+    Set-AzVMRunCommand -ResourceGroupName $ResourceGroupName -VMName $AzureVmName -RunCommandName RetrievePesterResults -Location $Location -SourceScriptUri "https://raw.githubusercontent.com/$githubAccount/azure_arc/$githubBranch/azure_jumpstart_arcbox/artifacts/integration_tests/scripts/Send-PesterResult.ps1" -AsyncExecution
 }
 
 $timeoutMinutes = 180 # 3 hours timeout
@@ -24,7 +26,7 @@ $elapsedMinutes = 0
 
 do {
 
-    $job = Get-AzVMRunCommand -ResourceGroupName $ResourceGroupName -VMName ArcBox-Host -RunCommandName RetrievePesterResults -Expand InstanceView
+    $job = Get-AzVMRunCommand -ResourceGroupName $ResourceGroupName -VMName $AzureVmName -RunCommandName RetrievePesterResults -Expand InstanceView
 
     Write-Host "Instance view of job:" -ForegroundColor Green
     $job.InstanceView

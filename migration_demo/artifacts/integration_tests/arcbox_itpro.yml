@@ -11,9 +11,17 @@ parameters:
   displayName: 'Resource Group Name'
   type: string
   default: 'arcbox-itpro-integration-tests'
+- name: NamingPrefix
+  displayName: 'Azure VM naming prefix'
+  type: string
+  default: 'MigDem'
 
 variables:
   ResourceGroupName: ${{parameters.ResourceGroupName}}
+  NamingPrefix: '${{ parameters.NamingPrefix }}'
+  AzureVmName: '${{ parameters.NamingPrefix }}-Host'
+  GitHubAccount: 'ob1juan'
+  GitHubBranch: 'main'
 
 stages:
 - stage: 'ArcBox_deployment'
@@ -70,7 +78,7 @@ stages:
         ScriptType: FilePath
         azurePowerShellVersion: 'LatestVersion'
         ScriptPath: 'azure_jumpstart_arcbox/artifacts/integration_tests/scripts/Wait-ArcBoxDeployment.ps1'
-        ScriptArguments: -ResourceGroupName $(ResourceGroupName)
+        ScriptArguments: -ResourceGroupName $(ResourceGroupName) -AzureVmName $(AzureVmName) -githubAccount $(GitHubAccount) -githubBranch $(GitHubBranch)
 
     - task: AzurePowerShell@5
       displayName: 'Download Pester test-results from storage account to pipeline agent'
