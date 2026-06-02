@@ -649,6 +649,7 @@ network:
             Copy-Item -Path "$Env:ArcBoxDir\Configure-Postgres.sh" -Destination "/home/$nestedLinuxUsername/Configure-Postgres.sh" -ToSession $ubuntuSession -Force
             
             Invoke-Command -Session $ubuntuSession -ScriptBlock {
+                sed -i 's/\r$//' "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
                 chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
             }
             Invoke-JSSudoCommand -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgSecret' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
@@ -669,12 +670,15 @@ network:
             # Copy installation script to nested Linux VM
             Write-Output 'Transferring installation script to nested Linux VM...'
 
-            Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$agentScript\installArcAgentModifiedUbuntu.sh" -DestinationPath "/home/$nestedLinuxUsername" -FileSource Host -Force
+            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+            Copy-Item -Path "$agentScript\installArcAgentModifiedUbuntu.sh" -Destination "/home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh" -ToSession $ubuntuSession -Force
 
             Write-Header 'Onboarding Arc-enabled servers'
 
             Write-Output 'Onboarding the nested Linux VM as an Azure Arc-enabled server'
-            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+            Invoke-Command -Session $ubuntuSession -ScriptBlock {
+                sed -i 's/\r$//' "/home/$using:nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+            }
             Invoke-JSSudoCommand -Session $ubuntuSession -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
             Remove-PSSession $ubuntuSession
             Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Ubuntu VM Azure Connected Machine onboarding command completed.'
