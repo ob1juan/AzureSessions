@@ -34,12 +34,12 @@ The deployment simulates an on-premises datacenter migrating to Azure. To achiev
 
 Here is the step-by-step mapping of how the deployment flows from the cloud down to the nested on-premises workloads:
 
-### Phase 1: Azure Infrastructure Provisioning
+### Step 1: Azure Infrastructure Provisioning
 1. **Trigger:** The user clicks "Deploy to Azure" and submits the ARM template (`azure/ARM/azuredeploy.json`).
 2. **Azure Resources:** Azure provisions the base Network (VNet), Bastion, Storage, and the core **Client VM** (a Windows Server Azure VM that supports nested virtualization).
 3. **Bridge to Host:** The ARM template adds a Custom Script Extension to the Client VM, injecting `Bootstrap.ps1` from the `artifacts/` folder to run upon VM creation.
 
-### Phase 2: Hyper-V Host Bootstrap 
+### Step 2: Hyper-V Host Bootstrap 
 1. **Execution Context:** Native Azure VM (Client VM).
 2. **Action (`Bootstrap.ps1`):** 
    - Downloads the `artifacts/` folder payloads locally to `C:\ArcBox`.
@@ -47,7 +47,7 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
    - Configures the internal Hyper-V Virtual Switch so nested VMs can route traffic.
    - Restarts the Azure VM to finalize Hyper-V installation and triggers auto-logon.
 
-### Phase 3: Nested VM Provisioning & App Configuration
+### Step 3: Nested VM Provisioning & App Configuration
 1. **Execution Context:** Client VM (now acting as the Hyper-V Host), running on user logon.
 2. **Action (`ArcServersLogonScript.ps1`):**
    - **Infrastructure Provisioning:** Uses `SetupADDS.ps1` and `common.dsc.yml` to spin up Active Directory, and provisions the three nested Hyper-V guests:
@@ -59,7 +59,7 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
      - Connects to the **IIS VM** via PowerShell Direct, deploying the legacy ASP.NET Web Forms storefront.
      - Connects to the **Ubuntu VM** via SSH, transferring `Configure-Postgres.sh` to install Apache, PHP, and the PostgreSQL schema instance.
 
-### Phase 4: Azure Arc Hybrid Onboarding
+### Step 4: Azure Arc Hybrid Onboarding
 1. **Execution Context:** Nested Hyper-V VMs.
 2. **Action (`installArcAgent*.ps1 / .sh`):**
    - `ArcServersLogonScript.ps1` executes the Arc onboarding scripts inside each target VM.
