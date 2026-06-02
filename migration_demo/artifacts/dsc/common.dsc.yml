@@ -30,18 +30,4 @@ properties:
       settings:
         id: Microsoft.VisualStudioCode
         source: winget
-    - resource: PSDesiredStateConfiguration/WindowsFeature
-      id: DHCP
-      directives:
-        description: Install DHCP Server
-      settings:
-        name: DHCP
-        source: winget
-    - resource: PSDesiredStateConfiguration/WindowsFeature
-      id: RSAT-DHCP
-      directives:
-        description: Install DHCP Server Management tools
-      settings:
-        name: RSAT-DHCP
-        source: winget
   configurationVersion: 0.2.0

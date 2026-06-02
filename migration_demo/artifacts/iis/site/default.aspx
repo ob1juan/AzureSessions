@@ -446,7 +446,7 @@ WHERE SalesOrderID = @SalesOrderID;",
 
     DataTable Categories()
     {
-        return Query(@"SELECT ProductCategoryID,
+        return Query(@"SELECT category.ProductCategoryID,
        ISNULL(parent.Name + N' / ', N'') + category.Name AS CategoryName
 FROM SalesLT.ProductCategory AS category
 LEFT JOIN SalesLT.ProductCategory AS parent ON parent.ProductCategoryID = category.ParentProductCategoryID

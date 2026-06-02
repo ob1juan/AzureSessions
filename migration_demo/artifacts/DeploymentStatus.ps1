@@ -473,13 +473,7 @@ function Write-HtmlReport {
     $statusClass = ([string]$state.OverallStatus).ToLowerInvariant()
     $componentCards = (@(Convert-ToArray -Value $state.Components) | ForEach-Object {
         $componentStatusClass = ([string]$_.Status).ToLowerInvariant()
-        $scriptHref = ConvertTo-FileHref -Path $_.ScriptPath
-        $scriptMarkup = if ($scriptHref) {
-            "<a href='$scriptHref'>$(ConvertTo-HtmlText $_.ScriptPath)</a>"
-        }
-        else {
-            ConvertTo-HtmlText $_.ScriptPath
-        }
+        $scriptMarkup = ConvertTo-HtmlText $_.ScriptPath
 @"
         <section class='component-card'>
           <div class='component-heading'>
@@ -574,6 +568,11 @@ function Write-HtmlReport {
       <div class='metric'><span>Stop</span><strong>$(Format-DateTime $state.OverallStopTime)</strong></div>
       <div class='metric'><span>Total Time</span><strong>$(Format-Duration $state.OverallSeconds)</strong></div>
     </section>
+
+    <div style='margin-top: 20px; display: flex; gap: 14px;'>
+      <a href='http://10.10.1.101/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS Website</a>
+      <a href='http://10.10.1.102/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Website</a>
+    </div>
 
     <h2>Startup Components</h2>
     <section class='components'>
