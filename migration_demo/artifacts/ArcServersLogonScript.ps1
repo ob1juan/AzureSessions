@@ -537,9 +537,24 @@ network:
             $netplanConfig | Set-Content -Path "$Env:TEMP\99-static.yaml" -Force
             
             Start-VM -Name $ubuntuVmName
-            Start-Sleep -Seconds 15
-            Write-Host 'Applying static IP to Ubuntu via Guest Services'
-            Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\99-static.yaml" -DestinationPath "/etc/netplan/99-static.yaml" -FileSource Host -Force -CreateFullPath
+            
+            Write-Host 'Waiting for Ubuntu Guest Services to initialize to apply static IP...'
+            $deadline = (Get-Date).AddSeconds(180)
+            $copied = $false
+            do {
+                try {
+                    Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\99-static.yaml" -DestinationPath "/etc/netplan/99-static.yaml" -FileSource Host -Force -CreateFullPath -ErrorAction Stop
+                    $copied = $true
+                    break
+                } catch {
+                    Start-Sleep -Seconds 5
+                }
+            } while ((Get-Date) -lt $deadline)
+
+            if (-not $copied) {
+                throw "Timed out waiting to copy netplan config to $ubuntuVmName. Guest Copy Services did not become ready."
+            }
+
             Restart-VM -Name $ubuntuVmName
 
             # Configure automatic start & stop action for the nested VMs
@@ -577,7 +592,23 @@ network:
             }
 
             Get-VM $ubuntuVmName | Wait-VM -For Heartbeat
-            Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
+            
+            Write-Host "Waiting for Ubuntu Guest Services to copy authorized keys..."
+            $deadline = (Get-Date).AddSeconds(180)
+            $keysCopied = $false
+            do {
+                try {
+                    Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/authorized_keys" -FileSource Host -Force -CreateFullPath -ErrorAction Stop
+                    $keysCopied = $true
+                    break
+                } catch {
+                    Start-Sleep -Seconds 5
+                }
+            } while ((Get-Date) -lt $deadline)
+
+            if (-not $keysCopied) {
+                throw "Timed out copying authorized SSH keys to $ubuntuVmName."
+            }
 
             # We know the IP because we just set it!
             $ubuntuVmIp = '10.10.1.102'
