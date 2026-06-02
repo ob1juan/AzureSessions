@@ -649,7 +649,8 @@ network:
             Copy-Item -Path "$Env:ArcBoxDir\Configure-Postgres.sh" -Destination "/home/$nestedLinuxUsername/Configure-Postgres.sh" -ToSession $ubuntuSession -Force
             
             Invoke-Command -Session $ubuntuSession -ScriptBlock {
-                sed -i 's/\r$//' "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
+                $scriptPath = "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
+                (Get-Content -Path $scriptPath) | Set-Content -Path $scriptPath
                 chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
             }
             Invoke-JSSudoCommand -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgSecret' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
@@ -677,7 +678,9 @@ network:
 
             Write-Output 'Onboarding the nested Linux VM as an Azure Arc-enabled server'
             Invoke-Command -Session $ubuntuSession -ScriptBlock {
-                sed -i 's/\r$//' "/home/$using:nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+                $scriptPath = "/home/$using:nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+                (Get-Content -Path $scriptPath) | Set-Content -Path $scriptPath
+                chmod +x "/home/$using:nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
             }
             Invoke-JSSudoCommand -Session $ubuntuSession -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
             Remove-PSSession $ubuntuSession

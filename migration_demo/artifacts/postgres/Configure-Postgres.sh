@@ -725,6 +725,7 @@ PHP
 
 sudo WEB_DB="${WEB_DB}" WEB_USER="${WEB_USER}" WEB_PASSWORD="${WEB_PASSWORD}" perl -0pi -e 's/__WEB_DB__/$ENV{WEB_DB}/g; s/__WEB_USER__/$ENV{WEB_USER}/g; s/__WEB_PASSWORD__/$ENV{WEB_PASSWORD}/g' /var/www/html/index.php
 sudo chown www-data:www-data /var/www/html/index.php
+sudo rm -f /var/www/html/index.html
 sudo systemctl enable --now apache2
 sudo systemctl restart apache2
 sudo ufw allow 'Apache' >/dev/null 2>&1 || true
