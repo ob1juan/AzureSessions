@@ -1,4 +1,4 @@
-$ErrorActionPreference = $env:ErrorActionPreference
+$ErrorActionPreference = if ([string]::IsNullOrWhiteSpace($env:ErrorActionPreference)) { 'Continue' } else { $env:ErrorActionPreference }
 
 $Env:ArcBoxDir = 'C:\ArcBox'
 $Env:ArcBoxLogsDir = "$Env:ArcBoxDir\Logs"
@@ -227,6 +227,90 @@ function Wait-ArcBoxLinuxSshReady {
     throw "Timed out waiting for Linux VM at $IPAddress to accept SSH PowerShell commands."
 }
 
+function Copy-FileToLinuxVm {
+    <#
+    .SYNOPSIS
+    Reliably copies a file from the Hyper-V host to a nested Linux VM using scp.
+    Normalizes CRLF line endings so shell scripts are not broken by Windows line endings.
+    Retries transient failures and throws if the copy ultimately fails.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$LocalPath,
+        [Parameter(Mandatory = $true)][string]$RemotePath,
+        [Parameter(Mandatory = $true)][string]$IPAddress,
+        [Parameter(Mandatory = $true)][string]$KeyFilePath,
+        [Parameter(Mandatory = $true)][string]$UserName,
+        [int]$Retries = 5,
+        [switch]$NormalizeLineEndings
+    )
+
+    if (-not (Test-Path -Path $LocalPath)) {
+        throw "Local file not found for copy to Linux VM: $LocalPath"
+    }
+
+    $sourcePath = $LocalPath
+    $tempPath = $null
+    if ($NormalizeLineEndings) {
+        $tempPath = Join-Path -Path $env:TEMP -ChildPath ('arcbox-' + [System.IO.Path]::GetFileName($LocalPath))
+        $content = [System.IO.File]::ReadAllText($LocalPath) -replace "`r`n", "`n" -replace "`r", "`n"
+        [System.IO.File]::WriteAllText($tempPath, $content, (New-Object System.Text.UTF8Encoding($false)))
+        $sourcePath = $tempPath
+    }
+
+    try {
+        $target = '{0}@{1}:{2}' -f $UserName, $IPAddress, $RemotePath
+        $attempt = 0
+        while ($true) {
+            $attempt++
+            $scpOutput = & scp -i $KeyFilePath -o StrictHostKeyChecking=accept-new -o BatchMode=yes $sourcePath $target 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Copied '$LocalPath' to '${IPAddress}:$RemotePath'."
+                return
+            }
+
+            if ($attempt -ge $Retries) {
+                throw "Failed to copy '$LocalPath' to '${IPAddress}:$RemotePath' after $attempt attempts (scp exit code $LASTEXITCODE). $scpOutput"
+            }
+
+            Write-Host "scp attempt $attempt for '$RemotePath' failed (exit code $LASTEXITCODE). Retrying in 10 seconds..."
+            Start-Sleep -Seconds 10
+        }
+    } finally {
+        if ($tempPath -and (Test-Path $tempPath)) {
+            Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Invoke-ArcBoxLinuxScript {
+    <#
+    .SYNOPSIS
+    Runs a bash command inside a remote Linux PowerShell session, surfaces its output,
+    and throws when the command exits with a non-zero status so callers can detect failures.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$Session,
+        [Parameter(Mandatory = $true)][string]$Command
+    )
+
+    $result = Invoke-Command -Session $Session -ScriptBlock {
+        param($innerCommand)
+        $output = bash -c $innerCommand 2>&1
+        [pscustomobject]@{
+            ExitCode = $LASTEXITCODE
+            Output   = ($output | Out-String)
+        }
+    } -ArgumentList $Command
+
+    if (-not [string]::IsNullOrWhiteSpace($result.Output)) {
+        Write-Host $result.Output
+    }
+
+    if ($result.ExitCode -ne 0) {
+        throw "Remote Linux command failed with exit code $($result.ExitCode): $Command"
+    }
+}
+
 trap {
     if (Test-Path $DeploymentStatusScript) {
         Complete-DeploymentComponent -Name $CurrentDeploymentComponent -Status Failed -Message $_.Exception.Message
@@ -280,8 +364,20 @@ if (Test-Path $registryPath) {
 # Setup Hyper-V server before deploying VMs for each flavor
 ################################################
 if ($Env:flavor -ne 'DevOps') {
+    # Shared, deterministic values are defined here (outside the per-component blocks) so that
+    # re-running the script to retry only failed components still has every variable it needs,
+    # even when earlier components are skipped because they already completed.
+    $nestedWindowsUsername = 'Administrator'
+    $nestedWindowsPassword = 'JS123!!'
+    $secWindowsPassword = ConvertTo-SecureString $nestedWindowsPassword -AsPlainText -Force
+    $winCreds = New-Object System.Management.Automation.PSCredential ($nestedWindowsUsername, $secWindowsPassword)
+    $SQLvmName = "$namingPrefix-SQL"
+    $SQLvmvhdPath = "$Env:ArcBoxVMDir\$namingPrefix-SQL.vhdx"
+    $SQLvmIp = '10.10.1.101'
+
     if (-not (Test-ComponentCompleted -Name 'Hyper-V network setup')) {
         Start-DeploymentComponent -Name 'Hyper-V network setup' -Message 'Configuring NAT, VM credentials, and Hyper-V host shortcuts.'
+        try {
 
         # Create the NAT network
         Write-Host 'Creating Internal NAT'
@@ -311,10 +407,15 @@ if ($Env:flavor -ne 'DevOps') {
         }
 
         Complete-DeploymentComponent -Name 'Hyper-V network setup' -Message 'NAT, credentials, and Hyper-V host shortcuts are ready.'
+        } catch {
+            Write-Warning "Component 'Hyper-V network setup' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'Hyper-V network setup' -Status Failed -Message $_.Exception.Message
+        }
     }
 
     if (-not (Test-ComponentCompleted -Name 'Azure resource provider registration')) {
         Start-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Logging in with managed identity and registering required Arc and Azure Migrate providers.'
+        try {
 
         # Required for CLI commands
         Write-Header 'Az CLI Login'
@@ -344,6 +445,10 @@ if ($Env:flavor -ne 'DevOps') {
         }
 
         Complete-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Required Arc and Azure Migrate resource providers are registered.'
+        } catch {
+            Write-Warning "Component 'Azure resource provider registration' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'Azure resource provider registration' -Status Failed -Message $_.Exception.Message
+        }
     }
 
     Write-Header 'Az PowerShell Login'
@@ -377,6 +482,7 @@ if ($Env:flavor -ne 'DevOps') {
 
     if (-not (Test-ComponentCompleted -Name 'ArcBox-SQL VM')) {
         Start-DeploymentComponent -Name 'ArcBox-SQL VM' -Message 'Downloading SQL VHD and creating the nested SQL Hyper-V VM.'
+        try {
 
         $DeploymentProgressString = 'Downloading and configuring nested SQL VM'
 
@@ -451,10 +557,15 @@ if ($Env:flavor -ne 'DevOps') {
         Copy-VMFile $SQLvmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
 
         Complete-DeploymentComponent -Name 'ArcBox-SQL VM' -Message 'SQL VM is created, renamed, networked, and ready for Arc onboarding.'
+        } catch {
+            Write-Warning "Component 'ArcBox-SQL VM' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'ArcBox-SQL VM' -Status Failed -Message $_.Exception.Message
+        }
     }
 
     if (-not (Test-ComponentCompleted -Name 'ArcBox-SQL Arc onboarding')) {
         Start-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the SQL VM.'
+        try {
 
         Write-Header 'Onboarding Arc-enabled servers'
 
@@ -464,12 +575,26 @@ if ($Env:flavor -ne 'DevOps') {
         Invoke-Command -VMName $SQLvmName -ScriptBlock { powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation } -Credential $winCreds
         Write-Output 'Azure Arc client installation command completed on SQL VM.'
         Complete-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Message 'SQL VM Azure Connected Machine onboarding command completed.'
+        } catch {
+            Write-Warning "Component 'ArcBox-SQL Arc onboarding' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Status Failed -Message $_.Exception.Message
+        }
     }
 
     # Deploy the single Ubuntu nested VM and configure the two legacy app stacks.
     if ($Env:flavor -eq 'ITPro') {
+        # Shared, deterministic values for the Ubuntu nested VM and its app stacks are defined here
+        # (outside the per-component blocks) so re-runs that retry only failed components still have
+        # every variable they need, even when the 'ArcBox-Ubuntu VM' component is skipped.
+        $ubuntuVmName = "$namingPrefix-Ubuntu"
+        $ubuntuVmIp = '10.10.1.102'
+        $nestedLinuxUsername = 'jumpstart'
+        $sshDir = Join-Path -Path $Env:USERPROFILE -ChildPath '.ssh'
+        $sshKeyPath = Join-Path -Path $sshDir -ChildPath 'id_rsa'
+
         if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM')) {
             Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM.'
+            try {
 
             Write-Header 'Fetching Ubuntu VM'
 
@@ -595,6 +720,10 @@ if ($Env:flavor -ne 'DevOps') {
             Set-HostFileEntry -HostName $ubuntuVmName -IPAddress $ubuntuVmIp
 
             Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message "Ubuntu VM is created and reachable at $ubuntuVmIp."
+            } catch {
+                Write-Warning "Component 'ArcBox-Ubuntu VM' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Status Failed -Message $_.Exception.Message
+            }
         }
 
         $arcBoxWebSqlSecret = 'ArcBoxWeb1!'
@@ -606,6 +735,7 @@ if ($Env:flavor -ne 'DevOps') {
 
         if (-not (Test-ComponentCompleted -Name 'ArcBox-SQL website and database')) {
             Start-DeploymentComponent -Name 'ArcBox-SQL website and database' -Message 'Seeding the AdventureWorksLT SQL database and configuring IIS/ASP.NET on the SQL VM.'
+            try {
             Write-Header 'Seeding AdventureWorksLT SQL Server and configuring IIS on SQL VM'
             Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
             Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -DestinationPath "$nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -CreateFullPath -FileSource Host -Force
@@ -628,60 +758,77 @@ if ($Env:flavor -ne 'DevOps') {
             $Shortcut = $WshShell.CreateShortcut("$Env:USERPROFILE\Desktop\IIS Website.lnk")
             $Shortcut.TargetPath = "http://$SQLvmIp/"
             $shortcut.Save()
+            } catch {
+                Write-Warning "Component 'ArcBox-SQL website and database' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'ArcBox-SQL website and database' -Status Failed -Message $_.Exception.Message
+            }
         }
 
         if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu website and database')) {
             Start-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message 'Installing the AdventureWorksLT PostgreSQL conversion and PHP storefront on Ubuntu.'
+            try {
             Write-Header 'Installing PostgreSQL AdventureWorks storefront on Ubuntu VM'
-            $ubuntuVmIp = '10.10.1.102'
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
-            
-            # Using copy-item over SSH instead of Guest Services due to intermittent failures
-            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
-            Copy-Item -Path "$Env:ArcBoxDir\Configure-Postgres.sh" -Destination "/home/$nestedLinuxUsername/Configure-Postgres.sh" -ToSession $ubuntuSession -Force
-            
-            Invoke-Command -Session $ubuntuSession -ScriptBlock {
-                $scriptPath = "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
-                (Get-Content -Path $scriptPath) | Set-Content -Path $scriptPath
-                chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
+
+            # Copy the configuration script to the Ubuntu VM using scp with retries and CRLF
+            # normalization so Windows line endings do not break the bash script.
+            Copy-FileToLinuxVm -LocalPath "$Env:ArcBoxDir\Configure-Postgres.sh" -RemotePath "/home/$nestedLinuxUsername/Configure-Postgres.sh" -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -NormalizeLineEndings
+
+            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+            try {
+                Invoke-Command -Session $ubuntuSession -ScriptBlock {
+                    chmod +x "/home/$using:nestedLinuxUsername/Configure-Postgres.sh"
+                } -ErrorAction Stop
+                Invoke-ArcBoxLinuxScript -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgSecret' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
+            } finally {
+                Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
             }
-            Invoke-JSSudoCommand -Session $ubuntuSession -Command "WEB_USER='$arcBoxWebPgUser' WEB_PASSWORD='$arcBoxWebPgSecret' WEB_DB='$arcBoxWebPgDb' ALLOW_CIDR='10.10.1.0/24' bash /home/$nestedLinuxUsername/Configure-Postgres.sh"
-            Remove-PSSession $ubuntuSession
             Complete-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message "AdventureWorks PostgreSQL storefront is configured at http://$ubuntuVmIp/."
             
             $Shortcut = $WshShell.CreateShortcut("$Env:USERPROFILE\Desktop\Ubuntu Website.lnk")
             $Shortcut.TargetPath = "http://$ubuntuVmIp/"
             $shortcut.Save()
+            } catch {
+                Write-Warning "Component 'ArcBox-Ubuntu website and database' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Status Failed -Message $_.Exception.Message
+            }
         }
 
         if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu Arc onboarding')) {
             Start-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the Ubuntu VM.'
+            try {
             # Update Linux VM onboarding script connect to Azure Arc, get new token as it might have been expired by the time execution reached this line.
             $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
             (Get-Content -Path "$agentScript\installArcAgentUbuntu.sh" -Raw) -replace '\$accessToken', "'$accessToken'" -replace '\$resourceGroup', "'$resourceGroup'" -replace '\$tenantId', "'$Env:tenantId'" -replace '\$azureLocation', "'$Env:azureLocation'" -replace '\$subscriptionId', "'$subscriptionId'" | Set-Content -Path "$agentScript\installArcAgentModifiedUbuntu.sh"
 
-            # Copy installation script to nested Linux VM
+            # Copy installation script to nested Linux VM using scp with retries and CRLF normalization
             Write-Output 'Transferring installation script to nested Linux VM...'
-
-            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
-            Copy-Item -Path "$agentScript\installArcAgentModifiedUbuntu.sh" -Destination "/home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh" -ToSession $ubuntuSession -Force
+            Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+            Copy-FileToLinuxVm -LocalPath "$agentScript\installArcAgentModifiedUbuntu.sh" -RemotePath "/home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh" -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -NormalizeLineEndings
 
             Write-Header 'Onboarding Arc-enabled servers'
 
             Write-Output 'Onboarding the nested Linux VM as an Azure Arc-enabled server'
-            Invoke-Command -Session $ubuntuSession -ScriptBlock {
-                $scriptPath = "/home/$using:nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
-                (Get-Content -Path $scriptPath) | Set-Content -Path $scriptPath
-                chmod +x "/home/$using:nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+            try {
+                Invoke-Command -Session $ubuntuSession -ScriptBlock {
+                    chmod +x "/home/$using:nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+                } -ErrorAction Stop
+                Invoke-ArcBoxLinuxScript -Session $ubuntuSession -Command "sudo sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
+            } finally {
+                Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
             }
-            Invoke-JSSudoCommand -Session $ubuntuSession -Command "sh /home/$nestedLinuxUsername/installArcAgentModifiedUbuntu.sh"
-            Remove-PSSession $ubuntuSession
             Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Ubuntu VM Azure Connected Machine onboarding command completed.'
+            } catch {
+                Write-Warning "Component 'ArcBox-Ubuntu Arc onboarding' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Status Failed -Message $_.Exception.Message
+            }
         }
         
         Write-Header 'Setting up Self-Signed Certificates'
         if (-not (Test-ComponentCompleted -Name 'Certificates Setup')) {
             Start-DeploymentComponent -Name 'Certificates Setup' -Message 'Generating and installing self-signed certificates'
+            try {
             $cert = New-SelfSignedCertificate -DnsName "$SQLvmName","$ubuntuVmName" -CertStoreLocation Cert:\LocalMachine\My -KeyExportPolicy Exportable
             $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store -ArgumentList Root, LocalMachine
             $rootStore.Open('ReadWrite')
@@ -724,7 +871,8 @@ if ($Env:flavor -ne 'DevOps') {
                 New-NetFirewallRule -DisplayName 'Allow HTTPS 443' -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow -ErrorAction SilentlyContinue | Out-Null
             }
             
-            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+            try {
             Invoke-Command -Session $ubuntuSession -ScriptBlock {
                 $certString = "-----BEGIN CERTIFICATE-----`n" + $using:certBase64 + "`n-----END CERTIFICATE-----"
                 $certString | sudo tee /usr/local/share/ca-certificates/hyperv-host.crt > /dev/null
@@ -746,8 +894,14 @@ if ($Env:flavor -ne 'DevOps') {
                 sudo systemctl restart apache2
                 sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
             }
-            Remove-PSSession $ubuntuSession
+            } finally {
+                Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
+            }
             Complete-DeploymentComponent -Name 'Certificates Setup' -Message 'Certificates configured'
+            } catch {
+                Write-Warning "Component 'Certificates Setup' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'Certificates Setup' -Status Failed -Message $_.Exception.Message
+            }
         }
 
         Write-Header "AdventureWorks SQL Server storefront reachable at https://$SQLvmName/"
