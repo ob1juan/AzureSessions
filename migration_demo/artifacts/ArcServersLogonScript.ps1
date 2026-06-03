@@ -311,6 +311,67 @@ function Invoke-ArcBoxLinuxScript {
     }
 }
 
+function Copy-FileToWindowsVm {
+    <#
+    .SYNOPSIS
+    Reliably copies a file from the Hyper-V host to a nested Windows VM over PowerShell Direct
+    (VMBus). Unlike Copy-VMFile -FileSource Host, this does NOT require the Hyper-V Guest Service
+    Interface integration component (which is disabled by default), so it works against the
+    nested VMs as-is. Retries transient failures, verifies the file landed, and throws on failure.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$VMName,
+        [Parameter(Mandatory = $true)][pscredential]$Credential,
+        [Parameter(Mandatory = $true)][string]$LocalPath,
+        [Parameter(Mandatory = $true)][string]$RemotePath,
+        [int]$Retries = 5
+    )
+
+    if (-not (Test-Path -Path $LocalPath)) {
+        throw "Local file not found for copy to Windows VM: $LocalPath"
+    }
+
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        $session = $null
+        try {
+            $session = New-PSSession -VMName $VMName -Credential $Credential -ErrorAction Stop
+
+            $remoteDir = Split-Path -Path $RemotePath -Parent
+            if ($remoteDir) {
+                Invoke-Command -Session $session -ScriptBlock {
+                    param($dir)
+                    if (-not (Test-Path -Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
+                } -ArgumentList $remoteDir -ErrorAction Stop
+            }
+
+            Copy-Item -Path $LocalPath -Destination $RemotePath -ToSession $session -Force -ErrorAction Stop
+
+            $exists = Invoke-Command -Session $session -ScriptBlock {
+                param($path)
+                Test-Path -Path $path
+            } -ArgumentList $RemotePath -ErrorAction Stop
+            if (-not $exists) {
+                throw "File '$RemotePath' was not found on '$VMName' after copy."
+            }
+
+            Write-Host "Copied '$LocalPath' to '${VMName}:$RemotePath'."
+            return
+        } catch {
+            if ($attempt -ge $Retries) {
+                throw "Failed to copy '$LocalPath' to '${VMName}:$RemotePath' after $attempt attempts. $($_.Exception.Message)"
+            }
+            Write-Host "Copy attempt $attempt for '$RemotePath' on '$VMName' failed ($($_.Exception.Message)). Retrying in 10 seconds..."
+            Start-Sleep -Seconds 10
+        } finally {
+            if ($null -ne $session) {
+                Remove-PSSession $session -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
 trap {
     if (Test-Path $DeploymentStatusScript) {
         Complete-DeploymentComponent -Name $CurrentDeploymentComponent -Status Failed -Message $_.Exception.Message
@@ -554,7 +615,7 @@ if ($Env:flavor -ne 'DevOps') {
 
         # Copy installation script to nested Windows VMs
         Write-Output 'Transferring installation script to nested Windows VMs...'
-        Copy-VMFile $SQLvmName -SourcePath "$agentScript\installArcAgent.ps1" -DestinationPath "$Env:ArcBoxDir\installArcAgent.ps1" -CreateFullPath -FileSource Host -Force
+        Copy-FileToWindowsVm -VMName $SQLvmName -Credential $winCreds -LocalPath "$agentScript\installArcAgent.ps1" -RemotePath "$nestedVMArcBoxDir\installArcAgent.ps1"
 
         Complete-DeploymentComponent -Name 'ArcBox-SQL VM' -Message 'SQL VM is created, renamed, networked, and ready for Arc onboarding.'
         } catch {
@@ -738,8 +799,8 @@ if ($Env:flavor -ne 'DevOps') {
             try {
             Write-Header 'Seeding AdventureWorksLT SQL Server and configuring IIS on SQL VM'
             Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
-            Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -DestinationPath "$nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -CreateFullPath -FileSource Host -Force
-            Copy-VMFile $SQLvmName -SourcePath "$Env:ArcBoxDir\Configure-IIS.ps1" -DestinationPath "$nestedVMArcBoxDir\Configure-IIS.ps1" -CreateFullPath -FileSource Host -Force
+            Copy-FileToWindowsVm -VMName $SQLvmName -Credential $winCreds -LocalPath "$Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1" -RemotePath "$nestedVMArcBoxDir\Initialize-ArcBoxSqlDemo.ps1"
+            Copy-FileToWindowsVm -VMName $SQLvmName -Credential $winCreds -LocalPath "$Env:ArcBoxDir\Configure-IIS.ps1" -RemotePath "$nestedVMArcBoxDir\Configure-IIS.ps1"
             $artifactBaseUrl = $Env:templateBaseUrl
             Invoke-Command -VMName $SQLvmName -ScriptBlock {
                 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
@@ -843,6 +904,7 @@ if ($Env:flavor -ne 'DevOps') {
             $certBase64 = [Convert]::ToBase64String($certBytes)
 
             Invoke-Command -VMName $SQLvmName -Credential $winCreds -ScriptBlock {
+                $ErrorActionPreference = 'Stop'
                 $certB64 = $using:certBase64
                 $pfxB64 = $using:pfxBase64
                 $bytes = [Convert]::FromBase64String($certB64)
@@ -861,43 +923,97 @@ if ($Env:flavor -ne 'DevOps') {
                 $mStore.Add($pfxCert)
                 $mStore.Close()
 
-                Import-Module WebAdministration -ErrorAction SilentlyContinue
-                $bindingExists = Get-WebBinding -Name "ArcBoxApp" -Port 443 -Protocol https -ErrorAction SilentlyContinue
-                if (-not $bindingExists) {
-                    New-WebBinding -Name "ArcBoxApp" -IPAddress "*" -Port 443 -Protocol https
-                    $certItem = Get-ChildItem -Path Cert:\LocalMachine\My\$($pfxCert.Thumbprint)
-                    New-Item -Path "IIS:\SslBindings\*!443" -Value $certItem -Force
+                Import-Module WebAdministration
+                if (-not (Test-Path 'IIS:\Sites\ArcBoxApp')) {
+                    throw "IIS site 'ArcBoxApp' does not exist; cannot bind the HTTPS certificate. Ensure the 'ArcBox-SQL website and database' component completed first."
                 }
+
+                # Ensure the HTTPS site binding exists (idempotent).
+                $bindingExists = Get-WebBinding -Name 'ArcBoxApp' -Port 443 -Protocol https -ErrorAction SilentlyContinue
+                if (-not $bindingExists) {
+                    New-WebBinding -Name 'ArcBoxApp' -IPAddress '*' -Port 443 -Protocol https
+                }
+
+                # Always (re)assign the certificate to the SSL binding so a re-run repairs a partial setup.
+                $certItem = Get-ChildItem -Path "Cert:\LocalMachine\My\$($pfxCert.Thumbprint)"
+                if (Test-Path 'IIS:\SslBindings\0.0.0.0!443') {
+                    Remove-Item -Path 'IIS:\SslBindings\0.0.0.0!443' -Force
+                }
+                New-Item -Path 'IIS:\SslBindings\0.0.0.0!443' -Value $certItem -Force | Out-Null
+
                 New-NetFirewallRule -DisplayName 'Allow HTTPS 443' -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+
+                # Verify the SSL binding resolved to our certificate.
+                $sslBinding = Get-Item -Path 'IIS:\SslBindings\0.0.0.0!443'
+                if ($sslBinding.Thumbprint -ne $pfxCert.Thumbprint) {
+                    throw "IIS HTTPS binding on 'ArcBoxApp' did not resolve to the expected certificate thumbprint."
+                }
             }
             
+            # Build a robust bash script to trust the host CA, extract the Apache key/cert from the
+            # PFX, and enable SSL. The PFX produced by .NET uses legacy PKCS#12 encryption, so on
+            # OpenSSL 3 (Ubuntu 22.04+) the '-legacy' flag is required or extraction fails silently.
+            $apacheSslScript = @"
+set -euo pipefail
+CERT_B64='$certBase64'
+PFX_B64='$pfxBase64'
+PASSWORD='ArcBoxSSL123!'
+
+printf -- '-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----\n' "`$CERT_B64" | sudo tee /usr/local/share/ca-certificates/hyperv-host.crt >/dev/null
+sudo update-ca-certificates
+
+echo "`$PFX_B64" | base64 -d | sudo tee /tmp/cert.pfx >/dev/null
+
+LEGACY=''
+if openssl version | grep -qE 'OpenSSL 3'; then LEGACY='-legacy'; fi
+sudo openssl pkcs12 `$LEGACY -in /tmp/cert.pfx -nocerts -nodes -passin pass:"`$PASSWORD" -out /etc/ssl/private/apache-selfsigned.key
+sudo openssl pkcs12 `$LEGACY -in /tmp/cert.pfx -clcerts -nokeys -passin pass:"`$PASSWORD" -out /etc/ssl/certs/apache-selfsigned.crt
+sudo rm -f /tmp/cert.pfx
+
+sudo test -s /etc/ssl/private/apache-selfsigned.key
+sudo test -s /etc/ssl/certs/apache-selfsigned.crt
+sudo openssl x509 -in /etc/ssl/certs/apache-selfsigned.crt -noout
+sudo chmod 600 /etc/ssl/private/apache-selfsigned.key
+
+sudo a2enmod ssl
+sudo a2ensite default-ssl
+sudo sed -i 's/ssl-cert-snakeoil.pem/apache-selfsigned.crt/g' /etc/apache2/sites-available/default-ssl.conf
+sudo sed -i 's/ssl-cert-snakeoil.key/apache-selfsigned.key/g' /etc/apache2/sites-available/default-ssl.conf
+sudo apache2ctl configtest
+sudo systemctl restart apache2
+sudo systemctl is-active --quiet apache2
+sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
+"@
+
             $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
             try {
-            Invoke-Command -Session $ubuntuSession -ScriptBlock {
-                $certString = "-----BEGIN CERTIFICATE-----`n" + $using:certBase64 + "`n-----END CERTIFICATE-----"
-                $certString | sudo tee /usr/local/share/ca-certificates/hyperv-host.crt > /dev/null
-                sudo update-ca-certificates
-
-                $pfxB64 = $using:pfxBase64
-                $pfxPath = "/tmp/cert.pfx"
-                [System.IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($pfxB64))
-                $password = "ArcBoxSSL123!"
-                
-                sudo openssl pkcs12 -in $pfxPath -nocerts -out /etc/ssl/private/apache-selfsigned.key -nodes -passin pass:$password
-                sudo openssl pkcs12 -in $pfxPath -clcerts -nokeys -out /etc/ssl/certs/apache-selfsigned.crt -passin pass:$password
-                sudo rm $pfxPath
-                
-                sudo a2enmod ssl
-                sudo a2ensite default-ssl
-                sudo sed -i 's/ssl-cert-snakeoil.pem/apache-selfsigned.crt/g' /etc/apache2/sites-available/default-ssl.conf
-                sudo sed -i 's/ssl-cert-snakeoil.key/apache-selfsigned.key/g' /etc/apache2/sites-available/default-ssl.conf
-                sudo systemctl restart apache2
-                sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
-            }
+                Invoke-ArcBoxLinuxScript -Session $ubuntuSession -Command $apacheSslScript
             } finally {
                 Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
             }
-            Complete-DeploymentComponent -Name 'Certificates Setup' -Message 'Certificates configured'
+
+            # Verify HTTPS (port 443) is actually reachable on both VMs so this component only
+            # reports success when SSL is genuinely serving on the SQL (IIS) and Ubuntu (Apache) VMs.
+            Write-Header 'Verifying HTTPS connectivity to both VMs'
+            foreach ($endpoint in @(
+                    [pscustomobject]@{ Name = $SQLvmName; IPAddress = $SQLvmIp },
+                    [pscustomobject]@{ Name = $ubuntuVmName; IPAddress = $ubuntuVmIp }
+                )) {
+                $reachable = $false
+                for ($i = 0; $i -lt 12; $i++) {
+                    if ((Test-NetConnection -ComputerName $endpoint.IPAddress -Port 443 -WarningAction SilentlyContinue).TcpTestSucceeded) {
+                        $reachable = $true
+                        break
+                    }
+                    Start-Sleep -Seconds 10
+                }
+                if (-not $reachable) {
+                    throw "HTTPS (port 443) is not reachable on $($endpoint.Name) at $($endpoint.IPAddress)."
+                }
+                Write-Host "HTTPS endpoint reachable on $($endpoint.Name) ($($endpoint.IPAddress):443)."
+            }
+
+            Complete-DeploymentComponent -Name 'Certificates Setup' -Message 'Certificates configured and HTTPS verified on both VMs.'
             } catch {
                 Write-Warning "Component 'Certificates Setup' failed: $($_.Exception.Message)"
                 Complete-DeploymentComponent -Name 'Certificates Setup' -Status Failed -Message $_.Exception.Message
