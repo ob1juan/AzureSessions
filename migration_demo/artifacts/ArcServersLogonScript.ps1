@@ -515,48 +515,23 @@ if ($Env:flavor -ne 'DevOps') {
             (Get-Content -Path $serversDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $serversDscConfigurationFile
             winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
 
-            # Configure static IP via netplan and restart
-            $netplanConfig = @"
-network:
-  version: 2
-  ethernets:
-    default_cfg:
-      match:
-        name: e*
-      dhcp4: false
-      addresses:
-        - 10.10.1.102/24
-      routes:
-        - to: default
-          via: 10.10.1.1
-      nameservers:
-        addresses:
-          - 168.63.129.16
-          - 10.16.2.100
-"@
-            $netplanConfig | Set-Content -Path "$Env:TEMP\99-static.yaml" -Force
-            
-            Start-VM -Name $ubuntuVmName
-            Start-Sleep -Seconds 15
-            Write-Host 'Applying static IP to Ubuntu via Guest Services'
-            Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\99-static.yaml" -DestinationPath "/etc/netplan/99-static.yaml" -FileSource Host -Force -CreateFullPath
-            Restart-VM -Name $ubuntuVmName
-
-            # Configure automatic start & stop action for the nested VMs
-            foreach ($nestedVm in Get-VM -Name $SQLvmName, $ubuntuVmName) {
+            # Configure automatic start & stop action for the nested Windows VM
+            foreach ($nestedVm in Get-VM -Name $SQLvmName) {
                 if ($nestedVm.State -eq 'Running') {
                     Stop-VM -Force -Name $nestedVm.Name
                 }
                 Set-VM -Name $nestedVm.Name -AutomaticStopAction ShutDown -AutomaticStartAction Start
                 Start-VM -Name $nestedVm.Name
             }
-            Start-Sleep -Seconds 30
+
             Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
-            Wait-ArcBoxVmRunning -Name $ubuntuVmName
 
             Write-Header 'Creating VM Credentials'
             # Hard-coded username and password for the nested Linux VM
             $nestedLinuxUsername = 'jumpstart'
+
+            # Stop Ubuntu initially (DSC might have started it)
+            Stop-VM -Name $ubuntuVmName -Force -ErrorAction SilentlyContinue
 
             # Configuring SSH for accessing Linux VMs
             Write-Output 'Generating SSH key for accessing nested Linux VMs'
@@ -568,16 +543,33 @@ network:
                 ssh-keygen -t rsa -N '' -f $sshKeyPath
             }
 
-            Copy-Item -Path "$sshKeyPath.pub" -Destination "$Env:TEMP\authorized_keys" -Force
-
             # Automatically accept unseen keys but will refuse connections for changed or invalid hostkeys.
             $sshConfigPath = Join-Path -Path $sshDir -ChildPath 'config'
             if (!(Test-Path $sshConfigPath) -or -not (Select-String -Path $sshConfigPath -Pattern '^StrictHostKeyChecking=accept-new$' -Quiet)) {
                 Add-Content -Path $sshConfigPath -Value 'StrictHostKeyChecking=accept-new'
             }
 
-            Get-VM $ubuntuVmName | Wait-VM -For Heartbeat
-            Get-VM $ubuntuVmName | Copy-VMFile -SourcePath "$Env:TEMP\authorized_keys" -DestinationPath "/home/$nestedLinuxUsername/.ssh/" -FileSource Host -Force -CreateFullPath
+            Write-Host 'Injecting NoCloud seed data mapping static IP and SSH keys to bypass Hyper-V Guest Copy failures'
+            $cidataVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Ubuntu-CIDATA.vhdx"
+            if (Test-Path $cidataVhdPath) { Remove-Item -Path $cidataVhdPath -Force }
+            New-VHD -Path $cidataVhdPath -SizeBytes 20MB -Dynamic | Out-Null
+            $seedDisk = Mount-VHD -Path $cidataVhdPath -PassThru | Get-Disk
+            $seedDisk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -UseMaximumSize -AssignDriveLetter | Format-Volume -FileSystem FAT32 -NewFileSystemLabel CIDATA -Force | Out-Null
+            $driveLetter = ($seedDisk | Get-Partition | Where-Object DriveLetter | Get-Volume | Where-Object FileSystemLabel -eq 'CIDATA').DriveLetter + ":"
+
+            $pubKey = (Get-Content "$sshKeyPath.pub" -Raw).Trim()
+
+            Set-Content -Path "$driveLetter\meta-data" -Value "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n" -Encoding Ascii
+            Set-Content -Path "$driveLetter\user-data" -Value "#cloud-config`nusers:`n  - default`n  - name: $nestedLinuxUsername`n    ssh_authorized_keys:`n      - $pubKey`n    sudo: ALL=(ALL) NOPASSWD:ALL`n" -Encoding Ascii
+            Set-Content -Path "$driveLetter\network-config" -Value "network:`n  version: 2`n  ethernets:`n    default_cfg:`n      match:`n        name: e*`n      dhcp4: false`n      addresses: [10.10.1.102/24]`n      routes:`n        - to: default`n          via: 10.10.1.1`n      nameservers:`n        addresses: [168.63.129.16, 10.16.2.100]`n" -Encoding Ascii
+            
+            Dismount-VHD -Path $cidataVhdPath
+            Add-VMHardDiskDrive -VMName $ubuntuVmName -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 1 -Path $cidataVhdPath
+
+            Set-VM -Name $ubuntuVmName -AutomaticStopAction ShutDown -AutomaticStartAction Start
+            Start-VM -Name $ubuntuVmName
+
+            Wait-ArcBoxVmRunning -Name $ubuntuVmName
 
             # We know the IP because we just set it!
             $ubuntuVmIp = '10.10.1.102'
@@ -690,23 +682,46 @@ network:
         Write-Header 'Setting up Self-Signed Certificates'
         if (-not (Test-ComponentCompleted -Name 'Certificates Setup')) {
             Start-DeploymentComponent -Name 'Certificates Setup' -Message 'Generating and installing self-signed certificates'
-            $cert = New-SelfSignedCertificate -DnsName "$SQLvmName","$ubuntuVmName" -CertStoreLocation Cert:\LocalMachine\My
+            $cert = New-SelfSignedCertificate -DnsName "$SQLvmName","$ubuntuVmName" -CertStoreLocation Cert:\LocalMachine\My -KeyExportPolicy Exportable
             $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store -ArgumentList Root, LocalMachine
             $rootStore.Open('ReadWrite')
             $rootStore.Add($cert)
             $rootStore.Close()
+            
+            $pwd = ConvertTo-SecureString -String "ArcBoxSSL123!" -Force -AsPlainText
+            $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $pwd)
+            $pfxBase64 = [Convert]::ToBase64String($pfxBytes)
             
             $certBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
             $certBase64 = [Convert]::ToBase64String($certBytes)
 
             Invoke-Command -VMName $SQLvmName -Credential $winCreds -ScriptBlock {
                 $certB64 = $using:certBase64
+                $pfxB64 = $using:pfxBase64
                 $bytes = [Convert]::FromBase64String($certB64)
+                $pfxBytes = [Convert]::FromBase64String($pfxB64)
+                
                 $innerCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$bytes)
                 $rStore = New-Object System.Security.Cryptography.X509Certificates.X509Store([System.Security.Cryptography.X509Certificates.StoreName]::Root, [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
                 $rStore.Open('ReadWrite')
                 $rStore.Add($innerCert)
                 $rStore.Close()
+
+                $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]"PersistKeySet, MachineKeySet"
+                $pfxCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxBytes, "ArcBoxSSL123!", $flags)
+                $mStore = New-Object System.Security.Cryptography.X509Certificates.X509Store([System.Security.Cryptography.X509Certificates.StoreName]::My, [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+                $mStore.Open('ReadWrite')
+                $mStore.Add($pfxCert)
+                $mStore.Close()
+
+                Import-Module WebAdministration -ErrorAction SilentlyContinue
+                $bindingExists = Get-WebBinding -Name "ArcBoxApp" -Port 443 -Protocol https -ErrorAction SilentlyContinue
+                if (-not $bindingExists) {
+                    New-WebBinding -Name "ArcBoxApp" -IPAddress "*" -Port 443 -Protocol https
+                    $certItem = Get-ChildItem -Path Cert:\LocalMachine\My\$($pfxCert.Thumbprint)
+                    New-Item -Path "IIS:\SslBindings\*!443" -Value $certItem -Force
+                }
+                New-NetFirewallRule -DisplayName 'Allow HTTPS 443' -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow -ErrorAction SilentlyContinue | Out-Null
             }
             
             $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
@@ -714,13 +729,29 @@ network:
                 $certString = "-----BEGIN CERTIFICATE-----`n" + $using:certBase64 + "`n-----END CERTIFICATE-----"
                 $certString | sudo tee /usr/local/share/ca-certificates/hyperv-host.crt > /dev/null
                 sudo update-ca-certificates
+
+                $pfxB64 = $using:pfxBase64
+                $pfxPath = "/tmp/cert.pfx"
+                [System.IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($pfxB64))
+                $password = "ArcBoxSSL123!"
+                
+                sudo openssl pkcs12 -in $pfxPath -nocerts -out /etc/ssl/private/apache-selfsigned.key -nodes -passin pass:$password
+                sudo openssl pkcs12 -in $pfxPath -clcerts -nokeys -out /etc/ssl/certs/apache-selfsigned.crt -passin pass:$password
+                sudo rm $pfxPath
+                
+                sudo a2enmod ssl
+                sudo a2ensite default-ssl
+                sudo sed -i 's/ssl-cert-snakeoil.pem/apache-selfsigned.crt/g' /etc/apache2/sites-available/default-ssl.conf
+                sudo sed -i 's/ssl-cert-snakeoil.key/apache-selfsigned.key/g' /etc/apache2/sites-available/default-ssl.conf
+                sudo systemctl restart apache2
+                sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
             }
             Remove-PSSession $ubuntuSession
             Complete-DeploymentComponent -Name 'Certificates Setup' -Message 'Certificates configured'
         }
 
-        Write-Header "AdventureWorks SQL Server storefront reachable at http://$SQLvmIp/"
-        Write-Header "AdventureWorks PostgreSQL storefront reachable at http://$ubuntuVmIp/"
+        Write-Header "AdventureWorks SQL Server storefront reachable at https://$SQLvmName/"
+        Write-Header "AdventureWorks PostgreSQL storefront reachable at https://$ubuntuVmName/"
     }
 
     Start-DeploymentComponent -Name 'Deployment report' -Message 'Collecting Azure deployment/resource status and writing the final HTML report.'

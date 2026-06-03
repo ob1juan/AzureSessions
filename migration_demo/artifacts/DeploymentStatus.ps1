@@ -570,8 +570,8 @@ function Write-HtmlReport {
     </section>
 
     <div style='margin-top: 20px; display: flex; gap: 14px;'>
-      <a href='http://10.10.1.101/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS Website</a>
-      <a href='http://10.10.1.102/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Website</a>
+      <a href='https://$($env:namingPrefix)-SQL/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS Website</a>
+      <a href='https://$($env:namingPrefix)-Ubuntu/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Website</a>
     </div>
 
     <h2>Startup Components</h2>
