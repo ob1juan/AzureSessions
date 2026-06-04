@@ -852,6 +852,22 @@ runcmd:
             Dismount-VHD -Path $cidataVhdPath
             Add-VMHardDiskDrive -VMName $ubuntuVmName -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 1 -Path $cidataVhdPath
 
+            # Hyper-V opens each attached VHDX using the per-VM virtual machine identity
+            # (NT VIRTUAL MACHINE\<VM ID>). Add-VMHardDiskDrive normally stamps that ACL onto the
+            # file, but for a freshly created/dismounted CIDATA disk it can be missed, which makes
+            # Start-VM fail with "Account does not have permission to open attachment ... Access is
+            # denied. (0x80070005)". Explicitly grant the VM's SID full control on the file so the
+            # power-on succeeds (idempotent on re-runs).
+            $ubuntuVmId = (Get-VM -Name $ubuntuVmName).Id.Guid
+            $cidataAcl = Get-Acl -Path $cidataVhdPath
+            $vmAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                "NT VIRTUAL MACHINE\$ubuntuVmId",
+                'FullControl',
+                'Allow'
+            )
+            $cidataAcl.AddAccessRule($vmAccessRule)
+            Set-Acl -Path $cidataVhdPath -AclObject $cidataAcl
+
             Set-VM -Name $ubuntuVmName -AutomaticStopAction ShutDown -AutomaticStartAction Start
             Start-VM -Name $ubuntuVmName
 
