@@ -284,6 +284,66 @@ function Copy-FileToLinuxVm {
     }
 }
 
+function New-ArcBoxCloudInitIso {
+    <#
+    .SYNOPSIS
+    Builds a cloud-init NoCloud seed ISO (iso9660 + Joliet, volume label 'CIDATA') from a source
+    directory and writes it to the given path. Uses the in-box IMAPI2 COM API, so it works on the
+    Hyper-V host without the Windows ADK / oscdimg or any third-party tooling.
+
+    .DESCRIPTION
+    cloud-init's early-boot datasource detector (ds-identify) on prebuilt Azure-built Ubuntu images
+    reliably discovers a NoCloud seed when it is presented as an iso9660 volume labeled 'cidata'
+    attached as a virtual DVD drive. A FAT-formatted data VHDX is frequently NOT probed, so the seed
+    (and therefore the static-IP netplan and SSH keys) never gets applied. Delivering the seed as a
+    DVD ISO is the proven, image-agnostic mechanism.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceDirectory,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string]$VolumeName = 'CIDATA'
+    )
+
+    if (-not ('ArcBoxIsoFile' -as [type])) {
+        Add-Type -CompilerParameters (New-Object System.CodeDom.Compiler.CompilerParameters -Property @{ CompilerOptions = '/unsafe'; WarningLevel = 4 }) -TypeDefinition @'
+public class ArcBoxIsoFile {
+    public unsafe static void Create(string Path, object Stream, int BlockSize, int TotalBlocks) {
+        int bytes = 0;
+        byte[] buf = new byte[BlockSize];
+        var ptr = (System.IntPtr)(&bytes);
+        var o = System.IO.File.OpenWrite(Path);
+        var i = Stream as System.Runtime.InteropServices.ComTypes.IStream;
+        if (o != null) {
+            while (TotalBlocks-- > 0) {
+                i.Read(buf, BlockSize, ptr);
+                o.Write(buf, 0, bytes);
+            }
+            o.Flush();
+            o.Close();
+        }
+    }
+}
+'@
+    }
+
+    if (Test-Path -Path $Path) {
+        Remove-Item -Path $Path -Force
+    }
+
+    # FsiFileSystemISO9660 (1) -bor FsiFileSystemJoliet (2) so cloud-init reads the lowercase,
+    # hyphenated file names (meta-data, user-data, network-config) verbatim.
+    $image = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
+    $image.VolumeName = $VolumeName
+    $image.FileSystemsToCreate = 3
+    $image.Root.AddTree($SourceDirectory, $false)
+    $result = $image.CreateResultImage()
+    [ArcBoxIsoFile]::Create($Path, $result.ImageStream, $result.BlockSize, $result.TotalBlocks)
+
+    if (-not (Test-Path -Path $Path)) {
+        throw "Failed to create cloud-init seed ISO at '$Path'."
+    }
+}
+
 function Invoke-ArcBoxLinuxScript {
     <#
     .SYNOPSIS
@@ -782,18 +842,23 @@ if ($Env:flavor -ne 'DevOps') {
             }
 
             Write-Host 'Injecting NoCloud seed data mapping static IP and SSH keys to bypass Hyper-V Guest Copy failures'
-            $cidataVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql-CIDATA.vhdx"
-            if (Test-Path $cidataVhdPath) { Remove-Item -Path $cidataVhdPath -Force }
-            # FAT32 via Windows' Format-Volume requires a volume of at least ~32MB; a smaller disk
-            # fails with 'Size Not Supported', which previously left $driveLetter empty and caused the
-            # seed files to be written to C:\Windows\System32 instead of the CIDATA volume.
-            New-VHD -Path $cidataVhdPath -SizeBytes 64MB -Dynamic | Out-Null
-            $seedDisk = Mount-VHD -Path $cidataVhdPath -PassThru | Get-Disk
-            $seedDisk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -UseMaximumSize -AssignDriveLetter | Format-Volume -FileSystem FAT32 -NewFileSystemLabel CIDATA -Force | Out-Null
-            $driveLetter = ($seedDisk | Get-Partition | Where-Object DriveLetter | Get-Volume | Where-Object FileSystemLabel -eq 'CIDATA').DriveLetter + ":"
-            if ([string]::IsNullOrWhiteSpace($driveLetter) -or $driveLetter -eq ':') {
-                throw "Failed to create/format the CIDATA seed volume on '$cidataVhdPath'; no drive letter was assigned."
-            }
+
+            # Deliver the cloud-init NoCloud seed as an iso9660 DVD labeled 'CIDATA'. cloud-init's
+            # early-boot ds-identify on the prebuilt Azure-built Ubuntu image reliably detects the
+            # seed from a 'cidata' DVD, whereas a FAT-formatted data VHDX is frequently not probed
+            # (which is why the static IP / SSH key were never applied). A DVD also avoids the
+            # Hyper-V "access denied opening attachment" ACL problem that the data-disk path hit.
+            $cidataIsoPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql-cidata.iso"
+            $cidataStageDir = Join-Path -Path $Env:ArcBoxVMDir -ChildPath "$namingPrefix-pgsql-cidata"
+
+            # Clean up any artifacts from previous runs (including the old FAT32 data-disk approach).
+            $legacyCidataVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql-CIDATA.vhdx"
+            Get-VMHardDiskDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $legacyCidataVhdPath } |
+                Remove-VMHardDiskDrive -ErrorAction SilentlyContinue
+            if (Test-Path $legacyCidataVhdPath) { Remove-Item -Path $legacyCidataVhdPath -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $cidataStageDir) { Remove-Item -Path $cidataStageDir -Recurse -Force }
+            $null = New-Item -Path $cidataStageDir -ItemType Directory -Force
 
             $pubKey = (Get-Content "$sshKeyPath.pub" -Raw).Trim()
 
@@ -807,7 +872,7 @@ if ($Env:flavor -ne 'DevOps') {
             }
             $script:utf8NoBom = $utf8NoBom
 
-            Write-SeedFile -Path "$driveLetter\meta-data" -Content "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n"
+            Write-SeedFile -Path "$cidataStageDir\meta-data" -Content "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n"
 
             # Write the static netplan file directly via write_files + runcmd. Doing it this way does
             # NOT depend on cloud-init's NoCloud network-config rendering, which prebuilt images often
@@ -843,30 +908,34 @@ runcmd:
   - netplan generate
   - netplan apply
 "@
-            Write-SeedFile -Path "$driveLetter\user-data" -Content $userData
+            Write-SeedFile -Path "$cidataStageDir\user-data" -Content $userData
 
             # Also keep the standalone NoCloud network-config for images where cloud-init network
             # rendering is enabled (belt and suspenders with the write_files netplan above).
-            Write-SeedFile -Path "$driveLetter\network-config" -Content "version: 2`nethernets:`n  default_cfg:`n    match:`n      name: e*`n    dhcp4: false`n    addresses: [10.10.1.102/24]`n    routes:`n      - to: default`n        via: 10.10.1.1`n    nameservers:`n      addresses: [168.63.129.16, 10.16.2.100]`n"
+            Write-SeedFile -Path "$cidataStageDir\network-config" -Content "version: 2`nethernets:`n  default_cfg:`n    match:`n      name: e*`n    dhcp4: false`n    addresses: [10.10.1.102/24]`n    routes:`n      - to: default`n        via: 10.10.1.1`n    nameservers:`n      addresses: [168.63.129.16, 10.16.2.100]`n"
 
-            Dismount-VHD -Path $cidataVhdPath
-            Add-VMHardDiskDrive -VMName $ubuntuVmName -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 1 -Path $cidataVhdPath
+            # Build the NoCloud seed ISO and attach it as a DVD drive. Remove any DVD drive left over
+            # from a previous run first so the attach is idempotent.
+            New-ArcBoxCloudInitIso -SourceDirectory $cidataStageDir -Path $cidataIsoPath -VolumeName 'CIDATA'
 
-            # Hyper-V opens each attached VHDX using the per-VM virtual machine identity
-            # (NT VIRTUAL MACHINE\<VM ID>). Add-VMHardDiskDrive normally stamps that ACL onto the
-            # file, but for a freshly created/dismounted CIDATA disk it can be missed, which makes
-            # Start-VM fail with "Account does not have permission to open attachment ... Access is
-            # denied. (0x80070005)". Explicitly grant the VM's SID full control on the file so the
-            # power-on succeeds (idempotent on re-runs).
+            Get-VMDvdDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $cidataIsoPath } |
+                Remove-VMDvdDrive -ErrorAction SilentlyContinue
+
+            # Hyper-V opens each attached image using the per-VM virtual machine identity
+            # (NT VIRTUAL MACHINE\<VM ID>). Grant that SID read access on the ISO before attaching so
+            # a fresh seed file can be opened at power-on (idempotent on re-runs).
             $ubuntuVmId = (Get-VM -Name $ubuntuVmName).Id.Guid
-            $cidataAcl = Get-Acl -Path $cidataVhdPath
+            $cidataAcl = Get-Acl -Path $cidataIsoPath
             $vmAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
                 "NT VIRTUAL MACHINE\$ubuntuVmId",
-                'FullControl',
+                'Read',
                 'Allow'
             )
             $cidataAcl.AddAccessRule($vmAccessRule)
-            Set-Acl -Path $cidataVhdPath -AclObject $cidataAcl
+            Set-Acl -Path $cidataIsoPath -AclObject $cidataAcl
+
+            Add-VMDvdDrive -VMName $ubuntuVmName -Path $cidataIsoPath
 
             Set-VM -Name $ubuntuVmName -AutomaticStopAction ShutDown -AutomaticStartAction Start
             Start-VM -Name $ubuntuVmName
