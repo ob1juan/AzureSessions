@@ -210,6 +210,7 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
     namingPrefix: namingPrefix
     debugEnabled: debugEnabled
     autoShutdownEnabled: autoShutdownEnabled
+    autoShutdownTimezone: autoShutdownTimezone
     sqlServerEdition: sqlServerEdition
   }
 }

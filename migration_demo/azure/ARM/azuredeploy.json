@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "3303201496097127012"
+      "templateHash": "9818330696501928895"
     }
   },
   "parameters": {
@@ -3979,6 +3979,9 @@
           "autoShutdownEnabled": {
             "value": "[parameters('autoShutdownEnabled')]"
           },
+          "autoShutdownTimezone": {
+            "value": "[parameters('autoShutdownTimezone')]"
+          },
           "sqlServerEdition": {
             "value": "[parameters('sqlServerEdition')]"
           }
@@ -3990,7 +3993,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "17593420484832775999"
+              "templateHash": "13014310024018687838"
             }
           },
           "parameters": {
@@ -4071,6 +4074,12 @@
             },
             "autoShutdownEnabled": {
               "type": "bool"
+            },
+            "autoShutdownTimezone": {
+              "type": "string",
+              "metadata": {
+                "description": "Windows time zone ID (as accepted by Azure DevTest Labs and tzutil/Set-TimeZone) applied to the Hyper-V host and nested VMs. Example: 'Central Standard Time'."
+              }
             }
           },
           "resources": [
@@ -4091,7 +4100,7 @@
                   "fileUris": [
                     "[uri(parameters('templateBaseUrl'), 'artifacts/Bootstrap.ps1')]"
                   ],
-                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -tenantId {1} -subscriptionId {2} -resourceGroup {3} -azureLocation {4} -templateBaseUrl {5} -flavor {6} -vmAutologon {7} -rdpPort {8} -namingPrefix {9} -debugEnabled {10} -sqlServerEdition {11} -autoShutdownEnabled {12}', parameters('windowsAdminUsername'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'))]"
+                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -tenantId {1} -subscriptionId {2} -resourceGroup {3} -azureLocation {4} -templateBaseUrl {5} -flavor {6} -vmAutologon {7} -rdpPort {8} -namingPrefix {9} -debugEnabled {10} -sqlServerEdition {11} -autoShutdownEnabled {12} -autoShutdownTimezone \"{13}\"', parameters('windowsAdminUsername'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'), parameters('autoShutdownTimezone'))]"
                 }
               }
             }

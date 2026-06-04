@@ -15,6 +15,7 @@ $subscriptionId = $env:subscriptionId
 $azureLocation = $env:azureLocation
 $resourceGroup = $env:resourceGroup
 $namingPrefix = $env:namingPrefix
+$autoShutdownTimezone = $env:autoShutdownTimezone
 
 # Moved VHD storage account details here to keep only in place to prevent duplicates.
 $vhdSourceFolder = 'https://jumpstartprodsg.blob.core.windows.net/arcbox/prod/*'
@@ -370,6 +371,49 @@ function Copy-FileToWindowsVm {
             }
         }
     }
+}
+
+# Maps the Windows time zone IDs accepted by the ARM/Bicep template (and Azure DevTest Labs
+# auto-shutdown schedule) to their IANA equivalents, which Linux (timedatectl) requires.
+$script:WindowsToIanaTimeZone = @{
+    'UTC'                            = 'Etc/UTC'
+    'Hawaiian Standard Time'         = 'Pacific/Honolulu'
+    'Alaskan Standard Time'          = 'America/Anchorage'
+    'Pacific Standard Time'          = 'America/Los_Angeles'
+    'Mountain Standard Time'         = 'America/Denver'
+    'Central Standard Time'          = 'America/Chicago'
+    'Eastern Standard Time'          = 'America/New_York'
+    'Atlantic Standard Time'         = 'America/Halifax'
+    'E. South America Standard Time' = 'America/Sao_Paulo'
+    'Argentina Standard Time'        = 'America/Argentina/Buenos_Aires'
+    'Greenwich Standard Time'        = 'Atlantic/Reykjavik'
+    'GMT Standard Time'              = 'Europe/London'
+    'W. Europe Standard Time'        = 'Europe/Berlin'
+    'Central Europe Standard Time'   = 'Europe/Budapest'
+    'Romance Standard Time'          = 'Europe/Paris'
+    'South Africa Standard Time'     = 'Africa/Johannesburg'
+    'E. Africa Standard Time'        = 'Africa/Nairobi'
+    'Arabian Standard Time'          = 'Asia/Dubai'
+    'Russian Standard Time'          = 'Europe/Moscow'
+    'India Standard Time'            = 'Asia/Kolkata'
+    'China Standard Time'            = 'Asia/Shanghai'
+    'Singapore Standard Time'        = 'Asia/Singapore'
+    'Tokyo Standard Time'            = 'Asia/Tokyo'
+    'AUS Eastern Standard Time'      = 'Australia/Sydney'
+    'New Zealand Standard Time'      = 'Pacific/Auckland'
+}
+
+function ConvertTo-IanaTimeZone {
+    <#
+    .SYNOPSIS
+    Returns the IANA time zone name for a given Windows time zone ID, for use on Linux.
+    #>
+    param([Parameter(Mandatory = $true)][string]$WindowsTimeZoneId)
+
+    if ($script:WindowsToIanaTimeZone.ContainsKey($WindowsTimeZoneId)) {
+        return $script:WindowsToIanaTimeZone[$WindowsTimeZoneId]
+    }
+    throw "No IANA time zone mapping is defined for Windows time zone ID '$WindowsTimeZoneId'."
 }
 
 trap {
@@ -1020,8 +1064,80 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
             }
         }
 
+        if (-not (Test-ComponentCompleted -Name 'Time zone configuration')) {
+            Start-DeploymentComponent -Name 'Time zone configuration' -Message 'Aligning the Hyper-V host and nested VMs to the template time zone.'
+            try {
+            if ([string]::IsNullOrWhiteSpace($autoShutdownTimezone)) {
+                Write-Warning "No autoShutdownTimezone value was provided; skipping time zone configuration."
+                Complete-DeploymentComponent -Name 'Time zone configuration' -Status Skipped -Message 'No time zone value supplied by the template.'
+            } else {
+                Write-Header "Configuring time zone '$autoShutdownTimezone' on host and nested VMs"
+
+                # Host (Hyper-V / Client VM) - Windows time zone ID. Idempotent.
+                Set-TimeZone -Id $autoShutdownTimezone
+
+                # Nested SQL VM (Windows) via PowerShell Direct - same Windows time zone ID.
+                Invoke-Command -VMName $SQLvmName -Credential $winCreds -ScriptBlock {
+                    Set-TimeZone -Id $using:autoShutdownTimezone
+                } -ErrorAction Stop
+
+                # Nested Ubuntu VM (Linux) via SSH - timedatectl requires the IANA name.
+                $ianaTimeZone = ConvertTo-IanaTimeZone -WindowsTimeZoneId $autoShutdownTimezone
+                Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+                $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+                try {
+                    Invoke-ArcBoxLinuxScript -Session $ubuntuSession -Command "sudo timedatectl set-timezone '$ianaTimeZone'"
+                } finally {
+                    Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
+                }
+
+                Complete-DeploymentComponent -Name 'Time zone configuration' -Message "Time zone set to '$autoShutdownTimezone' (Linux: '$ianaTimeZone') on host and both nested VMs."
+            }
+            } catch {
+                Write-Warning "Component 'Time zone configuration' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'Time zone configuration' -Status Failed -Message $_.Exception.Message
+            }
+        }
+
         Write-Header "AdventureWorks SQL Server storefront reachable at https://$SQLvmName/"
         Write-Header "AdventureWorks PostgreSQL storefront reachable at https://$ubuntuVmName/"
+    }
+
+    if (-not (Test-ComponentCompleted -Name 'Re-enable auto-shutdown')) {
+        Start-DeploymentComponent -Name 'Re-enable auto-shutdown' -Message 'Re-enabling the Azure VM auto-shutdown schedule disabled during automation.'
+        try {
+        if ($env:autoShutdownEnabled -eq 'true') {
+            Write-Header 'Re-enabling Azure VM Auto-shutdown'
+
+            # Bootstrap.ps1 temporarily disabled the DevTest Labs auto-shutdown schedule so it would
+            # not stop the VM mid-deployment. Now that automation is complete, re-enable it so the
+            # schedule configured by the template takes effect.
+            $shutdownSchedule = Get-AzResource -ResourceType 'Microsoft.DevTestLab/schedules' -ResourceGroupName $env:resourceGroup -ErrorAction Stop | Where-Object { $_.Name -like "shutdown-computevm-*" } | Select-Object -First 1
+            if ($null -eq $shutdownSchedule) {
+                Write-Warning 'Auto-shutdown schedule resource was not found; nothing to re-enable.'
+                Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Status Skipped -Message 'Auto-shutdown schedule resource not found.'
+            } else {
+                $apiVersion = '2018-09-15'
+                $Uri = "https://management.azure.com$($shutdownSchedule.ResourceId)?api-version=$apiVersion"
+                $scheduleResponse = Invoke-AzRestMethod -Method GET -Uri $Uri
+                $ScheduleSettings = $scheduleResponse.Content | ConvertFrom-Json
+                $ScheduleSettings.properties.status = 'Enabled'
+                $body = $ScheduleSettings | ConvertTo-Json -Depth 30
+                $putResponse = Invoke-AzRestMethod -Method PUT -Uri $Uri -Payload $body
+                if ($putResponse.StatusCode -ge 200 -and $putResponse.StatusCode -lt 300) {
+                    Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Message "Auto-shutdown schedule '$($shutdownSchedule.Name)' re-enabled."
+                } else {
+                    throw "Failed to re-enable auto-shutdown schedule. Status code: $($putResponse.StatusCode). Body: $($putResponse.Content)"
+                }
+            }
+        } else {
+            Write-Output 'Auto-shutdown is disabled by the template; nothing to re-enable.'
+            Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Status Skipped -Message 'Auto-shutdown is disabled by the template.'
+        }
+        } catch {
+            Write-Warning "Component 'Re-enable auto-shutdown' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Status Failed -Message $_.Exception.Message
+        }
     }
 
     Start-DeploymentComponent -Name 'Deployment report' -Message 'Collecting Azure deployment/resource status and writing the final HTML report.'

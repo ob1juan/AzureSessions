@@ -41,6 +41,9 @@ param debugEnabled bool
 
 param autoShutdownEnabled bool
 
+@description('Windows time zone ID (as accepted by Azure DevTest Labs and tzutil/Set-TimeZone) applied to the Hyper-V host and nested VMs. Example: \'Central Standard Time\'.')
+param autoShutdownTimezone string
+
 resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' existing = {
   name: vmName
 }
@@ -61,7 +64,7 @@ resource vmBootstrap 'Microsoft.Compute/virtualMachines/extensions@2024-07-01' =
       fileUris: [
         uri(templateBaseUrl, 'artifacts/Bootstrap.ps1')
       ]
-      commandToExecute: 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername ${windowsAdminUsername} -tenantId ${tenantId} -subscriptionId ${subscription().subscriptionId} -resourceGroup ${resourceGroup().name} -azureLocation ${location} -templateBaseUrl ${templateBaseUrl} -flavor ${flavor} -vmAutologon ${vmAutologon} -rdpPort ${rdpPort} -namingPrefix ${namingPrefix} -debugEnabled ${debugEnabled} -sqlServerEdition ${sqlServerEdition} -autoShutdownEnabled ${autoShutdownEnabled}'
+      commandToExecute: 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername ${windowsAdminUsername} -tenantId ${tenantId} -subscriptionId ${subscription().subscriptionId} -resourceGroup ${resourceGroup().name} -azureLocation ${location} -templateBaseUrl ${templateBaseUrl} -flavor ${flavor} -vmAutologon ${vmAutologon} -rdpPort ${rdpPort} -namingPrefix ${namingPrefix} -debugEnabled ${debugEnabled} -sqlServerEdition ${sqlServerEdition} -autoShutdownEnabled ${autoShutdownEnabled} -autoShutdownTimezone "${autoShutdownTimezone}"'
     }
   }
 }

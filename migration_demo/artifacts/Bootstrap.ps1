@@ -11,7 +11,8 @@ param (
     [string]$namingPrefix,
     [string]$debugEnabled,
     [string]$sqlServerEdition,
-    [string]$autoShutdownEnabled
+    [string]$autoShutdownEnabled,
+    [string]$autoShutdownTimezone
 )
 
 [System.Environment]::SetEnvironmentVariable('adminUsername', $adminUsername, [System.EnvironmentVariableTarget]::Machine)
@@ -25,6 +26,19 @@ param (
 [System.Environment]::SetEnvironmentVariable('ArcBoxDir', "C:\ArcBox", [System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('sqlServerEdition', $sqlServerEdition, [System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('autoShutdownEnabled', $autoShutdownEnabled, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('autoShutdownTimezone', $autoShutdownTimezone, [System.EnvironmentVariableTarget]::Machine)
+
+# Set the Hyper-V host time zone to match the time zone supplied by the ARM/Bicep template
+# (the same Windows time zone ID used for the Azure auto-shutdown schedule). The nested VMs are
+# aligned to this same time zone later by ArcServersLogonScript.ps1.
+if (-not [string]::IsNullOrWhiteSpace($autoShutdownTimezone)) {
+    try {
+        Write-Output "Setting Hyper-V host time zone to '$autoShutdownTimezone'"
+        Set-TimeZone -Id $autoShutdownTimezone
+    } catch {
+        Write-Warning "Failed to set host time zone to '$autoShutdownTimezone': $($_.Exception.Message)"
+    }
+}
 
 if ($debugEnabled -eq "true") {
     [System.Environment]::SetEnvironmentVariable('ErrorActionPreference', "Break", [System.EnvironmentVariableTarget]::Machine)

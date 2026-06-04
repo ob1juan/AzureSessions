@@ -25,7 +25,7 @@ $defaultComponents = @(
         Description = 'Custom Script Extension bootstrap, artifact download, module install, autologon, and scheduled task registration.'
         RunsOn = 'Client VM / Hyper-V host'
         ScriptPath = 'Custom Script Extension download folder\Bootstrap.ps1'
-        Command = 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername <template value> -tenantId <tenant id> -subscriptionId <subscription id> -resourceGroup <resource group> -azureLocation <location> -templateBaseUrl <artifact url> -flavor ITPro -vmAutologon <true|false> -rdpPort <port> -namingPrefix <prefix> -debugEnabled <true|false> -sqlServerEdition <edition> -autoShutdownEnabled <true|false>'
+        Command = 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername <template value> -tenantId <tenant id> -subscriptionId <subscription id> -resourceGroup <resource group> -azureLocation <location> -templateBaseUrl <artifact url> -flavor ITPro -vmAutologon <true|false> -rdpPort <port> -namingPrefix <prefix> -debugEnabled <true|false> -sqlServerEdition <edition> -autoShutdownEnabled <true|false> -autoShutdownTimezone <Windows time zone>'
         RerunCommand = 'Redeploy the Bootstrap VM extension or rerun the ARM deployment after fixing the reported issue.'
         LogPath = 'C:\ArcBox\Logs\Bootstrap.log'
         WorkingDirectory = 'Custom Script Extension download folder'
@@ -140,6 +140,28 @@ $defaultComponents = @(
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
         RecoveryInstructions = 'Confirm the Ubuntu VM is running and reachable over SSH, then rerun ArcServersLogonScript to render a fresh token and retry onboarding.'
+    }
+    @{
+        Name = 'Time zone configuration'
+        Description = 'Aligns the Hyper-V host and both nested VMs (SQL and Ubuntu) to the time zone specified by the template.'
+        RunsOn = 'Client VM / Hyper-V host and nested VMs'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'Set-TimeZone -Id <Windows time zone> on the host and SQL VM (via PowerShell Direct); timedatectl set-timezone <IANA time zone> on the Ubuntu VM (via SSH).'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm the autoShutdownTimezone value is a valid Windows time zone ID, then rerun ArcServersLogonScript. Setting the time zone is idempotent.'
+    }
+    @{
+        Name = 'Re-enable auto-shutdown'
+        Description = 'Re-enables the Azure DevTest Labs auto-shutdown schedule that was temporarily disabled during automation.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'Invoke-AzRestMethod -Method PUT against the Microsoft.DevTestLab/schedules resource to set properties.status = Enabled.'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm the client VM managed identity can write to the schedule resource, then rerun ArcServersLogonScript or enable auto-shutdown from the Azure portal.'
     }
     @{
         Name = 'Deployment report'
