@@ -3,13 +3,13 @@ properties:
 
   resources:
     - resource: HyperVDsc/VMHyperV
-      id: namingPrefixStage-Ubuntu
+      id: namingPrefixStage-pgsql
       directives:
-        description: Configure VM namingPrefixStage-Ubuntu
+        description: Configure VM namingPrefixStage-pgsql
       settings:
-        Name: namingPrefixStage-Ubuntu
+        Name: namingPrefixStage-pgsql
         SwitchName: 'InternalNATSwitch'
-        VhdPath: F:\Virtual Machines\namingPrefixStage-Ubuntu.vhdx
+        VhdPath: F:\Virtual Machines\namingPrefixStage-pgsql.vhdx
         ProcessorCount: 2
         StartupMemory: '4GB'
         RestartIfNeeded: true

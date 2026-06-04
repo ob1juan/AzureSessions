@@ -691,7 +691,7 @@ if ($Env:flavor -ne 'DevOps') {
         # Shared, deterministic values for the Ubuntu nested VM and its app stacks are defined here
         # (outside the per-component blocks) so re-runs that retry only failed components still have
         # every variable they need, even when the 'ArcBox-Ubuntu VM' component is skipped.
-        $ubuntuVmName = "$namingPrefix-Ubuntu"
+        $ubuntuVmName = "$namingPrefix-pgsql"
         $ubuntuVmIp = '10.10.1.102'
         $nestedLinuxUsername = 'jumpstart'
         $sshDir = Join-Path -Path $Env:USERPROFILE -ChildPath '.ssh'
@@ -703,8 +703,8 @@ if ($Env:flavor -ne 'DevOps') {
 
             Write-Header 'Fetching Ubuntu VM'
 
-            $ubuntuVmName = "$namingPrefix-Ubuntu"
-            $ubuntuVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Ubuntu.vhdx"
+            $ubuntuVmName = "$namingPrefix-pgsql"
+            $ubuntuVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql.vhdx"
             $ubuntuSourceVhdName = 'ArcBox-Ubuntu-01.vhdx'
             $ubuntuSourceVhdPath = Join-Path -Path $Env:ArcBoxVMDir -ChildPath $ubuntuSourceVhdName
 
@@ -780,7 +780,7 @@ if ($Env:flavor -ne 'DevOps') {
             }
 
             Write-Host 'Injecting NoCloud seed data mapping static IP and SSH keys to bypass Hyper-V Guest Copy failures'
-            $cidataVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-Ubuntu-CIDATA.vhdx"
+            $cidataVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql-CIDATA.vhdx"
             if (Test-Path $cidataVhdPath) { Remove-Item -Path $cidataVhdPath -Force }
             New-VHD -Path $cidataVhdPath -SizeBytes 20MB -Dynamic | Out-Null
             $seedDisk = Mount-VHD -Path $cidataVhdPath -PassThru | Get-Disk
@@ -791,7 +791,7 @@ if ($Env:flavor -ne 'DevOps') {
 
             Set-Content -Path "$driveLetter\meta-data" -Value "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n" -Encoding Ascii
             Set-Content -Path "$driveLetter\user-data" -Value "#cloud-config`nusers:`n  - default`n  - name: $nestedLinuxUsername`n    ssh_authorized_keys:`n      - $pubKey`n    sudo: ALL=(ALL) NOPASSWD:ALL`n" -Encoding Ascii
-            Set-Content -Path "$driveLetter\network-config" -Value "network:`n  version: 2`n  ethernets:`n    default_cfg:`n      match:`n        name: e*`n      dhcp4: false`n      addresses: [10.10.1.102/24]`n      routes:`n        - to: default`n          via: 10.10.1.1`n      nameservers:`n        addresses: [168.63.129.16, 10.16.2.100]`n" -Encoding Ascii
+            Set-Content -Path "$driveLetter\network-config" -Value "version: 2`nethernets:`n  default_cfg:`n    match:`n      name: e*`n    dhcp4: false`n    addresses: [10.10.1.102/24]`n    routes:`n      - to: default`n        via: 10.10.1.1`n    nameservers:`n      addresses: [168.63.129.16, 10.16.2.100]`n" -Encoding Ascii
             
             Dismount-VHD -Path $cidataVhdPath
             Add-VMHardDiskDrive -VMName $ubuntuVmName -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 1 -Path $cidataVhdPath
