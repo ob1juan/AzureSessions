@@ -895,13 +895,15 @@ if ($Env:flavor -ne 'DevOps') {
                 Remove-VMHardDiskDrive -ErrorAction SilentlyContinue
             if (Test-Path $legacyCidataVhdPath) { Remove-Item -Path $legacyCidataVhdPath -Force -ErrorAction SilentlyContinue }
 
-            # Detach any CIDATA DVD drive left over from a previous run BEFORE rebuilding the ISO.
-            # The ISO file is locked by Hyper-V while it is attached to a DVD drive, so rebuilding it
-            # first (the old ordering) threw and dropped into the catch handler after the VM had
-            # already been stopped, leaving the VM powered off with no seed mounted. Detaching first
-            # frees the file so the rebuild and re-attach succeed and the VM can be restarted.
+            # Detach EVERY DVD drive from the Ubuntu VM BEFORE rebuilding the ISO. Hyper-V holds an
+            # exclusive file lock on an attached ISO, so the seed file cannot be deleted/rebuilt while
+            # a drive still references it. Filtering by exact path is unreliable (Hyper-V may persist
+            # a short/8.3 or differently-cased path that won't match), which would leave the disc
+            # attached, the file locked, New-ArcBoxCloudInitIso's Remove-Item throwing, and the catch
+            # firing AFTER the VM was already stopped -> no DVD mounted, VM never restarted. This VM
+            # only ever uses the single CIDATA seed disc, so removing all DVD drives is safe and
+            # guarantees the lock is released.
             Get-VMDvdDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -eq $cidataIsoPath } |
                 Remove-VMDvdDrive -ErrorAction SilentlyContinue
 
             if (Test-Path $cidataStageDir) { Remove-Item -Path $cidataStageDir -Recurse -Force }
@@ -978,16 +980,9 @@ runcmd:
             $cidataAcl.AddAccessRule($vmAccessRule)
             Set-Acl -Path $cidataIsoPath -AclObject $cidataAcl
 
-            # Attach the seed ISO. Reuse an existing empty DVD drive if one is present (so re-runs do
-            # not pile up extra drives); otherwise add a new one.
-            $emptyDvdDrive = Get-VMDvdDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
-                Where-Object { [string]::IsNullOrEmpty($_.Path) } |
-                Select-Object -First 1
-            if ($emptyDvdDrive) {
-                Set-VMDvdDrive -VMName $ubuntuVmName -ControllerNumber $emptyDvdDrive.ControllerNumber -ControllerLocation $emptyDvdDrive.ControllerLocation -Path $cidataIsoPath
-            } else {
-                Add-VMDvdDrive -VMName $ubuntuVmName -Path $cidataIsoPath
-            }
+            # Attach the freshly built seed ISO. All prior DVD drives were detached above, so add a
+            # single new drive for the CIDATA disc.
+            Add-VMDvdDrive -VMName $ubuntuVmName -Path $cidataIsoPath
 
             Set-VM -Name $ubuntuVmName -AutomaticStopAction ShutDown -AutomaticStartAction Start
 
@@ -1025,6 +1020,14 @@ runcmd:
             Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message "Ubuntu VM is created and reachable at $ubuntuVmIp."
             } catch {
                 Write-Warning "Component 'ArcBox-Ubuntu VM' failed: $($_.Exception.Message)"
+                # The VM is stopped early in this block to attach the seed DVD. If anything after that
+                # threw, make a best-effort attempt to bring it back up so a failed run never leaves
+                # the Ubuntu VM powered off.
+                try {
+                    if ((Get-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue).State -eq 'Off') {
+                        Start-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue
+                    }
+                } catch { }
                 Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Status Failed -Message $_.Exception.Message
             }
         }
