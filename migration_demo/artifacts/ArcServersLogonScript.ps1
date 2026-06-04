@@ -784,10 +784,16 @@ if ($Env:flavor -ne 'DevOps') {
             Write-Host 'Injecting NoCloud seed data mapping static IP and SSH keys to bypass Hyper-V Guest Copy failures'
             $cidataVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql-CIDATA.vhdx"
             if (Test-Path $cidataVhdPath) { Remove-Item -Path $cidataVhdPath -Force }
-            New-VHD -Path $cidataVhdPath -SizeBytes 20MB -Dynamic | Out-Null
+            # FAT32 via Windows' Format-Volume requires a volume of at least ~32MB; a smaller disk
+            # fails with 'Size Not Supported', which previously left $driveLetter empty and caused the
+            # seed files to be written to C:\Windows\System32 instead of the CIDATA volume.
+            New-VHD -Path $cidataVhdPath -SizeBytes 64MB -Dynamic | Out-Null
             $seedDisk = Mount-VHD -Path $cidataVhdPath -PassThru | Get-Disk
             $seedDisk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -UseMaximumSize -AssignDriveLetter | Format-Volume -FileSystem FAT32 -NewFileSystemLabel CIDATA -Force | Out-Null
             $driveLetter = ($seedDisk | Get-Partition | Where-Object DriveLetter | Get-Volume | Where-Object FileSystemLabel -eq 'CIDATA').DriveLetter + ":"
+            if ([string]::IsNullOrWhiteSpace($driveLetter) -or $driveLetter -eq ':') {
+                throw "Failed to create/format the CIDATA seed volume on '$cidataVhdPath'; no drive letter was assigned."
+            }
 
             $pubKey = (Get-Content "$sshKeyPath.pub" -Raw).Trim()
 
