@@ -342,21 +342,36 @@ function New-ArcBoxCloudInitIso {
     )
 
     if (-not ('ArcBoxIsoFile' -as [type])) {
-        Add-Type -CompilerParameters (New-Object System.CodeDom.Compiler.CompilerParameters -Property @{ CompilerOptions = '/unsafe'; WarningLevel = 4 }) -TypeDefinition @'
+        # Write the IMAPI2 result stream to disk without unsafe code. The previous implementation
+        # used 'Add-Type -CompilerParameters ... /unsafe' to take a pointer for IStream.Read's
+        # pcbRead argument, but the -CompilerParameters parameter only exists on Windows PowerShell
+        # 5.1 (Add-Type in PowerShell 6/7 removed it), so under pwsh it failed with
+        # "A parameter cannot be found that matches parameter name 'CompilerParameters'", the ISO was
+        # never built, and the DVD/network seed never applied. Using a managed IntPtr (AllocHGlobal)
+        # for pcbRead removes the need for /unsafe, so a plain Add-Type works on 5.1 and 7 alike.
+        Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+
 public class ArcBoxIsoFile {
-    public unsafe static void Create(string Path, object Stream, int BlockSize, int TotalBlocks) {
-        int bytes = 0;
-        byte[] buf = new byte[BlockSize];
-        var ptr = (System.IntPtr)(&bytes);
-        var o = System.IO.File.OpenWrite(Path);
-        var i = Stream as System.Runtime.InteropServices.ComTypes.IStream;
-        if (o != null) {
-            while (TotalBlocks-- > 0) {
-                i.Read(buf, BlockSize, ptr);
-                o.Write(buf, 0, bytes);
+    public static void Create(string Path, object Stream, int BlockSize, int TotalBlocks) {
+        IStream i = Stream as IStream;
+        if (i == null) { return; }
+        using (FileStream o = File.OpenWrite(Path)) {
+            byte[] buf = new byte[BlockSize];
+            IntPtr pcbRead = Marshal.AllocHGlobal(4);
+            try {
+                while (TotalBlocks-- > 0) {
+                    i.Read(buf, BlockSize, pcbRead);
+                    int read = Marshal.ReadInt32(pcbRead);
+                    o.Write(buf, 0, read);
+                }
+            } finally {
+                Marshal.FreeHGlobal(pcbRead);
             }
             o.Flush();
-            o.Close();
         }
     }
 }
@@ -796,6 +811,12 @@ if ($Env:flavor -ne 'DevOps') {
         $sshDir = Join-Path -Path $Env:USERPROFILE -ChildPath '.ssh'
         $sshKeyPath = Join-Path -Path $sshDir -ChildPath 'id_rsa'
 
+        # Track whether the Ubuntu VM is actually provisioned and reachable this run. The app-stack
+        # components below depend on SSH to the VM, so they must be skipped (not hung on a connection
+        # timeout) when the VM component did not complete. Seed it from the persisted status so a
+        # re-run that only retries the app stacks still proceeds when the VM was created earlier.
+        $ubuntuVmReady = Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM'
+
         if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM')) {
             Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM.'
             try {
@@ -1018,6 +1039,7 @@ runcmd:
             Set-HostFileEntry -HostName $ubuntuVmName -IPAddress $ubuntuVmIp
 
             Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message "Ubuntu VM is created and reachable at $ubuntuVmIp."
+            $ubuntuVmReady = $true
             } catch {
                 Write-Warning "Component 'ArcBox-Ubuntu VM' failed: $($_.Exception.Message)"
                 # The VM is stopped early in this block to attach the seed DVD. If anything after that
@@ -1070,7 +1092,7 @@ runcmd:
             }
         }
 
-        if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu website and database')) {
+        if ($ubuntuVmReady -and -not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu website and database')) {
             Start-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message 'Installing the AdventureWorksLT PostgreSQL conversion and PHP storefront on Ubuntu.'
             try {
             Write-Header 'Installing PostgreSQL AdventureWorks storefront on Ubuntu VM'
@@ -1100,7 +1122,7 @@ runcmd:
             }
         }
 
-        if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu Arc onboarding')) {
+        if ($ubuntuVmReady -and -not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu Arc onboarding')) {
             Start-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the Ubuntu VM.'
             try {
             # Update Linux VM onboarding script connect to Azure Arc, get new token as it might have been expired by the time execution reached this line.
@@ -1131,6 +1153,10 @@ runcmd:
             }
         }
         
+        if (-not $ubuntuVmReady) {
+            Write-Warning "Skipping Ubuntu app-stack and Arc onboarding components because the 'ArcBox-Ubuntu VM' component did not complete (the VM is not reachable over SSH). Re-run after the VM component succeeds, e.g. -ForceComponents 'ArcBox-Ubuntu VM'."
+        }
+
         Write-Header 'Setting up Self-Signed Certificates'
         if (-not (Test-ComponentCompleted -Name 'Certificates Setup')) {
             Start-DeploymentComponent -Name 'Certificates Setup' -Message 'Generating and installing self-signed certificates'
