@@ -118,7 +118,7 @@ function Set-HostFileEntry {
 function Wait-ArcBoxVmRunning {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
-        [int]$TimeoutSeconds = 900
+        [int]$TimeoutSeconds = 600
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -147,7 +147,7 @@ function Wait-ArcBoxVmRunning {
 function Wait-ArcBoxVmIPv4 {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
-        [int]$TimeoutSeconds = 900
+        [int]$TimeoutSeconds = 600
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -174,7 +174,7 @@ function Wait-ArcBoxWindowsVmReady {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][pscredential]$Credential,
-        [int]$TimeoutSeconds = 900
+        [int]$TimeoutSeconds = 600
     )
 
     Wait-ArcBoxVmRunning -Name $Name -TimeoutSeconds $TimeoutSeconds
@@ -201,7 +201,7 @@ function Wait-ArcBoxLinuxSshReady {
         [Parameter(Mandatory = $true)][string]$IPAddress,
         [Parameter(Mandatory = $true)][string]$KeyFilePath,
         [Parameter(Mandatory = $true)][string]$UserName,
-        [int]$TimeoutSeconds = 900
+        [int]$TimeoutSeconds = 600
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -241,7 +241,7 @@ function Copy-FileToLinuxVm {
         [Parameter(Mandatory = $true)][string]$IPAddress,
         [Parameter(Mandatory = $true)][string]$KeyFilePath,
         [Parameter(Mandatory = $true)][string]$UserName,
-        [int]$Retries = 5,
+        [int]$TimeoutSeconds = 600,
         [switch]$NormalizeLineEndings
     )
 
@@ -261,16 +261,17 @@ function Copy-FileToLinuxVm {
     try {
         $target = '{0}@{1}:{2}' -f $UserName, $IPAddress, $RemotePath
         $attempt = 0
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
         while ($true) {
             $attempt++
-            $scpOutput = & scp -i $KeyFilePath -o StrictHostKeyChecking=accept-new -o BatchMode=yes $sourcePath $target 2>&1
+            $scpOutput = & scp -i $KeyFilePath -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=30 $sourcePath $target 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "Copied '$LocalPath' to '${IPAddress}:$RemotePath'."
                 return
             }
 
-            if ($attempt -ge $Retries) {
-                throw "Failed to copy '$LocalPath' to '${IPAddress}:$RemotePath' after $attempt attempts (scp exit code $LASTEXITCODE). $scpOutput"
+            if ((Get-Date) -ge $deadline) {
+                throw "Failed to copy '$LocalPath' to '${IPAddress}:$RemotePath' after $attempt attempts within $TimeoutSeconds seconds (scp exit code $LASTEXITCODE). $scpOutput"
             }
 
             Write-Host "scp attempt $attempt for '$RemotePath' failed (exit code $LASTEXITCODE). Retrying in 10 seconds..."
@@ -325,7 +326,7 @@ function Copy-FileToWindowsVm {
         [Parameter(Mandatory = $true)][pscredential]$Credential,
         [Parameter(Mandatory = $true)][string]$LocalPath,
         [Parameter(Mandatory = $true)][string]$RemotePath,
-        [int]$Retries = 5
+        [int]$TimeoutSeconds = 600
     )
 
     if (-not (Test-Path -Path $LocalPath)) {
@@ -333,6 +334,7 @@ function Copy-FileToWindowsVm {
     }
 
     $attempt = 0
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ($true) {
         $attempt++
         $session = $null
@@ -360,8 +362,8 @@ function Copy-FileToWindowsVm {
             Write-Host "Copied '$LocalPath' to '${VMName}:$RemotePath'."
             return
         } catch {
-            if ($attempt -ge $Retries) {
-                throw "Failed to copy '$LocalPath' to '${VMName}:$RemotePath' after $attempt attempts. $($_.Exception.Message)"
+            if ((Get-Date) -ge $deadline) {
+                throw "Failed to copy '$LocalPath' to '${VMName}:$RemotePath' after $attempt attempts within $TimeoutSeconds seconds. $($_.Exception.Message)"
             }
             Write-Host "Copy attempt $attempt for '$RemotePath' on '$VMName' failed ($($_.Exception.Message)). Retrying in 10 seconds..."
             Start-Sleep -Seconds 10
