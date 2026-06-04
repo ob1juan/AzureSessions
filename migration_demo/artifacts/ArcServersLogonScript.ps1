@@ -791,10 +791,58 @@ if ($Env:flavor -ne 'DevOps') {
 
             $pubKey = (Get-Content "$sshKeyPath.pub" -Raw).Trim()
 
-            Set-Content -Path "$driveLetter\meta-data" -Value "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n" -Encoding Ascii
-            Set-Content -Path "$driveLetter\user-data" -Value "#cloud-config`nusers:`n  - default`n  - name: $nestedLinuxUsername`n    ssh_authorized_keys:`n      - $pubKey`n    sudo: ALL=(ALL) NOPASSWD:ALL`n" -Encoding Ascii
-            Set-Content -Path "$driveLetter\network-config" -Value "version: 2`nethernets:`n  default_cfg:`n    match:`n      name: e*`n    dhcp4: false`n    addresses: [10.10.1.102/24]`n    routes:`n      - to: default`n        via: 10.10.1.1`n    nameservers:`n      addresses: [168.63.129.16, 10.16.2.100]`n" -Encoding Ascii
-            
+            # Helper: cloud-init seed files MUST use LF line endings. Set-Content -Encoding Ascii
+            # writes CRLF on Windows, and a stray '\r' embedded in the YAML (especially inside the
+            # netplan write_files block) breaks parsing, so write UTF-8 (no BOM) with LF endings.
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            function Write-SeedFile {
+                param([string]$Path, [string]$Content)
+                [System.IO.File]::WriteAllText($Path, ($Content -replace "`r`n", "`n"), $script:utf8NoBom)
+            }
+            $script:utf8NoBom = $utf8NoBom
+
+            Write-SeedFile -Path "$driveLetter\meta-data" -Content "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n"
+
+            # Write the static netplan file directly via write_files + runcmd. Doing it this way does
+            # NOT depend on cloud-init's NoCloud network-config rendering, which prebuilt images often
+            # disable via /etc/cloud/cloud.cfg.d/*disable-network-config*. That disable file silently
+            # drops the standalone network-config seed, leaving the VM with no IP. write_files/runcmd
+            # are unaffected by it, so the static IP is applied regardless.
+            $userData = @"
+#cloud-config
+users:
+  - default
+  - name: $nestedLinuxUsername
+    ssh_authorized_keys:
+      - $pubKey
+    sudo: ALL=(ALL) NOPASSWD:ALL
+write_files:
+  - path: /etc/netplan/60-arcbox-static.yaml
+    permissions: '0600'
+    content: |
+      network:
+        version: 2
+        ethernets:
+          default_cfg:
+            match:
+              name: e*
+            dhcp4: false
+            addresses: [10.10.1.102/24]
+            routes:
+              - to: default
+                via: 10.10.1.1
+            nameservers:
+              addresses: [168.63.129.16, 10.16.2.100]
+runcmd:
+  - netplan generate
+  - netplan apply
+"@
+            Write-SeedFile -Path "$driveLetter\user-data" -Content $userData
+
+            # Also keep the standalone NoCloud network-config for images where cloud-init network
+            # rendering is enabled (belt and suspenders with the write_files netplan above).
+            Write-SeedFile -Path "$driveLetter\network-config" -Content "version: 2`nethernets:`n  default_cfg:`n    match:`n      name: e*`n    dhcp4: false`n    addresses: [10.10.1.102/24]`n    routes:`n      - to: default`n        via: 10.10.1.1`n    nameservers:`n      addresses: [168.63.129.16, 10.16.2.100]`n"
+
             Dismount-VHD -Path $cidataVhdPath
             Add-VMHardDiskDrive -VMName $ubuntuVmName -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 1 -Path $cidataVhdPath
 
