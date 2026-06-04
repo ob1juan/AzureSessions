@@ -1,3 +1,12 @@
+param(
+    # One or more deployment component names to force re-run, even if a previous run already marked
+    # them Completed (e.g. -ForceComponents 'ArcBox-Ubuntu VM','Certificates Setup').
+    [string[]]$ForceComponents = @(),
+
+    # Force every deployment component to re-run, ignoring previously recorded Completed status.
+    [switch]$ForceAllComponents
+)
+
 $ErrorActionPreference = if ([string]::IsNullOrWhiteSpace($env:ErrorActionPreference)) { 'Continue' } else { $env:ErrorActionPreference }
 
 $Env:ArcBoxDir = 'C:\ArcBox'
@@ -44,6 +53,24 @@ Start-Transcript -Path $logFilePath -Force -ErrorAction SilentlyContinue
 $DeploymentStatusScript = Join-Path -Path $Env:ArcBoxDir -ChildPath 'DeploymentStatus.ps1'
 $CurrentDeploymentComponent = 'Hyper-V network setup'
 
+# Resolve which components should be forced to re-run. Values can come from the script parameters
+# or, so the behavior also works when the script is relaunched by the scheduled task, from the
+# 'forceComponents' / 'forceAllComponents' environment variables. Component names match the -Name
+# values passed to Start-/Complete-DeploymentComponent (e.g. 'ArcBox-Ubuntu VM').
+if ((-not $ForceComponents -or $ForceComponents.Count -eq 0) -and -not [string]::IsNullOrWhiteSpace($env:forceComponents)) {
+    $ForceComponents = @($env:forceComponents -split '[;,]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+if (-not $ForceAllComponents -and $env:forceAllComponents -eq 'true') {
+    $ForceAllComponents = $true
+}
+$script:ForceComponents = @($ForceComponents | Where-Object { $_ })
+$script:ForceAllComponents = [bool]$ForceAllComponents
+if ($script:ForceAllComponents) {
+    Write-Host 'Force re-run requested for ALL deployment components; previously completed components will be re-deployed.'
+} elseif ($script:ForceComponents.Count -gt 0) {
+    Write-Host "Force re-run requested for components: $($script:ForceComponents -join ', ')"
+}
+
 function Start-DeploymentComponent {
     param(
         [string]$Name,
@@ -58,6 +85,16 @@ function Start-DeploymentComponent {
 
 function Test-ComponentCompleted {
     param([string]$Name)
+
+    # Honor on-demand force re-run requests: treating a component as "not completed" makes the
+    # guarding 'if (-not (Test-ComponentCompleted ...))' block execute again.
+    if ($script:ForceAllComponents) {
+        return $false
+    }
+    if ($script:ForceComponents -and ($script:ForceComponents -contains $Name)) {
+        return $false
+    }
+
     $statusFile = "$Env:ArcBoxLogsDir\DeploymentStatus.json"
     if (Test-Path $statusFile) {
         $state = Get-Content $statusFile -Raw | ConvertFrom-Json
