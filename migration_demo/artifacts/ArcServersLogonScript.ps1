@@ -894,6 +894,16 @@ if ($Env:flavor -ne 'DevOps') {
                 Where-Object { $_.Path -eq $legacyCidataVhdPath } |
                 Remove-VMHardDiskDrive -ErrorAction SilentlyContinue
             if (Test-Path $legacyCidataVhdPath) { Remove-Item -Path $legacyCidataVhdPath -Force -ErrorAction SilentlyContinue }
+
+            # Detach any CIDATA DVD drive left over from a previous run BEFORE rebuilding the ISO.
+            # The ISO file is locked by Hyper-V while it is attached to a DVD drive, so rebuilding it
+            # first (the old ordering) threw and dropped into the catch handler after the VM had
+            # already been stopped, leaving the VM powered off with no seed mounted. Detaching first
+            # frees the file so the rebuild and re-attach succeed and the VM can be restarted.
+            Get-VMDvdDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $cidataIsoPath } |
+                Remove-VMDvdDrive -ErrorAction SilentlyContinue
+
             if (Test-Path $cidataStageDir) { Remove-Item -Path $cidataStageDir -Recurse -Force }
             $null = New-Item -Path $cidataStageDir -ItemType Directory -Force
 
@@ -951,13 +961,9 @@ runcmd:
             # rendering is enabled (belt and suspenders with the write_files netplan above).
             Write-SeedFile -Path "$cidataStageDir\network-config" -Content "version: 2`nethernets:`n  default_cfg:`n    match:`n      name: e*`n    dhcp4: false`n    addresses: [10.10.1.102/24]`n    routes:`n      - to: default`n        via: 10.10.1.1`n    nameservers:`n      addresses: [168.63.129.16, 10.16.2.100]`n"
 
-            # Build the NoCloud seed ISO and attach it as a DVD drive. Remove any DVD drive left over
-            # from a previous run first so the attach is idempotent.
+            # Build the NoCloud seed ISO. Any prior DVD drive referencing it was already detached
+            # above, so the file is free to be rewritten.
             New-ArcBoxCloudInitIso -SourceDirectory $cidataStageDir -Path $cidataIsoPath -VolumeName 'CIDATA'
-
-            Get-VMDvdDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -eq $cidataIsoPath } |
-                Remove-VMDvdDrive -ErrorAction SilentlyContinue
 
             # Hyper-V opens each attached image using the per-VM virtual machine identity
             # (NT VIRTUAL MACHINE\<VM ID>). Grant that SID read access on the ISO before attaching so
@@ -972,10 +978,24 @@ runcmd:
             $cidataAcl.AddAccessRule($vmAccessRule)
             Set-Acl -Path $cidataIsoPath -AclObject $cidataAcl
 
-            Add-VMDvdDrive -VMName $ubuntuVmName -Path $cidataIsoPath
+            # Attach the seed ISO. Reuse an existing empty DVD drive if one is present (so re-runs do
+            # not pile up extra drives); otherwise add a new one.
+            $emptyDvdDrive = Get-VMDvdDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
+                Where-Object { [string]::IsNullOrEmpty($_.Path) } |
+                Select-Object -First 1
+            if ($emptyDvdDrive) {
+                Set-VMDvdDrive -VMName $ubuntuVmName -ControllerNumber $emptyDvdDrive.ControllerNumber -ControllerLocation $emptyDvdDrive.ControllerLocation -Path $cidataIsoPath
+            } else {
+                Add-VMDvdDrive -VMName $ubuntuVmName -Path $cidataIsoPath
+            }
 
             Set-VM -Name $ubuntuVmName -AutomaticStopAction ShutDown -AutomaticStartAction Start
-            Start-VM -Name $ubuntuVmName
+
+            # Always (re)start the VM. On a re-run the VM already exists and was stopped above to
+            # attach the DVD, so this guarantees it comes back up with the seed mounted.
+            if ((Get-VM -Name $ubuntuVmName).State -ne 'Running') {
+                Start-VM -Name $ubuntuVmName
+            }
 
             Wait-ArcBoxVmRunning -Name $ubuntuVmName
 
