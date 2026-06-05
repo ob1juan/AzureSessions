@@ -1254,12 +1254,12 @@ if ($Env:flavor -ne 'DevOps') {
 
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
-            # The Hyper-V NAT DHCP scope intermittently fails to hand DNS to this Ubuntu image, which
-            # leaves /etc/resolv.conf empty and breaks all name resolution (apt, Arc onboarding, app
-            # stacks). Rather than depend on DHCP delivering DNS, configure the resolvers directly
-            # inside the guest (systemd-resolved + netplan + a guaranteed /etc/resolv.conf) before any
-            # step that needs DNS runs. Resolvers come from the same host-derived values used for the
-            # DHCP scope, with public resolvers as a fallback baked into the script.
+            # Make DNS work on the nested Ubuntu VM. Configure-UbuntuDns.sh pins the DHCP client-id to
+            # the interface MAC so the host's MAC-based reservation matches and the scope's DNS
+            # (option 6) is delivered and used, configures systemd-resolved, and writes a guaranteed
+            # /etc/resolv.conf as a fallback so resolution is never left empty (apt, Arc onboarding,
+            # and the app stacks all depend on it). Resolvers come from the same host-derived values
+            # used for the DHCP scope, with public resolvers as a fallback baked into the script.
             Write-Output 'Configuring DNS on the nested Ubuntu VM'
             $ubuntuDnsServers = (@(Get-ArcBoxHostDnsServers) -join ' ')
             $ubuntuDnsSearch = Get-ArcBoxHostDnsSuffix
@@ -1273,6 +1273,16 @@ if ($Env:flavor -ne 'DevOps') {
             } finally {
                 Remove-PSSession $ubuntuDnsSession -ErrorAction SilentlyContinue
             }
+
+            # Configure-UbuntuDns.sh pinned the DHCP client-id to MAC and schedules a netplan apply a
+            # few seconds after it returns. That renews the DHCP lease (typically moving the VM onto
+            # its reserved 10.10.1.102 address) and briefly bounces the link, dropping the SSH session
+            # used above. Let the renewal settle, then re-discover whichever internal IP the VM now
+            # holds over Hyper-V KVP and re-establish SSH before continuing.
+            Start-Sleep -Seconds 20
+            $ubuntuVmIp = Get-ArcBoxVmInternalIPv4 -Name $ubuntuVmName -SubnetPrefix '10.10.1.'
+            Write-Host "Ubuntu VM internal IPv4 after DNS/DHCP configuration: $ubuntuVmIp."
+            Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
             Write-Output 'Ensuring nested Ubuntu VM hostname matches its Hyper-V name'
             Invoke-Command -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ScriptBlock {
