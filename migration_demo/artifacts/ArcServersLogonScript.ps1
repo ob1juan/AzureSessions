@@ -944,41 +944,72 @@ if ($Env:flavor -ne 'DevOps') {
 
             Write-SeedFile -Path "$cidataStageDir\meta-data" -Content "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n"
 
-            # Write the static netplan file directly via write_files + runcmd. Doing it this way does
-            # NOT depend on cloud-init's NoCloud network-config rendering, which prebuilt images often
-            # disable via /etc/cloud/cloud.cfg.d/*disable-network-config*. That disable file silently
-            # drops the standalone network-config seed, leaving the VM with no IP. write_files/runcmd
-            # are unaffected by it, so the static IP is applied regardless.
-            #
-            # The prebuilt Azure-built image ships its own /etc/netplan/50-cloud-init.yaml that matches
-            # the same NIC. Two definitions matching one interface makes 'netplan apply' fail with
-            # "matched more than one device", so the DVD is read but no IP is ever assigned. To win
-            # decisively we (1) disable cloud-init's own network rendering so it stops regenerating its
-            # netplan, and (2) in runcmd delete every other /etc/netplan/*.yaml before generating and
-            # applying ours. A diagnostic log is written to /var/log/arcbox-network.log so a failed
-            # run leaves evidence even when the VM is unreachable over SSH.
-            $userData = @"
+                        $ubuntuVmMacAddressRaw = (Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
+                        if ([string]::IsNullOrWhiteSpace($ubuntuVmMacAddressRaw)) {
+                                throw "Unable to determine MAC address for Ubuntu VM '$ubuntuVmName'. Cannot write deterministic network seed."
+                        }
+                        $ubuntuVmMacAddress = (($ubuntuVmMacAddressRaw -replace '[^0-9A-Fa-f]', '').ToLower() -replace '(.{2})(?=.)', '$1:')
+                        Write-Host "Ubuntu VM network seed will target MAC address $ubuntuVmMacAddress."
+
+                        # Put the static IP in three places so the network comes up on Azure-built Ubuntu images
+                        # regardless of which cloud-init path wins:
+                        # 1. standalone NoCloud network-config, applied in cloud-init's earliest network stage;
+                        # 2. user-data that installs/enables a persistent systemd service and also runs it once;
+                        # 3. Azure ovf-env.xml CustomData carrying the same user-data, for images pinned to the
+                        #    Azure datasource that ignore NoCloud even though the DVD is mounted.
+                        #
+                        # The network-config is matched by Hyper-V MAC address rather than interface name/glob, so
+                        # it cannot accidentally match multiple devices. The systemd fallback deletes any stock
+                        # image netplan (for example /etc/netplan/50-cloud-init.yaml), writes our single static
+                        # file, runs netplan, and then force-applies the address/route with iproute2 as a final
+                        # guard. This is intentionally heavy-handed: the ArcBox internal NAT has no DHCP server,
+                        # so this VM is useless until it owns 10.10.1.102.
+            $userDataTemplate = @'
 #cloud-config
 users:
   - default
-  - name: $nestedLinuxUsername
+  - name: __LINUX_USER__
     ssh_authorized_keys:
-      - $pubKey
+      - __SSH_PUBLIC_KEY__
     sudo: ALL=(ALL) NOPASSWD:ALL
 write_files:
-  - path: /etc/cloud/cloud.cfg.d/99-arcbox-disable-network.cfg
-    permissions: '0644'
+  - path: /usr/local/sbin/arcbox-set-static-ip.sh
+    permissions: '0755'
     content: |
-      network: {config: disabled}
-  - path: /etc/netplan/60-arcbox-static.yaml
-    permissions: '0600'
-    content: |
+      #!/usr/bin/env bash
+      set -u
+      exec >> /var/log/arcbox-network.log 2>&1
+      echo "==== arcbox static network $(date --iso-8601=seconds 2>/dev/null || date) ===="
+
+      target_mac='__MAC_ADDRESS__'
+      iface=''
+      for candidate in /sys/class/net/*; do
+        name="${candidate##*/}"
+        [ "$name" = "lo" ] && continue
+        if [ -r "$candidate/address" ] && [ "$(tr '[:upper:]' '[:lower:]' < "$candidate/address")" = "$target_mac" ]; then
+          iface="$name"
+          break
+        fi
+      done
+      if [ -z "$iface" ]; then
+        iface="$(ip -o link show | awk -F': ' '$2 != "lo" && $2 !~ /^(docker|veth|br-|virbr)/ {print $2; exit}' | cut -d@ -f1)"
+      fi
+      if [ -z "$iface" ]; then
+        echo "No usable network interface found."
+        ip link show || true
+        exit 1
+      fi
+
+      mkdir -p /etc/netplan
+      find /etc/netplan -maxdepth 1 -type f -name '*.yaml' ! -name '01-arcbox-static.yaml' -delete
+      cat > /etc/netplan/01-arcbox-static.yaml <<'EOF'
       network:
         version: 2
         ethernets:
           arcbox0:
             match:
-              name: "e*"
+              macaddress: "__MAC_ADDRESS__"
+            set-name: eth0
             dhcp4: false
             dhcp6: false
             addresses: [10.10.1.102/24]
@@ -987,16 +1018,92 @@ write_files:
                 via: 10.10.1.1
             nameservers:
               addresses: [168.63.129.16, 10.16.2.100]
-runcmd:
-  - find /etc/netplan -maxdepth 1 -name '*.yaml' ! -name '60-arcbox-static.yaml' -delete
-  - chmod 600 /etc/netplan/60-arcbox-static.yaml
-  - sh -c 'netplan generate >> /var/log/arcbox-network.log 2>&1; netplan apply >> /var/log/arcbox-network.log 2>&1; sleep 5; netplan apply >> /var/log/arcbox-network.log 2>&1; ip -4 addr >> /var/log/arcbox-network.log 2>&1'
-"@
-            Write-SeedFile -Path "$cidataStageDir\user-data" -Content $userData
+      EOF
+      chmod 600 /etc/netplan/01-arcbox-static.yaml
 
-            # Also keep the standalone NoCloud network-config for images where cloud-init network
-            # rendering is enabled (belt and suspenders with the write_files netplan above).
-            Write-SeedFile -Path "$cidataStageDir\network-config" -Content "version: 2`nethernets:`n  default_cfg:`n    match:`n      name: e*`n    dhcp4: false`n    addresses: [10.10.1.102/24]`n    routes:`n      - to: default`n        via: 10.10.1.1`n    nameservers:`n      addresses: [168.63.129.16, 10.16.2.100]`n"
+      netplan generate || true
+      netplan apply || true
+      if [ -r /sys/class/net/eth0/address ] && [ "$(tr '[:upper:]' '[:lower:]' < /sys/class/net/eth0/address)" = "$target_mac" ]; then
+        iface='eth0'
+      fi
+      ip link set "$iface" up || true
+      ip addr flush dev "$iface" scope global || true
+      ip addr add 10.10.1.102/24 dev "$iface" || true
+      ip route replace default via 10.10.1.1 dev "$iface" || true
+      resolvectl dns "$iface" 168.63.129.16 10.16.2.100 || true
+      resolvectl default-route "$iface" yes || true
+      ip -4 addr show dev "$iface" || true
+      ip route || true
+  - path: /etc/systemd/system/arcbox-network.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=ArcBox static network configuration
+      DefaultDependencies=no
+      After=local-fs.target systemd-udev-settle.service
+      Before=network-pre.target network-online.target ssh.service sshd.service
+      Wants=network-pre.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/arcbox-set-static-ip.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - rm -f /etc/cloud/cloud.cfg.d/99-arcbox-disable-network.cfg
+  - systemctl daemon-reload
+  - systemctl enable arcbox-network.service
+  - /usr/local/sbin/arcbox-set-static-ip.sh
+  - systemctl restart ssh || systemctl restart sshd || true
+'@
+            $userData = $userDataTemplate.
+                Replace('__LINUX_USER__', $nestedLinuxUsername).
+                Replace('__SSH_PUBLIC_KEY__', $pubKey).
+                Replace('__MAC_ADDRESS__', $ubuntuVmMacAddress)
+
+            Write-SeedFile -Path "$cidataStageDir\user-data" -Content $userData
+            Write-SeedFile -Path "$cidataStageDir\network-config" -Content @"
+version: 2
+ethernets:
+  arcbox0:
+    match:
+      macaddress: "$ubuntuVmMacAddress"
+    set-name: eth0
+    dhcp4: false
+    dhcp6: false
+    addresses: [10.10.1.102/24]
+    routes:
+      - to: default
+        via: 10.10.1.1
+    nameservers:
+      addresses: [168.63.129.16, 10.16.2.100]
+"@
+            $customDataBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($userData))
+                        $escapedUbuntuVmName = [System.Security.SecurityElement]::Escape($ubuntuVmName)
+                        $escapedNestedLinuxUsername = [System.Security.SecurityElement]::Escape($nestedLinuxUsername)
+                        Write-SeedFile -Path "$cidataStageDir\ovf-env.xml" -Content @"
+<?xml version="1.0" encoding="utf-8"?>
+<Environment xmlns="http://schemas.dmtf.org/ovf/environment/1" xmlns:oe="http://schemas.dmtf.org/ovf/environment/1" xmlns:wa="http://schemas.microsoft.com/windowsazure" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <wa:ProvisioningSection>
+        <wa:Version>1.0</wa:Version>
+        <LinuxProvisioningConfigurationSet>
+            <ConfigurationSetType>LinuxProvisioningConfiguration</ConfigurationSetType>
+            <HostName>$escapedUbuntuVmName</HostName>
+            <UserName>$escapedNestedLinuxUsername</UserName>
+            <DisableSshPasswordAuthentication>true</DisableSshPasswordAuthentication>
+            <CustomData>$customDataBase64</CustomData>
+        </LinuxProvisioningConfigurationSet>
+    </wa:ProvisioningSection>
+    <wa:PlatformSettingsSection>
+        <wa:Version>1.0</wa:Version>
+        <PlatformSettings>
+            <HostName>$escapedUbuntuVmName</HostName>
+        </PlatformSettings>
+    </wa:PlatformSettingsSection>
+</Environment>
+"@
 
             # Build the NoCloud seed ISO. Any prior DVD drive referencing it was already detached
             # above, so the file is free to be rewritten.
