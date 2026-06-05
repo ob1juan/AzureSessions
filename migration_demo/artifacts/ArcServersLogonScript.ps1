@@ -1243,6 +1243,26 @@ if ($Env:flavor -ne 'DevOps') {
 
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
+            # The Hyper-V NAT DHCP scope intermittently fails to hand DNS to this Ubuntu image, which
+            # leaves /etc/resolv.conf empty and breaks all name resolution (apt, Arc onboarding, app
+            # stacks). Rather than depend on DHCP delivering DNS, configure the resolvers directly
+            # inside the guest (systemd-resolved + netplan + a guaranteed /etc/resolv.conf) before any
+            # step that needs DNS runs. Resolvers come from the same host-derived values used for the
+            # DHCP scope, with public resolvers as a fallback baked into the script.
+            Write-Output 'Configuring DNS on the nested Ubuntu VM'
+            $ubuntuDnsServers = (@(Get-ArcBoxHostDnsServers) -join ' ')
+            $ubuntuDnsSearch = Get-ArcBoxHostDnsSuffix
+            Copy-FileToLinuxVm -LocalPath "$Env:ArcBoxDir\Configure-UbuntuDns.sh" -RemotePath "/home/$nestedLinuxUsername/Configure-UbuntuDns.sh" -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -NormalizeLineEndings
+            $ubuntuDnsSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+            try {
+                Invoke-Command -Session $ubuntuDnsSession -ScriptBlock {
+                    chmod +x "/home/$using:nestedLinuxUsername/Configure-UbuntuDns.sh"
+                } -ErrorAction Stop
+                Invoke-ArcBoxLinuxScript -Session $ubuntuDnsSession -Command "DNS_SERVERS='$ubuntuDnsServers' DNS_SEARCH='$ubuntuDnsSearch' bash /home/$nestedLinuxUsername/Configure-UbuntuDns.sh"
+            } finally {
+                Remove-PSSession $ubuntuDnsSession -ErrorAction SilentlyContinue
+            }
+
             Write-Output 'Ensuring nested Ubuntu VM hostname matches its Hyper-V name'
             Invoke-Command -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ScriptBlock {
                 if ((hostname) -cne $using:ubuntuVmName) {

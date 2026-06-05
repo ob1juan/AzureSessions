@@ -230,6 +230,7 @@ Invoke-WebRequest ($templateBaseUrl + "artifacts/dsc/virtual_machines_itpro.dsc.
 Invoke-WebRequest ($templateBaseUrl + "artifacts/iis/Configure-IIS.ps1") -OutFile $Env:ArcBoxDir\Configure-IIS.ps1
 Invoke-WebRequest ($templateBaseUrl + "artifacts/iis/Initialize-ArcBoxSqlDemo.ps1") -OutFile $Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1
 Invoke-WebRequest ($templateBaseUrl + "artifacts/postgres/Configure-Postgres.sh") -OutFile $Env:ArcBoxDir\Configure-Postgres.sh
+Invoke-WebRequest ($templateBaseUrl + "artifacts/Configure-UbuntuDns.sh") -OutFile $Env:ArcBoxDir\Configure-UbuntuDns.sh
 
 New-Item -path alias:azdata -value 'C:\Program Files (x86)\Microsoft SDKs\Azdata\CLI\wbin\azdata.cmd'
 
