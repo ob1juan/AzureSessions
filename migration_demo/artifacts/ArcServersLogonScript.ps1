@@ -408,45 +408,69 @@ function Get-ArcBoxVmInternalIPv4 {
 function Set-ArcBoxLinuxVmAuthorizedKey {
     <#
     .SYNOPSIS
-    Injects the host's SSH public key into a nested Linux VM's authorized_keys over Hyper-V VMBus
-    (Guest Service Interface), so key-based SSH works without any guest networking or cloud-init.
+    Installs the host's SSH public key into a nested Linux VM's authorized_keys using a one-time
+    password-authenticated SSH session, so all later key-based SSH/PowerShell-remoting calls work.
 
     .DESCRIPTION
-    The nested Ubuntu image enables the Hyper-V Guest Service Interface (EnableGuestService in the
-    DSC config), so Copy-VMFile -FileSource Host can place the public key file directly into the
-    guest filesystem over VMBus. This replaces the removed cloud-init seed that previously carried
-    ssh_authorized_keys, and is the same mechanism upstream ArcBox uses.
+    The cloud-init seed that previously delivered ssh_authorized_keys was removed, and the Hyper-V
+    VMBus file-copy path (Copy-VMFile / Guest Service Interface) is not serviced by this Ubuntu
+    image's guest daemon (it fails with 0x80004005). Because the image ships the 'jumpstart' user
+    with a known password and SSH is reachable over the host DHCP network, this uses that password
+    once (via the Posh-SSH module, which supports password credentials on both Windows PowerShell
+    5.1 and PowerShell 7) to append the public key and set correct ~/.ssh ownership/permissions.
     #>
     param(
-        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$IPAddress,
         [Parameter(Mandatory = $true)][string]$PublicKeyPath,
         [Parameter(Mandatory = $true)][string]$UserName,
+        [Parameter(Mandatory = $true)][string]$Password,
         [int]$TimeoutSeconds = 600
     )
 
     if (-not (Test-Path -Path $PublicKeyPath)) {
-        throw "SSH public key not found for injection into '$Name': $PublicKeyPath"
+        throw "SSH public key not found for installation on '$IPAddress': $PublicKeyPath"
     }
 
-    # Ensure the Guest Service Interface integration component is enabled so Copy-VMFile works.
-    Enable-VMIntegrationService -VMName $Name -Name 'Guest Service Interface' -ErrorAction SilentlyContinue
+    if (-not (Get-Module -ListAvailable -Name Posh-SSH)) {
+        Write-Host 'Installing Posh-SSH module for the password-authenticated SSH key bootstrap.'
+        try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null } catch { }
+        if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+        }
+        Install-Module -Name Posh-SSH -Scope AllUsers -Force -AllowClobber -ErrorAction Stop
+    }
+    Import-Module Posh-SSH -ErrorAction Stop
 
-    # Wait for the integration services heartbeat so the guest file-copy daemon is ready to receive.
+    $securePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
+    $credential = New-Object System.Management.Automation.PSCredential ($UserName, $securePassword)
+
+    # Wait until the guest accepts a password SSH session, then install the key. Retry because the
+    # VM may still be finishing first boot when this runs.
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    do {
-        $heartbeat = Get-VMIntegrationService -VMName $Name -Name 'Heartbeat' -ErrorAction SilentlyContinue
-        if ($heartbeat -and $heartbeat.PrimaryStatusDescription -eq 'OK') { break }
-        Write-Host "Waiting for VM $Name integration services heartbeat before copying the SSH key."
-        Start-Sleep -Seconds 10
-    } while ((Get-Date) -lt $deadline)
+    $session = $null
+    while ($null -eq $session) {
+        try {
+            $session = New-SSHSession -ComputerName $IPAddress -Credential $credential -AcceptKey -Force -ConnectionTimeout 30 -ErrorAction Stop
+        } catch {
+            if ((Get-Date) -ge $deadline) {
+                throw "Timed out waiting to bootstrap the SSH key on '$IPAddress' using password authentication: $($_.Exception.Message)"
+            }
+            Write-Host "Waiting for password SSH on '$IPAddress' to bootstrap the SSH key: $($_.Exception.Message)"
+            Start-Sleep -Seconds 10
+        }
+    }
 
-    $stagedKeyPath = Join-Path -Path $env:TEMP -ChildPath 'authorized_keys'
-    Copy-Item -Path $PublicKeyPath -Destination $stagedKeyPath -Force
     try {
-        Copy-VMFile -Name $Name -SourcePath $stagedKeyPath -DestinationPath "/home/$UserName/.ssh/authorized_keys" -FileSource Host -CreateFullPath -Force -ErrorAction Stop
-        Write-Host "Injected SSH public key into '$Name' at /home/$UserName/.ssh/authorized_keys over VMBus."
+        # The public key is a single line with no single quotes, so it is safe inside single quotes.
+        $publicKey = (Get-Content -Path $PublicKeyPath -Raw).Trim()
+        $installKeyCommand = "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && grep -qxF '$publicKey' ~/.ssh/authorized_keys || printf '%s\n' '$publicKey' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+        $result = Invoke-SSHCommand -SessionId $session.SessionId -Command $installKeyCommand -ErrorAction Stop
+        if ($result.ExitStatus -ne 0) {
+            throw "Failed to install SSH public key on '$IPAddress' (exit $($result.ExitStatus)): $($result.Output -join '; ')"
+        }
+        Write-Host "Installed SSH public key into '$UserName@${IPAddress}:~/.ssh/authorized_keys'."
     } finally {
-        Remove-Item -Path $stagedKeyPath -Force -ErrorAction SilentlyContinue
+        Remove-SSHSession -SessionId $session.SessionId -ErrorAction SilentlyContinue | Out-Null
     }
 }
 
@@ -996,6 +1020,7 @@ if ($Env:flavor -ne 'DevOps') {
             }
         } catch { }
         $nestedLinuxUsername = 'jumpstart'
+        $nestedLinuxPassword = 'JS123!!'
         $sshDir = Join-Path -Path $Env:USERPROFILE -ChildPath '.ssh'
         $sshKeyPath = Join-Path -Path $sshDir -ChildPath 'id_rsa'
 
@@ -1077,6 +1102,7 @@ if ($Env:flavor -ne 'DevOps') {
             Write-Header 'Creating VM Credentials'
             # Hard-coded username and password for the nested Linux VM
             $nestedLinuxUsername = 'jumpstart'
+            $nestedLinuxPassword = 'JS123!!'
 
             # Configuring SSH for accessing Linux VMs
             Write-Output 'Generating SSH key for accessing nested Linux VMs'
@@ -1102,11 +1128,6 @@ if ($Env:flavor -ne 'DevOps') {
 
             Wait-ArcBoxVmRunning -Name $ubuntuVmName
 
-            # The cloud-init seed that previously delivered the host's SSH public key was removed, so
-            # inject it now directly into the guest over Hyper-V VMBus (Guest Service Interface),
-            # which needs no guest networking. Without this, the key-based SSH calls below fail.
-            Set-ArcBoxLinuxVmAuthorizedKey -Name $ubuntuVmName -PublicKeyPath "$sshKeyPath.pub" -UserName $nestedLinuxUsername
-
             # Ubuntu's default netplan/systemd-networkd sends a DUID-based DHCP client identifier
             # (RFC 4361), not its MAC, so the Hyper-V host's MAC-based reservation for 10.10.1.102 is
             # frequently not matched and the VM instead leases the first free pool address (e.g.
@@ -1115,6 +1136,12 @@ if ($Env:flavor -ne 'DevOps') {
             # without host-to-guest networking). KVP reports a moment after boot, so this polls.
             $ubuntuVmIp = Get-ArcBoxVmInternalIPv4 -Name $ubuntuVmName -SubnetPrefix '10.10.1.'
             Write-Host "Ubuntu VM is reachable at DHCP-assigned IPv4 $ubuntuVmIp."
+
+            # The cloud-init seed that previously delivered the host's SSH public key was removed, and
+            # the Hyper-V VMBus file-copy path is not serviced by this image (Copy-VMFile fails with
+            # 0x80004005). Bootstrap the key once over password SSH so every key-based SSH/PowerShell
+            # remoting call below works.
+            Set-ArcBoxLinuxVmAuthorizedKey -IPAddress $ubuntuVmIp -PublicKeyPath "$sshKeyPath.pub" -UserName $nestedLinuxUsername -Password $nestedLinuxPassword
 
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
