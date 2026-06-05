@@ -119,6 +119,124 @@ function Complete-DeploymentComponent {
     }
 }
 
+function ConvertTo-ArcBoxDhcpClientId {
+    param([Parameter(Mandatory = $true)][string]$MacAddress)
+
+    $hex = ($MacAddress -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    if ($hex.Length -ne 12) {
+        throw "Invalid MAC address '$MacAddress'. Expected 12 hexadecimal digits."
+    }
+
+    return (($hex -split '(.{2})' | Where-Object { $_ }) -join '-')
+}
+
+function Ensure-ArcBoxDhcpScope {
+    <#
+    .SYNOPSIS
+    Configures the Hyper-V host DHCP service for the ArcBox InternalNAT network.
+
+    .DESCRIPTION
+    New-NetNat only provides NAT; it does not hand out addresses. The Ubuntu image defaults to DHCP
+    when cloud-init/network-config does not run, so the host must provide a real DHCP scope. The
+    DHCP role is installed on demand when missing; this function makes the runtime configuration
+    idempotent and can be called safely after re-runs or partial deployments.
+    #>
+    param(
+        [string]$ScopeId = '10.10.1.0',
+        [string]$ScopeName = 'ArcBox Internal NAT',
+        [string]$StartRange = '10.10.1.100',
+        [string]$EndRange = '10.10.1.200',
+        [string]$SubnetMask = '255.255.255.0',
+        [string]$Router = '10.10.1.1',
+        [string[]]$DnsServers = @('168.63.129.16', '10.16.2.100'),
+        [string]$InterfaceAlias = 'vEthernet (InternalNATSwitch)'
+    )
+
+    if (-not (Get-Command -Name Get-DhcpServerv4Scope -ErrorAction SilentlyContinue)) {
+        Import-Module DhcpServer -ErrorAction SilentlyContinue
+    }
+    if (-not (Get-Command -Name Get-DhcpServerv4Scope -ErrorAction SilentlyContinue) -and $PSVersionTable.PSEdition -eq 'Core') {
+        Import-Module DhcpServer -UseWindowsPowerShell -ErrorAction SilentlyContinue
+    }
+
+    if (-not (Get-Command -Name Get-DhcpServerv4Scope -ErrorAction SilentlyContinue)) {
+        Import-Module ServerManager -ErrorAction SilentlyContinue
+        if (-not (Get-Command -Name Install-WindowsFeature -ErrorAction SilentlyContinue) -and $PSVersionTable.PSEdition -eq 'Core') {
+            Import-Module ServerManager -UseWindowsPowerShell -ErrorAction SilentlyContinue
+        }
+
+        if (Get-Command -Name Install-WindowsFeature -ErrorAction SilentlyContinue) {
+            Install-WindowsFeature -Name DHCP -IncludeManagementTools -ErrorAction Stop | Out-Null
+        } else {
+            throw 'DHCP Server PowerShell cmdlets are not available and Install-WindowsFeature was not found. Install the Windows DHCP Server role on the Hyper-V host.'
+        }
+
+        Import-Module DhcpServer -ErrorAction SilentlyContinue
+        if (-not (Get-Command -Name Get-DhcpServerv4Scope -ErrorAction SilentlyContinue) -and $PSVersionTable.PSEdition -eq 'Core') {
+            Import-Module DhcpServer -UseWindowsPowerShell -ErrorAction Stop
+        }
+    }
+
+    if (Get-Command -Name Add-DhcpServerSecurityGroup -ErrorAction SilentlyContinue) {
+        Add-DhcpServerSecurityGroup -ErrorAction SilentlyContinue
+    }
+    Set-Service -Name DHCPServer -StartupType Automatic -ErrorAction SilentlyContinue
+    if ((Get-Service -Name DHCPServer -ErrorAction Stop).Status -ne 'Running') {
+        Start-Service -Name DHCPServer -ErrorAction Stop
+    }
+
+    $scope = Get-DhcpServerv4Scope -ScopeId $ScopeId -ErrorAction SilentlyContinue
+    if ($null -eq $scope) {
+        Add-DhcpServerv4Scope -Name $ScopeName -StartRange $StartRange -EndRange $EndRange -SubnetMask $SubnetMask -State Active -ErrorAction Stop | Out-Null
+    } else {
+        Set-DhcpServerv4Scope -ScopeId $ScopeId -Name $ScopeName -State Active -ErrorAction Stop
+    }
+
+    Set-DhcpServerv4OptionValue -ScopeId $ScopeId -Router $Router -DnsServer $DnsServers -ErrorAction Stop
+
+    if (Get-NetAdapter -Name $InterfaceAlias -ErrorAction SilentlyContinue) {
+        $bindings = @(Get-DhcpServerv4Binding -ErrorAction SilentlyContinue)
+        foreach ($binding in $bindings) {
+            Set-DhcpServerv4Binding -InterfaceAlias $binding.InterfaceAlias -BindingState ($binding.InterfaceAlias -eq $InterfaceAlias) -ErrorAction SilentlyContinue
+        }
+        Set-DhcpServerv4Binding -InterfaceAlias $InterfaceAlias -BindingState $true -ErrorAction SilentlyContinue
+    } else {
+        Write-Warning "DHCP scope '$ScopeName' is configured, but interface '$InterfaceAlias' was not found for DHCP binding."
+    }
+}
+
+function Set-ArcBoxDhcpReservation {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$IPAddress,
+        [Parameter(Mandatory = $true)][string]$MacAddress,
+        [string]$ScopeId = '10.10.1.0'
+    )
+
+    Ensure-ArcBoxDhcpScope -ScopeId $ScopeId
+
+    $clientId = ConvertTo-ArcBoxDhcpClientId -MacAddress $MacAddress
+    $normalizedClientId = ($clientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    $existingReservations = @(Get-DhcpServerv4Reservation -ScopeId $ScopeId -ErrorAction SilentlyContinue)
+    foreach ($reservation in $existingReservations) {
+        $reservationClientId = ([string]$reservation.ClientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+        if ($reservation.IPAddress.IPAddressToString -eq $IPAddress -or $reservationClientId -eq $normalizedClientId) {
+            Remove-DhcpServerv4Reservation -ScopeId $ScopeId -ClientId $reservation.ClientId -ErrorAction SilentlyContinue
+        }
+    }
+
+    Add-DhcpServerv4Reservation -ScopeId $ScopeId -IPAddress $IPAddress -ClientId $clientId -Name $Name -Description "ArcBox reserved address for $Name" -ErrorAction Stop | Out-Null
+
+    Get-DhcpServerv4Lease -ScopeId $ScopeId -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.IPAddress.IPAddressToString -eq $IPAddress -or
+            (([string]$_.ClientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() -eq $normalizedClientId)
+        } |
+        ForEach-Object { Remove-DhcpServerv4Lease -IPAddress $_.IPAddress -ErrorAction SilentlyContinue }
+
+    Write-Host "DHCP reservation configured: $Name ($clientId) -> $IPAddress"
+}
+
 function Set-HostFileEntry {
     param(
         [string]$HostName,
@@ -606,6 +724,9 @@ if ($Env:flavor -ne 'DevOps') {
             New-NetNat -Name $natName -InternalIPInterfaceAddressPrefix 10.10.1.0/24
         }
 
+        Write-Host 'Configuring DHCP scope for Internal NAT'
+        Ensure-ArcBoxDhcpScope
+
         Write-Host 'Creating VM Credentials'
         # Hard-coded username and password for the nested VMs
         $nestedWindowsUsername = 'Administrator'
@@ -737,6 +858,9 @@ if ($Env:flavor -ne 'DevOps') {
         (Get-Content -Path $sqlDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $sqlDscConfigurationFile
         winget configure --file C:\ArcBox\DSC\virtual_machines_sql.dsc.yml --accept-configuration-agreements --disable-interactivity
 
+        $sqlVmMacAddress = (Get-VMNetworkAdapter -VMName $SQLvmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
+        Set-ArcBoxDhcpReservation -Name $SQLvmName -IPAddress '10.10.1.101' -MacAddress $sqlVmMacAddress
+
         # Restarting Windows VM Network Adapters
         Write-Host 'Restarting Network Adapters'
         Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
@@ -865,6 +989,16 @@ if ($Env:flavor -ne 'DevOps') {
             (Get-Content -Path $serversDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $serversDscConfigurationFile
             winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
 
+            $ubuntuVmMacAddressRaw = (Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
+            if ([string]::IsNullOrWhiteSpace($ubuntuVmMacAddressRaw)) {
+                throw "Unable to determine MAC address for Ubuntu VM '$ubuntuVmName'. Cannot configure DHCP reservation."
+            }
+            Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVmIp -MacAddress $ubuntuVmMacAddressRaw
+            if (Get-VM -Name $SQLvmName -ErrorAction SilentlyContinue) {
+                $sqlVmMacAddress = (Get-VMNetworkAdapter -VMName $SQLvmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
+                Set-ArcBoxDhcpReservation -Name $SQLvmName -IPAddress $SQLvmIp -MacAddress $sqlVmMacAddress
+            }
+
             # Configure automatic start & stop action for the nested Windows VM
             foreach ($nestedVm in Get-VM -Name $SQLvmName) {
                 if ($nestedVm.State -eq 'Running') {
@@ -960,10 +1094,9 @@ if ($Env:flavor -ne 'DevOps') {
                         #
                         # The network-config is matched by Hyper-V MAC address rather than interface name/glob, so
                         # it cannot accidentally match multiple devices. The systemd fallback deletes any stock
-                        # image netplan (for example /etc/netplan/50-cloud-init.yaml), writes our single static
-                        # file, runs netplan, and then force-applies the address/route with iproute2 as a final
-                        # guard. This is intentionally heavy-handed: the ArcBox internal NAT has no DHCP server,
-                        # so this VM is useless until it owns 10.10.1.102.
+                        # image netplan (for example /etc/netplan/50-cloud-init.yaml), writes our single DHCP
+                        # file, runs netplan, and renews the DHCP lease. The Hyper-V host DHCP reservation maps
+                        # this MAC address to 10.10.1.102.
             $userDataTemplate = @'
 #cloud-config
 users:
@@ -973,7 +1106,7 @@ users:
       - __SSH_PUBLIC_KEY__
     sudo: ALL=(ALL) NOPASSWD:ALL
 write_files:
-  - path: /usr/local/sbin/arcbox-set-static-ip.sh
+  - path: /usr/local/sbin/arcbox-set-dhcp-ip.sh
     permissions: '0755'
     content: |
       #!/usr/bin/env bash
@@ -1001,37 +1134,28 @@ write_files:
       fi
 
       mkdir -p /etc/netplan
-      find /etc/netplan -maxdepth 1 -type f -name '*.yaml' ! -name '01-arcbox-static.yaml' -delete
-      cat > /etc/netplan/01-arcbox-static.yaml <<'EOF'
+      find /etc/netplan -maxdepth 1 -type f -name '*.yaml' ! -name '01-arcbox-dhcp.yaml' -delete
+      cat > /etc/netplan/01-arcbox-dhcp.yaml <<'EOF'
       network:
         version: 2
         ethernets:
           arcbox0:
             match:
               macaddress: "__MAC_ADDRESS__"
-            set-name: eth0
-            dhcp4: false
+            dhcp4: true
             dhcp6: false
-            addresses: [10.10.1.102/24]
-            routes:
-              - to: default
-                via: 10.10.1.1
-            nameservers:
-              addresses: [168.63.129.16, 10.16.2.100]
       EOF
-      chmod 600 /etc/netplan/01-arcbox-static.yaml
+      chmod 600 /etc/netplan/01-arcbox-dhcp.yaml
 
       netplan generate || true
       netplan apply || true
-      if [ -r /sys/class/net/eth0/address ] && [ "$(tr '[:upper:]' '[:lower:]' < /sys/class/net/eth0/address)" = "$target_mac" ]; then
-        iface='eth0'
-      fi
       ip link set "$iface" up || true
-      ip addr flush dev "$iface" scope global || true
-      ip addr add 10.10.1.102/24 dev "$iface" || true
-      ip route replace default via 10.10.1.1 dev "$iface" || true
-      resolvectl dns "$iface" 168.63.129.16 10.16.2.100 || true
-      resolvectl default-route "$iface" yes || true
+            if command -v dhclient >/dev/null 2>&1; then
+                dhclient -4 -r "$iface" || true
+                dhclient -4 -v "$iface" || true
+            elif command -v networkctl >/dev/null 2>&1; then
+                networkctl renew "$iface" || true
+            fi
       ip -4 addr show dev "$iface" || true
       ip route || true
   - path: /etc/systemd/system/arcbox-network.service
@@ -1046,7 +1170,7 @@ write_files:
 
       [Service]
       Type=oneshot
-      ExecStart=/usr/local/sbin/arcbox-set-static-ip.sh
+      ExecStart=/usr/local/sbin/arcbox-set-dhcp-ip.sh
       RemainAfterExit=yes
 
       [Install]
@@ -1055,7 +1179,7 @@ runcmd:
   - rm -f /etc/cloud/cloud.cfg.d/99-arcbox-disable-network.cfg
   - systemctl daemon-reload
   - systemctl enable arcbox-network.service
-  - /usr/local/sbin/arcbox-set-static-ip.sh
+  - /usr/local/sbin/arcbox-set-dhcp-ip.sh
   - systemctl restart ssh || systemctl restart sshd || true
 '@
             $userData = $userDataTemplate.
@@ -1070,15 +1194,8 @@ ethernets:
   arcbox0:
     match:
       macaddress: "$ubuntuVmMacAddress"
-    set-name: eth0
-    dhcp4: false
+    dhcp4: true
     dhcp6: false
-    addresses: [10.10.1.102/24]
-    routes:
-      - to: default
-        via: 10.10.1.1
-    nameservers:
-      addresses: [168.63.129.16, 10.16.2.100]
 "@
             $customDataBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($userData))
                         $escapedUbuntuVmName = [System.Security.SecurityElement]::Escape($ubuntuVmName)
