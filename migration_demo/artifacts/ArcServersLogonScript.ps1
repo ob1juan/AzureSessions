@@ -136,8 +136,8 @@ function Ensure-ArcBoxDhcpScope {
     Configures the Hyper-V host DHCP service for the ArcBox InternalNAT network.
 
     .DESCRIPTION
-    New-NetNat only provides NAT; it does not hand out addresses. The Ubuntu image defaults to DHCP
-    when cloud-init/network-config does not run, so the host must provide a real DHCP scope. The
+    New-NetNat only provides NAT; it does not hand out addresses. The Ubuntu image uses DHCP for
+    initial networking, so the host must provide a real DHCP scope. The
     DHCP role is installed on demand when missing; this function makes the runtime configuration
     idempotent and can be called safely after re-runs or partial deployments.
     #>
@@ -436,81 +436,6 @@ function Copy-FileToLinuxVm {
         if ($tempPath -and (Test-Path $tempPath)) {
             Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue
         }
-    }
-}
-
-function New-ArcBoxCloudInitIso {
-    <#
-    .SYNOPSIS
-    Builds a cloud-init NoCloud seed ISO (iso9660 + Joliet, volume label 'CIDATA') from a source
-    directory and writes it to the given path. Uses the in-box IMAPI2 COM API, so it works on the
-    Hyper-V host without the Windows ADK / oscdimg or any third-party tooling.
-
-    .DESCRIPTION
-    cloud-init's early-boot datasource detector (ds-identify) on prebuilt Azure-built Ubuntu images
-    reliably discovers a NoCloud seed when it is presented as an iso9660 volume labeled 'cidata'
-    attached as a virtual DVD drive. A FAT-formatted data VHDX is frequently NOT probed, so the seed
-    (and therefore the static-IP netplan and SSH keys) never gets applied. Delivering the seed as a
-    DVD ISO is the proven, image-agnostic mechanism.
-    #>
-    param(
-        [Parameter(Mandatory = $true)][string]$SourceDirectory,
-        [Parameter(Mandatory = $true)][string]$Path,
-        [string]$VolumeName = 'CIDATA'
-    )
-
-    if (-not ('ArcBoxIsoFile' -as [type])) {
-        # Write the IMAPI2 result stream to disk without unsafe code. The previous implementation
-        # used 'Add-Type -CompilerParameters ... /unsafe' to take a pointer for IStream.Read's
-        # pcbRead argument, but the -CompilerParameters parameter only exists on Windows PowerShell
-        # 5.1 (Add-Type in PowerShell 6/7 removed it), so under pwsh it failed with
-        # "A parameter cannot be found that matches parameter name 'CompilerParameters'", the ISO was
-        # never built, and the DVD/network seed never applied. Using a managed IntPtr (AllocHGlobal)
-        # for pcbRead removes the need for /unsafe, so a plain Add-Type works on 5.1 and 7 alike.
-        Add-Type -TypeDefinition @'
-using System;
-using System.IO;
-using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
-
-public class ArcBoxIsoFile {
-    public static void Create(string Path, object Stream, int BlockSize, int TotalBlocks) {
-        IStream i = Stream as IStream;
-        if (i == null) { return; }
-        using (FileStream o = File.OpenWrite(Path)) {
-            byte[] buf = new byte[BlockSize];
-            IntPtr pcbRead = Marshal.AllocHGlobal(4);
-            try {
-                while (TotalBlocks-- > 0) {
-                    i.Read(buf, BlockSize, pcbRead);
-                    int read = Marshal.ReadInt32(pcbRead);
-                    o.Write(buf, 0, read);
-                }
-            } finally {
-                Marshal.FreeHGlobal(pcbRead);
-            }
-            o.Flush();
-        }
-    }
-}
-'@
-    }
-
-    if (Test-Path -Path $Path) {
-        Remove-Item -Path $Path -Force
-    }
-
-    # FsiFileSystemISO9660 (1) -bor FsiFileSystemJoliet (2) so cloud-init reads the lowercase,
-    # hyphenated file names (meta-data, user-data, network-config) verbatim.
-    $image = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
-    $image.VolumeName = $VolumeName
-    $image.FileSystemsToCreate = 3
-    $image.Root.AddTree($SourceDirectory, $false)
-    $result = $image.CreateResultImage()
-    [ArcBoxIsoFile]::Create($Path, $result.ImageStream, $result.BlockSize, $result.TotalBlocks)
-
-    if (-not (Test-Path -Path $Path)) {
-        throw "Failed to create cloud-init seed ISO at '$Path'."
     }
 }
 
@@ -1014,9 +939,6 @@ if ($Env:flavor -ne 'DevOps') {
             # Hard-coded username and password for the nested Linux VM
             $nestedLinuxUsername = 'jumpstart'
 
-            # Stop Ubuntu initially (DSC might have started it)
-            Stop-VM -Name $ubuntuVmName -Force -ErrorAction SilentlyContinue
-
             # Configuring SSH for accessing Linux VMs
             Write-Output 'Generating SSH key for accessing nested Linux VMs'
 
@@ -1033,232 +955,20 @@ if ($Env:flavor -ne 'DevOps') {
                 Add-Content -Path $sshConfigPath -Value 'StrictHostKeyChecking=accept-new'
             }
 
-            Write-Host 'Injecting NoCloud seed data mapping static IP and SSH keys to bypass Hyper-V Guest Copy failures'
-
-            # Deliver the cloud-init NoCloud seed as an iso9660 DVD labeled 'CIDATA'. cloud-init's
-            # early-boot ds-identify on the prebuilt Azure-built Ubuntu image reliably detects the
-            # seed from a 'cidata' DVD, whereas a FAT-formatted data VHDX is frequently not probed
-            # (which is why the static IP / SSH key were never applied). A DVD also avoids the
-            # Hyper-V "access denied opening attachment" ACL problem that the data-disk path hit.
-            $cidataIsoPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql-cidata.iso"
-            $cidataStageDir = Join-Path -Path $Env:ArcBoxVMDir -ChildPath "$namingPrefix-pgsql-cidata"
-
-            # Clean up any artifacts from previous runs (including the old FAT32 data-disk approach).
-            $legacyCidataVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql-CIDATA.vhdx"
-            Get-VMHardDiskDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -eq $legacyCidataVhdPath } |
-                Remove-VMHardDiskDrive -ErrorAction SilentlyContinue
-            if (Test-Path $legacyCidataVhdPath) { Remove-Item -Path $legacyCidataVhdPath -Force -ErrorAction SilentlyContinue }
-
-            # Detach EVERY DVD drive from the Ubuntu VM BEFORE rebuilding the ISO. Hyper-V holds an
-            # exclusive file lock on an attached ISO, so the seed file cannot be deleted/rebuilt while
-            # a drive still references it. Filtering by exact path is unreliable (Hyper-V may persist
-            # a short/8.3 or differently-cased path that won't match), which would leave the disc
-            # attached, the file locked, New-ArcBoxCloudInitIso's Remove-Item throwing, and the catch
-            # firing AFTER the VM was already stopped -> no DVD mounted, VM never restarted. This VM
-            # only ever uses the single CIDATA seed disc, so removing all DVD drives is safe and
-            # guarantees the lock is released.
-            Get-VMDvdDrive -VMName $ubuntuVmName -ErrorAction SilentlyContinue |
-                Remove-VMDvdDrive -ErrorAction SilentlyContinue
-
-            if (Test-Path $cidataStageDir) { Remove-Item -Path $cidataStageDir -Recurse -Force }
-            $null = New-Item -Path $cidataStageDir -ItemType Directory -Force
-
-            $pubKey = (Get-Content "$sshKeyPath.pub" -Raw).Trim()
-
-            # Helper: cloud-init seed files MUST use LF line endings. Set-Content -Encoding Ascii
-            # writes CRLF on Windows, and a stray '\r' embedded in the YAML (especially inside the
-            # netplan write_files block) breaks parsing, so write UTF-8 (no BOM) with LF endings.
-            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-            function Write-SeedFile {
-                param([string]$Path, [string]$Content)
-                [System.IO.File]::WriteAllText($Path, ($Content -replace "`r`n", "`n"), $script:utf8NoBom)
-            }
-            $script:utf8NoBom = $utf8NoBom
-
-            Write-SeedFile -Path "$cidataStageDir\meta-data" -Content "instance-id: arcbox-$(New-Guid)`nlocal-hostname: $ubuntuVmName`n"
-
-                        $ubuntuVmMacAddressRaw = (Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
-                        if ([string]::IsNullOrWhiteSpace($ubuntuVmMacAddressRaw)) {
-                                throw "Unable to determine MAC address for Ubuntu VM '$ubuntuVmName'. Cannot write deterministic network seed."
-                        }
-                        $ubuntuVmMacAddress = (($ubuntuVmMacAddressRaw -replace '[^0-9A-Fa-f]', '').ToLower() -replace '(.{2})(?=.)', '$1:')
-                        Write-Host "Ubuntu VM network seed will target MAC address $ubuntuVmMacAddress."
-
-                        # Put the static IP in three places so the network comes up on Azure-built Ubuntu images
-                        # regardless of which cloud-init path wins:
-                        # 1. standalone NoCloud network-config, applied in cloud-init's earliest network stage;
-                        # 2. user-data that installs/enables a persistent systemd service and also runs it once;
-                        # 3. Azure ovf-env.xml CustomData carrying the same user-data, for images pinned to the
-                        #    Azure datasource that ignore NoCloud even though the DVD is mounted.
-                        #
-                        # The network-config is matched by Hyper-V MAC address rather than interface name/glob, so
-                        # it cannot accidentally match multiple devices. The systemd fallback deletes any stock
-                        # image netplan (for example /etc/netplan/50-cloud-init.yaml), writes our single DHCP
-                        # file, runs netplan, and renews the DHCP lease. The Hyper-V host DHCP reservation maps
-                        # this MAC address to 10.10.1.102.
-            $userDataTemplate = @'
-#cloud-config
-users:
-  - default
-  - name: __LINUX_USER__
-    ssh_authorized_keys:
-      - __SSH_PUBLIC_KEY__
-    sudo: ALL=(ALL) NOPASSWD:ALL
-write_files:
-  - path: /usr/local/sbin/arcbox-set-dhcp-ip.sh
-    permissions: '0755'
-    content: |
-      #!/usr/bin/env bash
-      set -u
-      exec >> /var/log/arcbox-network.log 2>&1
-      echo "==== arcbox static network $(date --iso-8601=seconds 2>/dev/null || date) ===="
-
-      target_mac='__MAC_ADDRESS__'
-      iface=''
-      for candidate in /sys/class/net/*; do
-        name="${candidate##*/}"
-        [ "$name" = "lo" ] && continue
-        if [ -r "$candidate/address" ] && [ "$(tr '[:upper:]' '[:lower:]' < "$candidate/address")" = "$target_mac" ]; then
-          iface="$name"
-          break
-        fi
-      done
-      if [ -z "$iface" ]; then
-        iface="$(ip -o link show | awk -F': ' '$2 != "lo" && $2 !~ /^(docker|veth|br-|virbr)/ {print $2; exit}' | cut -d@ -f1)"
-      fi
-      if [ -z "$iface" ]; then
-        echo "No usable network interface found."
-        ip link show || true
-        exit 1
-      fi
-
-      mkdir -p /etc/netplan
-      find /etc/netplan -maxdepth 1 -type f -name '*.yaml' ! -name '01-arcbox-dhcp.yaml' -delete
-      cat > /etc/netplan/01-arcbox-dhcp.yaml <<'EOF'
-      network:
-        version: 2
-        ethernets:
-          arcbox0:
-            match:
-              macaddress: "__MAC_ADDRESS__"
-            dhcp4: true
-            dhcp6: false
-      EOF
-      chmod 600 /etc/netplan/01-arcbox-dhcp.yaml
-
-      netplan generate || true
-      netplan apply || true
-      ip link set "$iface" up || true
-            if command -v dhclient >/dev/null 2>&1; then
-                dhclient -4 -r "$iface" || true
-                dhclient -4 -v "$iface" || true
-            elif command -v networkctl >/dev/null 2>&1; then
-                networkctl renew "$iface" || true
-            fi
-      ip -4 addr show dev "$iface" || true
-      ip route || true
-  - path: /etc/systemd/system/arcbox-network.service
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=ArcBox static network configuration
-      DefaultDependencies=no
-      After=local-fs.target systemd-udev-settle.service
-      Before=network-pre.target network-online.target ssh.service sshd.service
-      Wants=network-pre.target
-
-      [Service]
-      Type=oneshot
-      ExecStart=/usr/local/sbin/arcbox-set-dhcp-ip.sh
-      RemainAfterExit=yes
-
-      [Install]
-      WantedBy=multi-user.target
-runcmd:
-  - rm -f /etc/cloud/cloud.cfg.d/99-arcbox-disable-network.cfg
-  - systemctl daemon-reload
-  - systemctl enable arcbox-network.service
-  - /usr/local/sbin/arcbox-set-dhcp-ip.sh
-  - systemctl restart ssh || systemctl restart sshd || true
-'@
-            $userData = $userDataTemplate.
-                Replace('__LINUX_USER__', $nestedLinuxUsername).
-                Replace('__SSH_PUBLIC_KEY__', $pubKey).
-                Replace('__MAC_ADDRESS__', $ubuntuVmMacAddress)
-
-            Write-SeedFile -Path "$cidataStageDir\user-data" -Content $userData
-            Write-SeedFile -Path "$cidataStageDir\network-config" -Content @"
-version: 2
-ethernets:
-  arcbox0:
-    match:
-      macaddress: "$ubuntuVmMacAddress"
-    dhcp4: true
-    dhcp6: false
-"@
-            $customDataBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($userData))
-                        $escapedUbuntuVmName = [System.Security.SecurityElement]::Escape($ubuntuVmName)
-                        $escapedNestedLinuxUsername = [System.Security.SecurityElement]::Escape($nestedLinuxUsername)
-                        Write-SeedFile -Path "$cidataStageDir\ovf-env.xml" -Content @"
-<?xml version="1.0" encoding="utf-8"?>
-<Environment xmlns="http://schemas.dmtf.org/ovf/environment/1" xmlns:oe="http://schemas.dmtf.org/ovf/environment/1" xmlns:wa="http://schemas.microsoft.com/windowsazure" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-    <wa:ProvisioningSection>
-        <wa:Version>1.0</wa:Version>
-        <LinuxProvisioningConfigurationSet>
-            <ConfigurationSetType>LinuxProvisioningConfiguration</ConfigurationSetType>
-            <HostName>$escapedUbuntuVmName</HostName>
-            <UserName>$escapedNestedLinuxUsername</UserName>
-            <DisableSshPasswordAuthentication>true</DisableSshPasswordAuthentication>
-            <CustomData>$customDataBase64</CustomData>
-        </LinuxProvisioningConfigurationSet>
-    </wa:ProvisioningSection>
-    <wa:PlatformSettingsSection>
-        <wa:Version>1.0</wa:Version>
-        <PlatformSettings>
-            <HostName>$escapedUbuntuVmName</HostName>
-        </PlatformSettings>
-    </wa:PlatformSettingsSection>
-</Environment>
-"@
-
-            # Build the NoCloud seed ISO. Any prior DVD drive referencing it was already detached
-            # above, so the file is free to be rewritten.
-            New-ArcBoxCloudInitIso -SourceDirectory $cidataStageDir -Path $cidataIsoPath -VolumeName 'CIDATA'
-
-            # Hyper-V opens each attached image using the per-VM virtual machine identity
-            # (NT VIRTUAL MACHINE\<VM ID>). Grant that SID read access on the ISO before attaching so
-            # a fresh seed file can be opened at power-on (idempotent on re-runs).
-            $ubuntuVmId = (Get-VM -Name $ubuntuVmName).Id.Guid
-            $cidataAcl = Get-Acl -Path $cidataIsoPath
-            $vmAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                "NT VIRTUAL MACHINE\$ubuntuVmId",
-                'Read',
-                'Allow'
-            )
-            $cidataAcl.AddAccessRule($vmAccessRule)
-            Set-Acl -Path $cidataIsoPath -AclObject $cidataAcl
-
-            # Attach the freshly built seed ISO. All prior DVD drives were detached above, so add a
-            # single new drive for the CIDATA disc.
-            Add-VMDvdDrive -VMName $ubuntuVmName -Path $cidataIsoPath
-
             Set-VM -Name $ubuntuVmName -AutomaticStopAction ShutDown -AutomaticStartAction Start
 
-            # Always (re)start the VM. On a re-run the VM already exists and was stopped above to
-            # attach the DVD, so this guarantees it comes back up with the seed mounted.
             if ((Get-VM -Name $ubuntuVmName).State -ne 'Running') {
                 Start-VM -Name $ubuntuVmName
             }
 
             Wait-ArcBoxVmRunning -Name $ubuntuVmName
 
-            # We know the IP because we just set it!
+            # The Hyper-V host DHCP reservation maps this VM MAC address to 10.10.1.102.
             $ubuntuVmIp = '10.10.1.102'
 
             # Log the guest-reported IPv4 addresses via Hyper-V integration services (KVP), which work
             # over VMBus and do NOT require guest networking. This gives a diagnostic signal of whether
-            # the static IP actually applied, even before SSH is reachable. Poll briefly because the
+            # the DHCP reservation was received, even before SSH is reachable. Poll briefly because the
             # KVP daemon reports a moment after boot.
             for ($ipCheck = 0; $ipCheck -lt 12; $ipCheck++) {
                 $reportedIps = @((Get-VM -Name $ubuntuVmName).NetworkAdapters.IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
@@ -1266,9 +976,9 @@ ethernets:
                 Start-Sleep -Seconds 5
             }
             if ($reportedIps -contains $ubuntuVmIp) {
-                Write-Host "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', ') (static IP $ubuntuVmIp applied)."
+                Write-Host "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', ') (DHCP reservation $ubuntuVmIp applied)."
             } else {
-                Write-Warning "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', '). Expected $ubuntuVmIp. If SSH below times out, check /var/log/arcbox-network.log and 'netplan apply' output on the VM console."
+                Write-Warning "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', '). Expected DHCP reservation $ubuntuVmIp. If SSH below times out, verify the host DHCP scope/reservation and DHCP Server binding."
             }
 
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
@@ -1295,9 +1005,6 @@ ethernets:
             $ubuntuVmReady = $true
             } catch {
                 Write-Warning "Component 'ArcBox-Ubuntu VM' failed: $($_.Exception.Message)"
-                # The VM is stopped early in this block to attach the seed DVD. If anything after that
-                # threw, make a best-effort attempt to bring it back up so a failed run never leaves
-                # the Ubuntu VM powered off.
                 try {
                     if ((Get-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue).State -eq 'Off') {
                         Start-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue
