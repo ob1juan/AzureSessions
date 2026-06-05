@@ -431,6 +431,18 @@ function Set-ArcBoxLinuxVmAuthorizedKey {
         throw "SSH public key not found for installation on '$IPAddress': $PublicKeyPath"
     }
 
+    # After the first run the key is already installed, so prefer the generated id file: probe
+    # key-based auth non-interactively and, if it already works, skip the password bootstrap (and
+    # the Posh-SSH/password dependency) entirely. The private key sits next to the public key.
+    $privateKeyPath = $PublicKeyPath -replace '\.pub$', ''
+    if (Test-Path -Path $privateKeyPath) {
+        & ssh -i $privateKeyPath -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 "$UserName@$IPAddress" 'true' 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "SSH key auth to '$UserName@$IPAddress' already works; using the generated id file."
+            return
+        }
+    }
+
     if (-not (Get-Module -ListAvailable -Name Posh-SSH)) {
         Write-Host 'Installing Posh-SSH module for the password-authenticated SSH key bootstrap.'
         try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null } catch { }
