@@ -372,6 +372,13 @@ function Set-HostFileEntry {
             $line = [string]$existingLine
             $tokens = @($line -split '\s+' | Where-Object { $_ })
             if ($tokens.Count -lt 2 -or $tokens[0].StartsWith('#')) {
+                # Drop previously written malformed entries for this host. A corrupted line such as
+                # "10.10.1.102`tArcBox-pgsql" (literal backtick+t, no whitespace) tokenizes as a
+                # single token, so it would otherwise be preserved forever and keep the bad IP/host
+                # mapping. Remove it when the single token references this host name.
+                if ($tokens.Count -eq 1 -and -not $tokens[0].StartsWith('#') -and $tokens[0] -like "*$HostName") {
+                    continue
+                }
                 $line
                 continue
             }
@@ -383,7 +390,11 @@ function Set-HostFileEntry {
         }
     )
 
-    $updatedLines += ('{0}`t{1}' -f $IPAddress, $HostName)
+    # Use a real tab between the address and host name. A single-quoted "`t" is the literal
+    # characters backtick+t (not a tab), which mashes the IP and host name into one invalid token
+    # (e.g. "10.10.1.102`tArcBox-pgsql") and corrupts the hosts file; a double-quoted "`t" emits an
+    # actual tab so the entry parses correctly.
+    $updatedLines += ("{0}`t{1}" -f $IPAddress, $HostName)
     Set-Content -Path $hostsPath -Value $updatedLines -Encoding ASCII -Force
     Write-Output "Updated hosts file: $HostName -> $IPAddress"
 }
