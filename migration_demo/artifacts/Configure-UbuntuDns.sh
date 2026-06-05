@@ -12,10 +12,11 @@ set -euo pipefail
 # behaviour (including option 6 DNS) is inconsistent, leaving /etc/resolv.conf
 # empty and breaking apt, Azure Arc onboarding, and the app stacks. This script
 # applies a layered, reliable fix:
-#   1. A systemd-resolved drop-in (the resolver manager on this image).
+#   1. A systemd-resolved drop-in (the resolver manager on this image) that sets
+#      FallbackDNS only (used only when no per-link/global DNS exists).
 #   2. A netplan drop-in that pins the DHCP client-id to the interface MAC (so the
-#      reservation matches and DHCP-delivered DNS is used) and keeps static
-#      nameservers as a fallback.
+#      reservation matches and DHCP-delivered DNS is used as the single primary
+#      DNS source).
 #   3. A guaranteed-working /etc/resolv.conf written right now.
 #   4. Verification that resolution actually works.
 #   5. A backgrounded `netplan apply`, because pinning the client-id renews the
@@ -23,9 +24,9 @@ set -euo pipefail
 #      SSH session this script runs under).
 #
 # Env vars (all optional):
-#   DNS_SERVERS  Space- or comma-separated resolver IPs, used as the static
-#                fallback nameservers. Defaults to the Azure platform DNS
-#                followed by public resolvers.
+#   DNS_SERVERS  Space- or comma-separated resolver IPs, used as the
+#                systemd-resolved FallbackDNS list. Defaults to the Azure platform
+#                DNS followed by public resolvers.
 #   DNS_SEARCH   Optional DNS search/suffix domain.
 # -----------------------------------------------------------------------------
 
@@ -60,8 +61,15 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^systemd-resolved\.service';
     sudo mkdir -p /etc/systemd/resolved.conf.d
     {
         echo '[Resolve]'
-        echo "DNS=${DNS_SERVERS}"
-        echo 'FallbackDNS=1.1.1.1 8.8.8.8'
+        # Do NOT set a global DNS= here. The resolvers are delivered per-link over DHCP
+        # (option 6) below; adding the same servers again as a global resolver makes
+        # systemd-resolved list every entry twice in /run/systemd/resolve/resolv.conf,
+        # tripping the "Too many DNS servers configured, the following entries may be
+        # ignored" warning (glibc only reads the first 3 nameservers). FallbackDNS is the
+        # correct place for a guaranteed resolver list: systemd-resolved consults it only
+        # when no per-link or global DNS is configured (i.e. if DHCP ever fails to hand
+        # out DNS), so it never duplicates the DHCP-delivered servers.
+        echo "FallbackDNS=${DNS_SERVERS}"
         [ -n "${DNS_SEARCH}" ] && echo "Domains=${DNS_SEARCH}"
     } | sudo tee /etc/systemd/resolved.conf.d/arcbox-dns.conf >/dev/null
     sudo systemctl enable systemd-resolved >/dev/null 2>&1 || true
@@ -79,8 +87,11 @@ fi
 #    receives the scope's DNS (option 6).
 #
 #    use-dns is left at its default (true) so the DNS servers delivered over DHCP
-#    are actually used, while the static nameservers below remain as a fallback
-#    in case the scope ever fails to hand out DNS.
+#    are actually used. No static nameservers are configured here: the host scope
+#    already hands out the resolver list, and duplicating it as static per-link
+#    nameservers makes each server appear twice in resolv.conf. The guaranteed
+#    fallback lives in systemd-resolved's FallbackDNS (configured above), which is
+#    used only when DHCP delivers no DNS at all.
 # -----------------------------------------------------------------------------
 PRIMARY_IFACE="$(ip -o -4 route show to default 2>/dev/null | awk '{print $5}' | head -n1)"
 if [ -z "${PRIMARY_IFACE}" ]; then
@@ -90,7 +101,6 @@ log "Primary interface: ${PRIMARY_IFACE:-unknown}"
 
 NETPLAN_APPLY_NEEDED=0
 if [ -n "${PRIMARY_IFACE}" ] && [ -d /etc/netplan ]; then
-    NP_ADDR="$(printf '%s' "${DNS_SERVERS}" | tr ' ' ',')"
     log 'Writing netplan drop-in /etc/netplan/99-arcbox-dns.yaml'
     {
         echo 'network:'
@@ -101,9 +111,16 @@ if [ -n "${PRIMARY_IFACE}" ] && [ -d /etc/netplan ]; then
         echo '      dhcp-identifier: mac'
         echo '      dhcp4-overrides:'
         echo '        use-dns: true'
-        echo '      nameservers:'
-        echo "        addresses: [${NP_ADDR}]"
-        [ -n "${DNS_SEARCH}" ] && echo "        search: [${DNS_SEARCH}]"
+        # Intentionally NO static nameservers.addresses: the host DHCP scope already
+        # delivers the resolver list (option 6), and dhcp-identifier: mac makes this VM
+        # match the host reservation so it reliably receives them. Repeating the same
+        # servers as static per-link nameservers is what produced duplicate entries in
+        # resolv.conf. A search domain (if any) is still applied; DNS itself comes from
+        # DHCP, with FallbackDNS as the guaranteed last resort.
+        if [ -n "${DNS_SEARCH}" ]; then
+            echo '      nameservers:'
+            echo "        search: [${DNS_SEARCH}]"
+        fi
     } | sudo tee /etc/netplan/99-arcbox-dns.yaml >/dev/null
     sudo chmod 600 /etc/netplan/99-arcbox-dns.yaml
     NETPLAN_APPLY_NEEDED=1

@@ -1,7 +1,7 @@
 
 BeforeDiscovery {
     $namingPrefix = $env:namingPrefix
-    $VMs = @("$namingPrefix-SQL", "$namingPrefix-Ubuntu")
+    $VMs = @("$namingPrefix-SQL", "$namingPrefix-pgsql")
     $null = Connect-AzAccount -Identity -Tenant $env:tenantId -Subscription $env:subscriptionId
 }
 
@@ -30,14 +30,16 @@ Describe "<vm>" -ForEach $VMs {
 }
 
 Describe "ArcBox demo websites" {
-    It "SQL website responds from ArcBox-SQL" {
-        $ipAddress = (Get-VMNetworkAdapter -VMName "$namingPrefix-SQL").IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+    It "SQL website responds from the SQL VM" {
+        $sqlVmName = "$($env:namingPrefix)-SQL"
+        $ipAddress = (Get-VMNetworkAdapter -VMName $sqlVmName).IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
         $response = Invoke-WebRequest -Uri "http://$ipAddress/sql.aspx" -UseBasicParsing -TimeoutSec 30
         $response.Content | Should -Match 'SQL Server products|AdventureWorks'
     }
 
-    It "PostgreSQL website responds from ArcBox-Ubuntu" {
-        $ipAddress = (Get-VMNetworkAdapter -VMName "$namingPrefix-Ubuntu").IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
+    It "PostgreSQL website responds from the Ubuntu VM" {
+        $ubuntuVmName = "$($env:namingPrefix)-pgsql"
+        $ipAddress = (Get-VMNetworkAdapter -VMName $ubuntuVmName).IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
         $response = Invoke-WebRequest -Uri "http://$ipAddress/" -UseBasicParsing -TimeoutSec 30
         $response.Content | Should -Match 'PostgreSQL AdventureWorks storefront'
     }

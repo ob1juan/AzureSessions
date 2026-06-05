@@ -1309,6 +1309,22 @@ if ($Env:flavor -ne 'DevOps') {
                 if ((hostname) -cne $using:ubuntuVmName) {
                     Invoke-Expression "sudo hostnamectl set-hostname $using:ubuntuVmName"
                 }
+
+                # hostnamectl changes the hostname but does NOT update /etc/hosts. Without a
+                # loopback mapping for the new name, every later 'sudo' and the Azure Arc
+                # 'azcmagent connect' emit "sudo: unable to resolve host <name>: Name or service
+                # not known" and onboarding can hang or fail. Add the Debian/Ubuntu-style
+                # 127.0.1.1 entry idempotently so the hostname always resolves locally. The
+                # hostname is passed as a positional arg to a literal (single-quoted) here-string
+                # piped to 'bash -s' to avoid any PowerShell/shell quoting ambiguity.
+                $ensureHostsEntryScript = @'
+set -e
+HN="$1"
+if ! grep -qE "^127\.0\.1\.1[[:space:]]+${HN}([[:space:]]|$)" /etc/hosts; then
+    echo "127.0.1.1 ${HN}" | sudo tee -a /etc/hosts >/dev/null
+fi
+'@
+                $ensureHostsEntryScript | bash -s -- $using:ubuntuVmName
             }
 
             Write-Host 'Waiting for the nested Linux VM to accept SSH commands.'
