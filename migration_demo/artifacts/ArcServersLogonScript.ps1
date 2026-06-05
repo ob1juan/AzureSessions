@@ -131,43 +131,71 @@ function ConvertTo-ArcBoxDhcpClientId {
 }
 
 function Get-ArcBoxHostDnsServers {
+    <#
+    .SYNOPSIS
+    Returns the DNS servers to hand to the nested VMs over DHCP, matching the upstream ArcBox
+    configuration.
+
+    .DESCRIPTION
+    The upstream Microsoft ArcBox (azure_jumpstart_arcbox/artifacts/ArcServersLogonScript.ps1)
+    hands the nested VMs Azure's platform DNS server (168.63.129.16) over DHCP option 6. That
+    address IS reachable from the nested VMs even though they sit behind New-NetNat on
+    10.10.1.0/24: their queries are source-NAT'd to the Hyper-V host's primary NIC IP (a real
+    Azure VM IP), so Azure's platform DNS answers them and the response is routed back through the
+    NAT. Earlier revisions of this script incorrectly excluded 168.63.129.16 on the assumption
+    that nested guests could not use it and substituted public resolvers; that is what broke name
+    resolution inside the Ubuntu/SQL guests. This function now mirrors upstream by leading with
+    168.63.129.16, then appending any genuinely host-configured resolvers (e.g. a custom VNet DNS
+    server), and finally public resolvers only as a last-resort safety net.
+    #>
     param(
         [string]$InternalInterfaceAlias = 'vEthernet (InternalNATSwitch)'
     )
 
-    $dnsServers = @()
+    # Azure's platform DNS server. This is the primary resolver the upstream ArcBox hands to the
+    # nested VMs and is reachable from them through the NAT (see the .DESCRIPTION above).
+    $azurePlatformDns = '168.63.129.16'
+    $dnsServers = @($azurePlatformDns)
+
+    # Discover any additional resolvers the host is actually configured with (e.g. a custom VNet
+    # DNS server) so custom-DNS deployments keep working. Prefer the default-route interface, then
+    # fall back to any other up adapter.
+    $hostDnsServers = @()
     $defaultRoute = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
         Sort-Object -Property RouteMetric, InterfaceMetric |
         Select-Object -First 1
 
     if ($null -ne $defaultRoute) {
-        $dnsServers = @(Get-DnsClientServerAddress -InterfaceIndex $defaultRoute.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        $hostDnsServers = @(Get-DnsClientServerAddress -InterfaceIndex $defaultRoute.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty ServerAddresses)
     }
 
-    if ($dnsServers.Count -eq 0) {
+    if ($hostDnsServers.Count -eq 0) {
         $candidateInterfaceIndexes = @(Get-NetAdapter -ErrorAction SilentlyContinue |
             Where-Object { $_.Status -eq 'Up' -and $_.Name -ne $InternalInterfaceAlias -and $_.Name -notlike 'vEthernet*' } |
             Select-Object -ExpandProperty ifIndex)
 
         foreach ($interfaceIndex in $candidateInterfaceIndexes) {
-            $dnsServers += @(Get-DnsClientServerAddress -InterfaceIndex $interfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            $hostDnsServers += @(Get-DnsClientServerAddress -InterfaceIndex $interfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
                 Select-Object -ExpandProperty ServerAddresses)
         }
     }
 
-    # Hand the host's configured resolver(s) to the nested VMs, exactly like upstream ArcBox
-    # (Set-DhcpServerv4OptionValue -DnsServer 168.63.129.16, ...). On an Azure VM the resolver is
-    # 168.63.129.16 (the Azure platform DNS "magic" address). That address IS reachable from the
-    # nested VMs: their queries are source-NAT'd to the host's IP by New-NetNat, so Azure DNS sees
-    # the request as coming from the Azure VM itself and answers it. Only 10.10.1.1 (the host NAT
-    # gateway) is dropped, since it is not a DNS server.
-    $dnsServers = @($dnsServers |
-        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -ne '10.10.1.1' } |
-        Select-Object -Unique)
+    # Append host-configured resolvers after the Azure platform DNS, skipping the NAT gateway
+    # (10.10.1.1 is a router, not a DNS server) and any duplicate of the platform DNS.
+    foreach ($hostDnsServer in $hostDnsServers) {
+        if ($hostDnsServer -match '^\d+\.\d+\.\d+\.\d+$' -and $hostDnsServer -ne '10.10.1.1' -and $dnsServers -notcontains $hostDnsServer) {
+            $dnsServers += $hostDnsServer
+        }
+    }
 
-    if ($dnsServers.Count -eq 0) {
-        throw 'Unable to read DNS servers from the Azure VM network adapter.'
+    # Keep public resolvers reachable via the NAT only as a final fallback so the nested VMs can
+    # still resolve names (apt packages, Azure Arc onboarding endpoints, app stacks) in the rare
+    # case the platform and host resolvers are both unavailable.
+    foreach ($publicFallback in @('1.1.1.1', '8.8.8.8')) {
+        if ($dnsServers -notcontains $publicFallback) {
+            $dnsServers += $publicFallback
+        }
     }
 
     return $dnsServers
