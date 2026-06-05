@@ -130,6 +130,43 @@ function ConvertTo-ArcBoxDhcpClientId {
     return (($hex -split '(.{2})' | Where-Object { $_ }) -join '-')
 }
 
+function Get-ArcBoxHostDnsServers {
+    param(
+        [string]$InternalInterfaceAlias = 'vEthernet (InternalNATSwitch)'
+    )
+
+    $dnsServers = @()
+    $defaultRoute = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Sort-Object -Property RouteMetric, InterfaceMetric |
+        Select-Object -First 1
+
+    if ($null -ne $defaultRoute) {
+        $dnsServers = @(Get-DnsClientServerAddress -InterfaceIndex $defaultRoute.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty ServerAddresses)
+    }
+
+    if ($dnsServers.Count -eq 0) {
+        $candidateInterfaceIndexes = @(Get-NetAdapter -ErrorAction SilentlyContinue |
+            Where-Object { $_.Status -eq 'Up' -and $_.Name -ne $InternalInterfaceAlias -and $_.Name -notlike 'vEthernet*' } |
+            Select-Object -ExpandProperty ifIndex)
+
+        foreach ($interfaceIndex in $candidateInterfaceIndexes) {
+            $dnsServers += @(Get-DnsClientServerAddress -InterfaceIndex $interfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty ServerAddresses)
+        }
+    }
+
+    $dnsServers = @($dnsServers |
+        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -ne '10.10.1.1' } |
+        Select-Object -Unique)
+
+    if ($dnsServers.Count -eq 0) {
+        throw 'Unable to read DNS servers from the Azure VM network adapter.'
+    }
+
+    return $dnsServers
+}
+
 function Ensure-ArcBoxDhcpScope {
     <#
     .SYNOPSIS
@@ -148,9 +185,13 @@ function Ensure-ArcBoxDhcpScope {
         [string]$EndRange = '10.10.1.200',
         [string]$SubnetMask = '255.255.255.0',
         [string]$Router = '10.10.1.1',
-        [string[]]$DnsServers = @('168.63.129.16', '10.16.2.100'),
+        [string[]]$DnsServers = @(),
         [string]$InterfaceAlias = 'vEthernet (InternalNATSwitch)'
     )
+
+    if ($DnsServers.Count -eq 0) {
+        $DnsServers = @(Get-ArcBoxHostDnsServers -InternalInterfaceAlias $InterfaceAlias)
+    }
 
     if (-not (Get-Command -Name Get-DhcpServerv4Scope -ErrorAction SilentlyContinue)) {
         Import-Module DhcpServer -ErrorAction SilentlyContinue
@@ -192,6 +233,7 @@ function Ensure-ArcBoxDhcpScope {
         Set-DhcpServerv4Scope -ScopeId $ScopeId -Name $ScopeName -State Active -ErrorAction Stop
     }
 
+    Write-Host "Configuring DHCP DNS servers from Azure VM DNS settings: $($DnsServers -join ', ')"
     Set-DhcpServerv4OptionValue -ScopeId $ScopeId -Router $Router -DnsServer $DnsServers -ErrorAction Stop
 
     if (Get-NetAdapter -Name $InterfaceAlias -ErrorAction SilentlyContinue) {
@@ -791,13 +833,14 @@ if ($Env:flavor -ne 'DevOps') {
         Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
         Invoke-Command -VMName $SQLvmName -ScriptBlock { Get-NetAdapter | Restart-NetAdapter } -Credential $winCreds
         
+        $arcBoxDnsServers = @(Get-ArcBoxHostDnsServers)
         Write-Host 'Configuring Static IP for nested SQL VM'
         Invoke-Command -VMName $SQLvmName -ScriptBlock {
             $netAdapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
             if ($netAdapter) {
                 # Remove DHCP and set static IP
                 New-NetIPAddress -InterfaceAlias $netAdapter.Name -IPAddress 10.10.1.101 -PrefixLength 24 -DefaultGateway 10.10.1.1 -ErrorAction SilentlyContinue
-                Set-DnsClientServerAddress -InterfaceAlias $netAdapter.Name -ServerAddresses ('168.63.129.16', '10.16.2.100')
+                Set-DnsClientServerAddress -InterfaceAlias $netAdapter.Name -ServerAddresses $using:arcBoxDnsServers
             }
         } -Credential $winCreds
         
