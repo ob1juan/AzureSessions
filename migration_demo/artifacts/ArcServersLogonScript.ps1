@@ -186,6 +186,7 @@ function Ensure-ArcBoxDhcpScope {
         [string]$SubnetMask = '255.255.255.0',
         [string]$Router = '10.10.1.1',
         [string[]]$DnsServers = @(),
+        [timespan]$LeaseDuration = ([timespan]::FromDays(1)),
         [string]$InterfaceAlias = 'vEthernet (InternalNATSwitch)'
     )
 
@@ -228,9 +229,9 @@ function Ensure-ArcBoxDhcpScope {
 
     $scope = Get-DhcpServerv4Scope -ScopeId $ScopeId -ErrorAction SilentlyContinue
     if ($null -eq $scope) {
-        Add-DhcpServerv4Scope -Name $ScopeName -StartRange $StartRange -EndRange $EndRange -SubnetMask $SubnetMask -State Active -ErrorAction Stop | Out-Null
+        Add-DhcpServerv4Scope -Name $ScopeName -StartRange $StartRange -EndRange $EndRange -SubnetMask $SubnetMask -LeaseDuration $LeaseDuration -State Active -ErrorAction Stop | Out-Null
     } else {
-        Set-DhcpServerv4Scope -ScopeId $ScopeId -Name $ScopeName -State Active -ErrorAction Stop
+        Set-DhcpServerv4Scope -ScopeId $ScopeId -Name $ScopeName -LeaseDuration $LeaseDuration -State Active -ErrorAction Stop
     }
 
     Write-Host "Configuring DHCP DNS servers from Azure VM DNS settings: $($DnsServers -join ', ')"
