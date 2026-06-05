@@ -367,6 +367,44 @@ function Wait-ArcBoxVmIPv4 {
     throw "Timed out waiting for VM $Name to report an IPv4 address."
 }
 
+function Get-ArcBoxVmInternalIPv4 {
+    <#
+    .SYNOPSIS
+    Returns the IPv4 address a VM actually obtained on the ArcBox internal subnet, read over
+    Hyper-V KVP (no host-to-guest networking required).
+
+    .DESCRIPTION
+    Ubuntu's default netplan/systemd-networkd sends a DUID-based DHCP client identifier (RFC 4361)
+    rather than its MAC, so the Hyper-V host's MAC-based reservation is frequently not matched and
+    the VM receives the first free pool address instead of its reserved IP. Callers should therefore
+    use whichever internal-subnet address the VM actually leased rather than assuming the reservation.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [string]$SubnetPrefix = '10.10.1.',
+        [int]$TimeoutSeconds = 600
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $ipAddress = @(Get-VM -Name $Name -ErrorAction Stop |
+            Select-Object -ExpandProperty NetworkAdapters |
+            Select-Object -ExpandProperty IPAddresses |
+            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_.StartsWith($SubnetPrefix) }) |
+            Select-Object -First 1
+
+        if (-not [string]::IsNullOrWhiteSpace($ipAddress)) {
+            Write-Host "VM $Name reported internal IPv4 address $ipAddress."
+            return $ipAddress
+        }
+
+        Write-Host "Waiting for VM $Name to report an IPv4 address in $SubnetPrefix*."
+        Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Timed out waiting for VM $Name to report an internal IPv4 address in $SubnetPrefix*."
+}
+
 function Wait-ArcBoxWindowsVmReady {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -898,7 +936,20 @@ if ($Env:flavor -ne 'DevOps') {
         # (outside the per-component blocks) so re-runs that retry only failed components still have
         # every variable they need, even when the 'ArcBox-Ubuntu VM' component is skipped.
         $ubuntuVmName = "$namingPrefix-pgsql"
+        # Default to the reserved address, but prefer whichever internal-subnet IP the VM actually
+        # obtained so re-runs that skip VM creation still target the correct address (Ubuntu's
+        # DUID-based DHCP client-id often means the MAC reservation for 10.10.1.102 is not honored
+        # and it leases a pool address instead).
         $ubuntuVmIp = '10.10.1.102'
+        try {
+            $ubuntuDiscoveredIp = @(Get-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty NetworkAdapters -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty IPAddresses -ErrorAction SilentlyContinue |
+                Where-Object { $_ -match '^10\.10\.1\.\d+$' }) | Select-Object -First 1
+            if (-not [string]::IsNullOrWhiteSpace($ubuntuDiscoveredIp)) {
+                $ubuntuVmIp = $ubuntuDiscoveredIp
+            }
+        } catch { }
         $nestedLinuxUsername = 'jumpstart'
         $sshDir = Join-Path -Path $Env:USERPROFILE -ChildPath '.ssh'
         $sshKeyPath = Join-Path -Path $sshDir -ChildPath 'id_rsa'
@@ -1006,23 +1057,14 @@ if ($Env:flavor -ne 'DevOps') {
 
             Wait-ArcBoxVmRunning -Name $ubuntuVmName
 
-            # The Hyper-V host DHCP reservation maps this VM MAC address to 10.10.1.102.
-            $ubuntuVmIp = '10.10.1.102'
-
-            # Log the guest-reported IPv4 addresses via Hyper-V integration services (KVP), which work
-            # over VMBus and do NOT require guest networking. This gives a diagnostic signal of whether
-            # the DHCP reservation was received, even before SSH is reachable. Poll briefly because the
-            # KVP daemon reports a moment after boot.
-            for ($ipCheck = 0; $ipCheck -lt 12; $ipCheck++) {
-                $reportedIps = @((Get-VM -Name $ubuntuVmName).NetworkAdapters.IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
-                if ($reportedIps.Count -gt 0) { break }
-                Start-Sleep -Seconds 5
-            }
-            if ($reportedIps -contains $ubuntuVmIp) {
-                Write-Host "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', ') (DHCP reservation $ubuntuVmIp applied)."
-            } else {
-                Write-Warning "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', '). Expected DHCP reservation $ubuntuVmIp. If SSH below times out, verify the host DHCP scope/reservation and DHCP Server binding."
-            }
+            # Ubuntu's default netplan/systemd-networkd sends a DUID-based DHCP client identifier
+            # (RFC 4361), not its MAC, so the Hyper-V host's MAC-based reservation for 10.10.1.102 is
+            # frequently not matched and the VM instead leases the first free pool address (e.g.
+            # 10.10.1.100). Rather than assume the reserved address and time out on SSH, use whichever
+            # 10.10.1.x address the VM actually obtained, reported over Hyper-V KVP (which works
+            # without host-to-guest networking). KVP reports a moment after boot, so this polls.
+            $ubuntuVmIp = Get-ArcBoxVmInternalIPv4 -Name $ubuntuVmName -SubnetPrefix '10.10.1.'
+            Write-Host "Ubuntu VM is reachable at DHCP-assigned IPv4 $ubuntuVmIp."
 
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
