@@ -120,11 +120,23 @@ function Complete-DeploymentComponent {
 }
 
 function ConvertTo-ArcBoxDhcpClientId {
-    param([Parameter(Mandatory = $true)][string]$MacAddress)
+    param(
+        [Parameter(Mandatory = $true)][string]$MacAddress,
+        # Prepend the DHCP hardware type byte (0x01 = Ethernet) to the MAC. systemd-networkd
+        # (netplan 'dhcp-identifier: mac', used by the nested Ubuntu VM) sends DHCP option 61 as
+        # htype + MAC (7 bytes, e.g. 01-00-15-5D-...), so its reservation ClientId must include the
+        # 01 prefix to match. Windows guests do not send option 61, so their reservations omit it and
+        # are matched on the hardware address (the plain 6-byte MAC).
+        [switch]$IncludeHardwareTypePrefix
+    )
 
     $hex = ($MacAddress -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
     if ($hex.Length -ne 12) {
         throw "Invalid MAC address '$MacAddress'. Expected 12 hexadecimal digits."
+    }
+
+    if ($IncludeHardwareTypePrefix) {
+        $hex = '01' + $hex
     }
 
     return (($hex -split '(.{2})' | Where-Object { $_ }) -join '-')
@@ -328,12 +340,15 @@ function Set-ArcBoxDhcpReservation {
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string]$IPAddress,
         [Parameter(Mandatory = $true)][string]$MacAddress,
-        [string]$ScopeId = '10.10.1.0'
+        [string]$ScopeId = '10.10.1.0',
+        # Set for Linux guests that send a MAC-based DHCP client identifier (option 61) so the
+        # reservation ClientId includes the 0x01 Ethernet hardware-type prefix and actually matches.
+        [switch]$IncludeHardwareTypePrefix
     )
 
     Ensure-ArcBoxDhcpScope -ScopeId $ScopeId
 
-    $clientId = ConvertTo-ArcBoxDhcpClientId -MacAddress $MacAddress
+    $clientId = ConvertTo-ArcBoxDhcpClientId -MacAddress $MacAddress -IncludeHardwareTypePrefix:$IncludeHardwareTypePrefix
     $normalizedClientId = ($clientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
     $existingReservations = @(Get-DhcpServerv4Reservation -ScopeId $ScopeId -ErrorAction SilentlyContinue)
     foreach ($reservation in $existingReservations) {
@@ -390,11 +405,12 @@ function Set-HostFileEntry {
         }
     )
 
-    # Use a real tab between the address and host name. A single-quoted "`t" is the literal
-    # characters backtick+t (not a tab), which mashes the IP and host name into one invalid token
-    # (e.g. "10.10.1.102`tArcBox-pgsql") and corrupts the hosts file; a double-quoted "`t" emits an
-    # actual tab so the entry parses correctly.
-    $updatedLines += ("{0}`t{1}" -f $IPAddress, $HostName)
+    # Separate the address and host name with a single space, matching the Windows hosts file's own
+    # guidance ("separated by at least one space"). An earlier revision used a single-quoted "`t",
+    # which is the literal characters backtick+t (not a tab) and mashed the IP and host name into one
+    # invalid token (e.g. "10.10.1.102`tArcBox-pgsql"), corrupting the file; a literal space avoids
+    # any escape-sequence ambiguity entirely.
+    $updatedLines += ('{0} {1}' -f $IPAddress, $HostName)
     Set-Content -Path $hostsPath -Value $updatedLines -Encoding ASCII -Force
     Write-Output "Updated hosts file: $HostName -> $IPAddress"
 }
@@ -1191,7 +1207,11 @@ if ($Env:flavor -ne 'DevOps') {
             if ([string]::IsNullOrWhiteSpace($ubuntuVmMacAddressRaw)) {
                 throw "Unable to determine MAC address for Ubuntu VM '$ubuntuVmName'. Cannot configure DHCP reservation."
             }
-            Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVmIp -MacAddress $ubuntuVmMacAddressRaw
+            # The Ubuntu guest uses netplan 'dhcp-identifier: mac' (see Configure-UbuntuDns.sh), so it
+            # sends a MAC-based DHCP client identifier (option 61 = 01 + MAC). Include the matching
+            # 0x01 hardware-type prefix on the reservation ClientId so the VM is actually assigned its
+            # reserved 10.10.1.102 address instead of a dynamic pool address (e.g. 10.10.1.100).
+            Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVmIp -MacAddress $ubuntuVmMacAddressRaw -IncludeHardwareTypePrefix
             if (Get-VM -Name $SQLvmName -ErrorAction SilentlyContinue) {
                 $sqlVmMacAddress = (Get-VMNetworkAdapter -VMName $SQLvmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
                 Set-ArcBoxDhcpReservation -Name $SQLvmName -IPAddress $SQLvmIp -MacAddress $sqlVmMacAddress
