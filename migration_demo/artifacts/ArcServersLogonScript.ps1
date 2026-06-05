@@ -809,6 +809,8 @@ if ($Env:flavor -ne 'DevOps') {
     $winCreds = New-Object System.Management.Automation.PSCredential ($nestedWindowsUsername, $secWindowsPassword)
     $SQLvmName = "$namingPrefix-SQL"
     $SQLvmvhdPath = "$Env:ArcBoxVMDir\$namingPrefix-SQL.vhdx"
+    # Default to the SQL VM's DHCP reservation address; the actual DHCP-assigned IP is discovered
+    # over Hyper-V KVP once the VM is running (Windows honors the MAC reservation, so this matches).
     $SQLvmIp = '10.10.1.101'
 
     if (-not (Test-ComponentCompleted -Name 'Hyper-V network setup')) {
@@ -964,20 +966,28 @@ if ($Env:flavor -ne 'DevOps') {
         Write-Host 'Restarting Network Adapters'
         Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
         Invoke-Command -VMName $SQLvmName -ScriptBlock { Get-NetAdapter | Restart-NetAdapter } -Credential $winCreds
-        
-        $arcBoxDnsServers = @(Get-ArcBoxHostDnsServers)
-        Write-Host 'Configuring Static IP for nested SQL VM'
+
+        Write-Host 'Ensuring nested SQL VM uses DHCP for IP and DNS'
         Invoke-Command -VMName $SQLvmName -ScriptBlock {
             $netAdapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
             if ($netAdapter) {
-                # Remove DHCP and set static IP
-                New-NetIPAddress -InterfaceAlias $netAdapter.Name -IPAddress 10.10.1.101 -PrefixLength 24 -DefaultGateway 10.10.1.1 -ErrorAction SilentlyContinue
-                Set-DnsClientServerAddress -InterfaceAlias $netAdapter.Name -ServerAddresses $using:arcBoxDnsServers
+                # Use the host DHCP scope (which provides the gateway, DNS, and a MAC reservation for
+                # this VM) instead of a fixed IP. Clear any static configuration first, then renew.
+                Remove-NetIPAddress -InterfaceAlias $netAdapter.Name -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+                Remove-NetRoute -InterfaceAlias $netAdapter.Name -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+                Set-NetIPInterface -InterfaceAlias $netAdapter.Name -AddressFamily IPv4 -Dhcp Enabled
+                Set-DnsClientServerAddress -InterfaceAlias $netAdapter.Name -ResetServerAddresses
+                ipconfig /renew | Out-Null
             }
         } -Credential $winCreds
-        
+
         Start-Sleep -Seconds 20
         Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
+
+        # Discover the DHCP-assigned address via Hyper-V KVP rather than assuming a fixed IP. Windows
+        # honors the host's MAC-based reservation, so this is normally 10.10.1.101.
+        $SQLvmIp = Get-ArcBoxVmInternalIPv4 -Name $SQLvmName -SubnetPrefix '10.10.1.'
+        Write-Host "SQL VM is reachable at DHCP-assigned IPv4 $SQLvmIp."
 
         # Rename server if hostname is not as ArcBox-SQL or doesn't match naming prefix
         $hostname = Invoke-Command -VMName $SQLvmName -ScriptBlock { hostname } -Credential $winCreds
@@ -1180,7 +1190,9 @@ if ($Env:flavor -ne 'DevOps') {
             Write-Host 'Waiting for the nested Linux VM to accept SSH commands.'
 
             Wait-ArcBoxWindowsVmReady -Name $SQLvmName -Credential $winCreds
-            $SQLvmIp = '10.10.1.101'
+            if (Get-VM -Name $SQLvmName -ErrorAction SilentlyContinue) {
+                $SQLvmIp = Get-ArcBoxVmInternalIPv4 -Name $SQLvmName -SubnetPrefix '10.10.1.'
+            }
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
             Write-Output "SQL VM IP    : $SQLvmIp"
