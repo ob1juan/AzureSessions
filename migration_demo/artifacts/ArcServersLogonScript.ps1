@@ -949,6 +949,14 @@ if ($Env:flavor -ne 'DevOps') {
             # disable via /etc/cloud/cloud.cfg.d/*disable-network-config*. That disable file silently
             # drops the standalone network-config seed, leaving the VM with no IP. write_files/runcmd
             # are unaffected by it, so the static IP is applied regardless.
+            #
+            # The prebuilt Azure-built image ships its own /etc/netplan/50-cloud-init.yaml that matches
+            # the same NIC. Two definitions matching one interface makes 'netplan apply' fail with
+            # "matched more than one device", so the DVD is read but no IP is ever assigned. To win
+            # decisively we (1) disable cloud-init's own network rendering so it stops regenerating its
+            # netplan, and (2) in runcmd delete every other /etc/netplan/*.yaml before generating and
+            # applying ours. A diagnostic log is written to /var/log/arcbox-network.log so a failed
+            # run leaves evidence even when the VM is unreachable over SSH.
             $userData = @"
 #cloud-config
 users:
@@ -958,16 +966,21 @@ users:
       - $pubKey
     sudo: ALL=(ALL) NOPASSWD:ALL
 write_files:
+  - path: /etc/cloud/cloud.cfg.d/99-arcbox-disable-network.cfg
+    permissions: '0644'
+    content: |
+      network: {config: disabled}
   - path: /etc/netplan/60-arcbox-static.yaml
     permissions: '0600'
     content: |
       network:
         version: 2
         ethernets:
-          default_cfg:
+          arcbox0:
             match:
-              name: e*
+              name: "e*"
             dhcp4: false
+            dhcp6: false
             addresses: [10.10.1.102/24]
             routes:
               - to: default
@@ -975,8 +988,9 @@ write_files:
             nameservers:
               addresses: [168.63.129.16, 10.16.2.100]
 runcmd:
-  - netplan generate
-  - netplan apply
+  - find /etc/netplan -maxdepth 1 -name '*.yaml' ! -name '60-arcbox-static.yaml' -delete
+  - chmod 600 /etc/netplan/60-arcbox-static.yaml
+  - sh -c 'netplan generate >> /var/log/arcbox-network.log 2>&1; netplan apply >> /var/log/arcbox-network.log 2>&1; sleep 5; netplan apply >> /var/log/arcbox-network.log 2>&1; ip -4 addr >> /var/log/arcbox-network.log 2>&1'
 "@
             Write-SeedFile -Path "$cidataStageDir\user-data" -Content $userData
 
@@ -1017,6 +1031,21 @@ runcmd:
 
             # We know the IP because we just set it!
             $ubuntuVmIp = '10.10.1.102'
+
+            # Log the guest-reported IPv4 addresses via Hyper-V integration services (KVP), which work
+            # over VMBus and do NOT require guest networking. This gives a diagnostic signal of whether
+            # the static IP actually applied, even before SSH is reachable. Poll briefly because the
+            # KVP daemon reports a moment after boot.
+            for ($ipCheck = 0; $ipCheck -lt 12; $ipCheck++) {
+                $reportedIps = @((Get-VM -Name $ubuntuVmName).NetworkAdapters.IPAddresses | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
+                if ($reportedIps.Count -gt 0) { break }
+                Start-Sleep -Seconds 5
+            }
+            if ($reportedIps -contains $ubuntuVmIp) {
+                Write-Host "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', ') (static IP $ubuntuVmIp applied)."
+            } else {
+                Write-Warning "Ubuntu VM guest-reported IPv4: $($reportedIps -join ', '). Expected $ubuntuVmIp. If SSH below times out, check /var/log/arcbox-network.log and 'netplan apply' output on the VM console."
+            }
 
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
