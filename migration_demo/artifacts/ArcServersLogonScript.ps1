@@ -156,27 +156,50 @@ function Get-ArcBoxHostDnsServers {
         }
     }
 
-    # Drop resolvers that the nested VMs (behind New-NetNat on 10.10.1.0/24) cannot use:
-    #  - 10.10.1.1 is the host NAT gateway, not a DNS server.
-    #  - 168.63.129.16 is Azure's platform DNS, a special "magic" address that only answers the
-    #    Azure VM itself; queries relayed from a nested VM through the NAT get no response, which
-    #    breaks DNS resolution inside the Ubuntu/SQL guests. Any other host-configured resolver
-    #    (e.g. a custom VNet DNS server) is reachable through the NAT and is kept.
-    $nestedUnreachableDnsServers = @('10.10.1.1', '168.63.129.16')
+    # Hand the host's configured resolver(s) to the nested VMs, exactly like upstream ArcBox
+    # (Set-DhcpServerv4OptionValue -DnsServer 168.63.129.16, ...). On an Azure VM the resolver is
+    # 168.63.129.16 (the Azure platform DNS "magic" address). That address IS reachable from the
+    # nested VMs: their queries are source-NAT'd to the host's IP by New-NetNat, so Azure DNS sees
+    # the request as coming from the Azure VM itself and answers it. Only 10.10.1.1 (the host NAT
+    # gateway) is dropped, since it is not a DNS server.
     $dnsServers = @($dnsServers |
-        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $nestedUnreachableDnsServers -notcontains $_ } |
+        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -ne '10.10.1.1' } |
         Select-Object -Unique)
 
-    # Always include public resolvers reachable via the NAT so the nested VMs can resolve names
-    # (apt packages, Azure Arc onboarding endpoints, app stacks) even when the host's only
-    # configured resolver is the Azure platform DNS that nested guests cannot reach.
-    foreach ($publicFallback in @('1.1.1.1', '8.8.8.8')) {
-        if ($dnsServers -notcontains $publicFallback) {
-            $dnsServers += $publicFallback
-        }
+    if ($dnsServers.Count -eq 0) {
+        throw 'Unable to read DNS servers from the Azure VM network adapter.'
     }
 
     return $dnsServers
+}
+
+function Get-ArcBoxHostDnsSuffix {
+    <#
+    .SYNOPSIS
+    Returns the host's connection-specific DNS suffix, handed to the nested VMs as DHCP option 015
+    (DnsDomain) so they resolve short names in the same domain as the host (matches upstream ArcBox,
+    which uses Get-DnsClient ... ConnectionSpecificSuffix).
+    #>
+    param(
+        [string]$InternalInterfaceAlias = 'vEthernet (InternalNATSwitch)'
+    )
+
+    $defaultRoute = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Sort-Object -Property RouteMetric, InterfaceMetric |
+        Select-Object -First 1
+
+    if ($null -ne $defaultRoute) {
+        $suffix = (Get-DnsClient -InterfaceIndex $defaultRoute.InterfaceIndex -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty ConnectionSpecificSuffix)
+        if (-not [string]::IsNullOrWhiteSpace($suffix)) {
+            return $suffix
+        }
+    }
+
+    $suffix = Get-DnsClient -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceAlias -ne $InternalInterfaceAlias -and $_.InterfaceAlias -notlike 'vEthernet*' -and -not [string]::IsNullOrWhiteSpace($_.ConnectionSpecificSuffix) } |
+        Select-Object -First 1 -ExpandProperty ConnectionSpecificSuffix
+    return $suffix
 }
 
 function Ensure-ArcBoxDhcpScope {
@@ -198,12 +221,17 @@ function Ensure-ArcBoxDhcpScope {
         [string]$SubnetMask = '255.255.255.0',
         [string]$Router = '10.10.1.1',
         [string[]]$DnsServers = @(),
+        [string]$DnsDomain = '',
         [timespan]$LeaseDuration = ([timespan]::FromDays(1)),
         [string]$InterfaceAlias = 'vEthernet (InternalNATSwitch)'
     )
 
     if ($DnsServers.Count -eq 0) {
         $DnsServers = @(Get-ArcBoxHostDnsServers -InternalInterfaceAlias $InterfaceAlias)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($DnsDomain)) {
+        $DnsDomain = Get-ArcBoxHostDnsSuffix -InternalInterfaceAlias $InterfaceAlias
     }
 
     if (-not (Get-Command -Name Get-DhcpServerv4Scope -ErrorAction SilentlyContinue)) {
@@ -247,7 +275,14 @@ function Ensure-ArcBoxDhcpScope {
     }
 
     Write-Host "Configuring DHCP DNS servers from Azure VM DNS settings: $($DnsServers -join ', ')"
-    Set-DhcpServerv4OptionValue -ScopeId $ScopeId -Router $Router -DnsServer $DnsServers -ErrorAction Stop
+    # Match upstream ArcBox: set the DNS server list, the DNS domain (option 015), and the router
+    # (option 003) so nested VMs resolve names through the Azure platform DNS via the host NAT.
+    if ([string]::IsNullOrWhiteSpace($DnsDomain)) {
+        Set-DhcpServerv4OptionValue -ScopeId $ScopeId -Router $Router -DnsServer $DnsServers -ErrorAction Stop
+    } else {
+        Write-Host "Configuring DHCP DNS domain (connection-specific suffix): $DnsDomain"
+        Set-DhcpServerv4OptionValue -ScopeId $ScopeId -Router $Router -DnsServer $DnsServers -DnsDomain $DnsDomain -ErrorAction Stop
+    }
 
     if (Get-NetAdapter -Name $InterfaceAlias -ErrorAction SilentlyContinue) {
         $bindings = @(Get-DhcpServerv4Binding -ErrorAction SilentlyContinue)
