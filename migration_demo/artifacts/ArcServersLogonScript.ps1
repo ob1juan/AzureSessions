@@ -156,12 +156,24 @@ function Get-ArcBoxHostDnsServers {
         }
     }
 
+    # Drop resolvers that the nested VMs (behind New-NetNat on 10.10.1.0/24) cannot use:
+    #  - 10.10.1.1 is the host NAT gateway, not a DNS server.
+    #  - 168.63.129.16 is Azure's platform DNS, a special "magic" address that only answers the
+    #    Azure VM itself; queries relayed from a nested VM through the NAT get no response, which
+    #    breaks DNS resolution inside the Ubuntu/SQL guests. Any other host-configured resolver
+    #    (e.g. a custom VNet DNS server) is reachable through the NAT and is kept.
+    $nestedUnreachableDnsServers = @('10.10.1.1', '168.63.129.16')
     $dnsServers = @($dnsServers |
-        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -ne '10.10.1.1' } |
+        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $nestedUnreachableDnsServers -notcontains $_ } |
         Select-Object -Unique)
 
-    if ($dnsServers.Count -eq 0) {
-        throw 'Unable to read DNS servers from the Azure VM network adapter.'
+    # Always include public resolvers reachable via the NAT so the nested VMs can resolve names
+    # (apt packages, Azure Arc onboarding endpoints, app stacks) even when the host's only
+    # configured resolver is the Azure platform DNS that nested guests cannot reach.
+    foreach ($publicFallback in @('1.1.1.1', '8.8.8.8')) {
+        if ($dnsServers -notcontains $publicFallback) {
+            $dnsServers += $publicFallback
+        }
     }
 
     return $dnsServers
