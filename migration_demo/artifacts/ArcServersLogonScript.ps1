@@ -405,6 +405,51 @@ function Get-ArcBoxVmInternalIPv4 {
     throw "Timed out waiting for VM $Name to report an internal IPv4 address in $SubnetPrefix*."
 }
 
+function Set-ArcBoxLinuxVmAuthorizedKey {
+    <#
+    .SYNOPSIS
+    Injects the host's SSH public key into a nested Linux VM's authorized_keys over Hyper-V VMBus
+    (Guest Service Interface), so key-based SSH works without any guest networking or cloud-init.
+
+    .DESCRIPTION
+    The nested Ubuntu image enables the Hyper-V Guest Service Interface (EnableGuestService in the
+    DSC config), so Copy-VMFile -FileSource Host can place the public key file directly into the
+    guest filesystem over VMBus. This replaces the removed cloud-init seed that previously carried
+    ssh_authorized_keys, and is the same mechanism upstream ArcBox uses.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$PublicKeyPath,
+        [Parameter(Mandatory = $true)][string]$UserName,
+        [int]$TimeoutSeconds = 600
+    )
+
+    if (-not (Test-Path -Path $PublicKeyPath)) {
+        throw "SSH public key not found for injection into '$Name': $PublicKeyPath"
+    }
+
+    # Ensure the Guest Service Interface integration component is enabled so Copy-VMFile works.
+    Enable-VMIntegrationService -VMName $Name -Name 'Guest Service Interface' -ErrorAction SilentlyContinue
+
+    # Wait for the integration services heartbeat so the guest file-copy daemon is ready to receive.
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $heartbeat = Get-VMIntegrationService -VMName $Name -Name 'Heartbeat' -ErrorAction SilentlyContinue
+        if ($heartbeat -and $heartbeat.PrimaryStatusDescription -eq 'OK') { break }
+        Write-Host "Waiting for VM $Name integration services heartbeat before copying the SSH key."
+        Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
+
+    $stagedKeyPath = Join-Path -Path $env:TEMP -ChildPath 'authorized_keys'
+    Copy-Item -Path $PublicKeyPath -Destination $stagedKeyPath -Force
+    try {
+        Copy-VMFile -Name $Name -SourcePath $stagedKeyPath -DestinationPath "/home/$UserName/.ssh/authorized_keys" -FileSource Host -CreateFullPath -Force -ErrorAction Stop
+        Write-Host "Injected SSH public key into '$Name' at /home/$UserName/.ssh/authorized_keys over VMBus."
+    } finally {
+        Remove-Item -Path $stagedKeyPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Wait-ArcBoxWindowsVmReady {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -1056,6 +1101,11 @@ if ($Env:flavor -ne 'DevOps') {
             }
 
             Wait-ArcBoxVmRunning -Name $ubuntuVmName
+
+            # The cloud-init seed that previously delivered the host's SSH public key was removed, so
+            # inject it now directly into the guest over Hyper-V VMBus (Guest Service Interface),
+            # which needs no guest networking. Without this, the key-based SSH calls below fail.
+            Set-ArcBoxLinuxVmAuthorizedKey -Name $ubuntuVmName -PublicKeyPath "$sshKeyPath.pub" -UserName $nestedLinuxUsername
 
             # Ubuntu's default netplan/systemd-networkd sends a DUID-based DHCP client identifier
             # (RFC 4361), not its MAC, so the Hyper-V host's MAC-based reservation for 10.10.1.102 is
