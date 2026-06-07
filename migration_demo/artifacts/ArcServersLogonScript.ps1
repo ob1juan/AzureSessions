@@ -1117,7 +1117,63 @@ if ($Env:flavor -ne 'DevOps') {
         $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
         Invoke-Command -VMName $SQLvmName -ScriptBlock { powershell -File $Using:nestedVMArcBoxDir\installArcAgent.ps1 -accessToken $using:accessToken, -tenantId $Using:tenantId, -subscriptionId $Using:subscriptionId, -resourceGroup $Using:resourceGroup, -azureLocation $Using:azureLocation } -Credential $winCreds
         Write-Output 'Azure Arc client installation command completed on SQL VM.'
-        Complete-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Message 'SQL VM Azure Connected Machine onboarding command completed.'
+
+        # Installing the Azure Connected Machine agent only onboards the server; the SQL Server Arc
+        # extension (WindowsAgent.SqlServer) must be installed separately, otherwise the SQL instance
+        # is never surfaced as an Arc-enabled SQL Server resource. Install it from the host using the
+        # managed identity context already established with Connect-AzAccount -Identity.
+        Write-Header 'Installing SQL Server - Azure Arc extension on the SQL VM'
+
+        if (-not (Get-Module -ListAvailable -Name Az.ConnectedMachine)) {
+            Write-Host 'Installing Az.ConnectedMachine module for the SQL Server Arc extension.'
+            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null } catch { }
+            if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
+                Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+            }
+            Install-Module -Name Az.ConnectedMachine -Scope AllUsers -Force -AllowClobber -ErrorAction Stop
+        }
+        Import-Module Az.ConnectedMachine -ErrorAction Stop
+
+        # The Arc-enabled server resource is created by 'azcmagent connect' running inside the VM, so
+        # it may not be visible in Azure the instant the command returns. Poll until it appears before
+        # assigning roles or installing the extension. The Arc machine name is the VM's hostname,
+        # which was set to $SQLvmName earlier in this script.
+        $sqlArcMachine = $null
+        $sqlArcDeadline = (Get-Date).AddSeconds(600)
+        do {
+            $sqlArcMachine = Get-AzConnectedMachine -ResourceGroupName $resourceGroup -Name $SQLvmName -ErrorAction SilentlyContinue
+            if ($null -ne $sqlArcMachine) { break }
+            Write-Host "Waiting for Arc-enabled server '$SQLvmName' to register in resource group '$resourceGroup'."
+            Start-Sleep -Seconds 15
+        } while ((Get-Date) -lt $sqlArcDeadline)
+
+        if ($null -eq $sqlArcMachine) {
+            throw "Arc-enabled server '$SQLvmName' did not register in resource group '$resourceGroup'; cannot install the SQL Server Arc extension."
+        }
+
+        # The SQL Server Arc extension uses the Arc machine's managed identity to create the SQL
+        # Server - Azure Arc resources, which requires the 'Azure Connected SQL Server Onboarding'
+        # role on the resource group. Assign it if it is not already present.
+        $sqlArcIdentityPrincipalId = $sqlArcMachine.IdentityPrincipalId
+        if (-not [string]::IsNullOrWhiteSpace($sqlArcIdentityPrincipalId)) {
+            $existingSqlOnboardingRole = Get-AzRoleAssignment -ObjectId $sqlArcIdentityPrincipalId -RoleDefinitionName 'Azure Connected SQL Server Onboarding' -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            if (-not $existingSqlOnboardingRole) {
+                Write-Host "Assigning 'Azure Connected SQL Server Onboarding' role to the SQL Arc machine identity."
+                New-AzRoleAssignment -ObjectId $sqlArcIdentityPrincipalId -RoleDefinitionName 'Azure Connected SQL Server Onboarding' -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue | Out-Null
+            }
+        } else {
+            Write-Warning "Arc-enabled server '$SQLvmName' has no managed identity principal id; the SQL Server Arc extension may be unable to create SQL resources."
+        }
+
+        Write-Host 'Installing SQL Server - Azure Arc extension (WindowsAgent.SqlServer). This may take several minutes.'
+        $sqlExtensionSettings = @{ SqlManagement = @{ IsEnabled = $true } }
+        $sqlExtension = New-AzConnectedMachineExtension -Name 'WindowsAgent.SqlServer' -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Location $azureLocation -Publisher 'Microsoft.AzureData' -ExtensionType 'WindowsAgent.SqlServer' -Settings $sqlExtensionSettings -ErrorAction Stop
+        if ($sqlExtension.ProvisioningState -eq 'Failed') {
+            throw "SQL Server - Azure Arc extension installation reported 'Failed' provisioning state on '$SQLvmName'."
+        }
+        Write-Output "SQL Server - Azure Arc extension installed on '$SQLvmName'."
+
+        Complete-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Message 'SQL VM Azure Connected Machine onboarding and SQL Server Arc extension completed.'
         } catch {
             Write-Warning "Component 'ArcBox-SQL Arc onboarding' failed: $($_.Exception.Message)"
             Complete-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Status Failed -Message $_.Exception.Message
@@ -1256,6 +1312,14 @@ if ($Env:flavor -ne 'DevOps') {
             }
 
             Wait-ArcBoxVmRunning -Name $ubuntuVmName
+
+            # Wait-ArcBoxVmRunning only confirms the Hyper-V "Running" state, which is reached well
+            # before the guest OS has finished booting and started sshd. Connecting to SSH (or the
+            # password bootstrap below) immediately races the boot and intermittently fails. Give the
+            # guest a fixed grace period to finish first boot and bring up networking/SSH before the
+            # first connection attempt; the Wait-/retry helpers below still cover any remaining delay.
+            Write-Host 'Waiting for the nested Ubuntu VM to finish booting before connecting over SSH.'
+            Start-Sleep -Seconds 90
 
             # Ubuntu's default netplan/systemd-networkd sends a DUID-based DHCP client identifier
             # (RFC 4361), not its MAC, so the Hyper-V host's MAC-based reservation for 10.10.1.102 is
