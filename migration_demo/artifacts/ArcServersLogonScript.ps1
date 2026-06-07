@@ -837,6 +837,81 @@ function ConvertTo-IanaTimeZone {
     throw "No IANA time zone mapping is defined for Windows time zone ID '$WindowsTimeZoneId'."
 }
 
+function Install-AzureMigrateCollectorExtension {
+    <#
+    .SYNOPSIS
+    Installs the Azure Migrate Collector VM extension on an Arc-enabled server so the machine
+    reports additional discovery and assessment data (performance metrics) to the Azure Migrate
+    project. Selects the Windows (AzureMigrateCollectorForWindows) or Linux
+    (AzureMigrateCollectorForLinux) extension type with -OSType. The target Azure Migrate project
+    is discovered in the deployment's resource group, so its name does not have to be hard-coded.
+    Returns 'Installed', or 'Skipped' when no Azure Migrate project is present in the resource group.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$MachineName,
+        [Parameter(Mandatory = $true)][ValidateSet('Windows', 'Linux')][string]$OSType,
+        [Parameter(Mandatory = $true)][string]$ResourceGroup,
+        [Parameter(Mandatory = $true)][string]$Location
+    )
+
+    $extensionName = if ($OSType -eq 'Windows') { 'AzureMigrateCollectorForWindows' } else { 'AzureMigrateCollectorForLinux' }
+
+    # Ensure the Az.ConnectedMachine module (provides New-AzConnectedMachineExtension) is available.
+    if (-not (Get-Module -ListAvailable -Name Az.ConnectedMachine)) {
+        Write-Host 'Installing Az.ConnectedMachine module for the Azure Migrate Collector extension.'
+        try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null } catch { }
+        if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+        }
+        Install-Module -Name Az.ConnectedMachine -Scope AllUsers -Force -AllowClobber -ErrorAction Stop
+    }
+    Import-Module Az.ConnectedMachine -ErrorAction Stop
+
+    # The collector extension reports to an Azure Migrate project. The deployment provisions one in
+    # this resource group; discover it so the project name does not need to be hard-coded and the
+    # step degrades gracefully (Skipped) if the project is absent.
+    $migrateProject = Get-AzResource -ResourceGroupName $ResourceGroup -ResourceType 'Microsoft.Migrate/migrateProjects' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $migrateProject) {
+        Write-Warning "No Azure Migrate project found in resource group '$ResourceGroup'; skipping the Azure Migrate Collector extension on '$MachineName'."
+        return 'Skipped'
+    }
+
+    # The Arc-enabled server resource is created by 'azcmagent connect' running inside the VM, so it
+    # may not be visible the instant onboarding returns. Poll until it appears before installing the
+    # extension. The Arc machine name is the VM's hostname, which was set to $MachineName earlier.
+    $arcMachine = $null
+    $arcDeadline = (Get-Date).AddSeconds(600)
+    do {
+        $arcMachine = Get-AzConnectedMachine -ResourceGroupName $ResourceGroup -Name $MachineName -ErrorAction SilentlyContinue
+        if ($null -ne $arcMachine) { break }
+        Write-Host "Waiting for Arc-enabled server '$MachineName' to register in resource group '$ResourceGroup'."
+        Start-Sleep -Seconds 15
+    } while ((Get-Date) -lt $arcDeadline)
+
+    if ($null -eq $arcMachine) {
+        throw "Arc-enabled server '$MachineName' did not register in resource group '$ResourceGroup'; cannot install the Azure Migrate Collector extension."
+    }
+
+    # The extension authenticates to Azure Migrate with the Arc machine's managed identity; the only
+    # required setting is the migrate project (ARM id + region) the machine should report to.
+    $migrateSettings = @{
+        migrateProjects = @(
+            @{
+                id       = $migrateProject.ResourceId
+                location = $migrateProject.Location
+            }
+        )
+    }
+
+    Write-Host "Installing the Azure Migrate Collector extension ($extensionName) on '$MachineName'. This may take several minutes."
+    $extension = New-AzConnectedMachineExtension -Name $extensionName -ResourceGroupName $ResourceGroup -MachineName $MachineName -Location $Location -Publisher 'Microsoft.Azure.Migrate' -ExtensionType $extensionName -Settings $migrateSettings -ErrorAction Stop
+    if ($extension.ProvisioningState -eq 'Failed') {
+        throw "Azure Migrate Collector extension ($extensionName) installation reported 'Failed' provisioning state on '$MachineName'."
+    }
+    Write-Output "Azure Migrate Collector extension ($extensionName) installed on '$MachineName'."
+    return 'Installed'
+}
+
 trap {
     if (Test-Path $DeploymentStatusScript) {
         Complete-DeploymentComponent -Name $CurrentDeploymentComponent -Status Failed -Message $_.Exception.Message
@@ -1180,6 +1255,26 @@ if ($Env:flavor -ne 'DevOps') {
         }
     }
 
+    # Install the Azure Migrate Collector for Windows extension on the Arc-enabled SQL VM. Gated on
+    # the Arc onboarding having completed so it does not waste time polling for a machine that was
+    # never registered.
+    if ((Test-ComponentCompleted -Name 'ArcBox-SQL Arc onboarding') -and -not (Test-ComponentCompleted -Name 'ArcBox-SQL Azure Migrate Collector')) {
+        Start-DeploymentComponent -Name 'ArcBox-SQL Azure Migrate Collector' -Message 'Installing the Azure Migrate Collector for Windows extension on the SQL VM.'
+        try {
+
+        Write-Header 'Installing the Azure Migrate Collector for Windows extension on the SQL VM'
+        $sqlCollectorResult = Install-AzureMigrateCollectorExtension -MachineName $SQLvmName -OSType Windows -ResourceGroup $resourceGroup -Location $azureLocation
+        if ($sqlCollectorResult -eq 'Skipped') {
+            Complete-DeploymentComponent -Name 'ArcBox-SQL Azure Migrate Collector' -Status Skipped -Message 'No Azure Migrate project found in the resource group; the Azure Migrate Collector for Windows extension was not installed.'
+        } else {
+            Complete-DeploymentComponent -Name 'ArcBox-SQL Azure Migrate Collector' -Message 'Azure Migrate Collector for Windows extension installed on the SQL VM.'
+        }
+        } catch {
+            Write-Warning "Component 'ArcBox-SQL Azure Migrate Collector' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'ArcBox-SQL Azure Migrate Collector' -Status Failed -Message $_.Exception.Message
+        }
+    }
+
     # Deploy the single Ubuntu nested VM and configure the two legacy app stacks.
     if ($Env:flavor -eq 'ITPro') {
         # Shared, deterministic values for the Ubuntu nested VM and its app stacks are defined here
@@ -1513,6 +1608,25 @@ fi
             } catch {
                 Write-Warning "Component 'ArcBox-Ubuntu Arc onboarding' failed: $($_.Exception.Message)"
                 Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Arc onboarding' -Status Failed -Message $_.Exception.Message
+            }
+        }
+
+        # Install the Azure Migrate Collector for Linux extension on the Arc-enabled Ubuntu VM. Gated
+        # on the Ubuntu VM being reachable and its Arc onboarding having completed.
+        if ($ubuntuVmReady -and (Test-ComponentCompleted -Name 'ArcBox-Ubuntu Arc onboarding') -and -not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu Azure Migrate Collector')) {
+            Start-DeploymentComponent -Name 'ArcBox-Ubuntu Azure Migrate Collector' -Message 'Installing the Azure Migrate Collector for Linux extension on the Ubuntu VM.'
+            try {
+
+            Write-Header 'Installing the Azure Migrate Collector for Linux extension on the Ubuntu VM'
+            $ubuntuCollectorResult = Install-AzureMigrateCollectorExtension -MachineName $ubuntuVmName -OSType Linux -ResourceGroup $resourceGroup -Location $azureLocation
+            if ($ubuntuCollectorResult -eq 'Skipped') {
+                Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Azure Migrate Collector' -Status Skipped -Message 'No Azure Migrate project found in the resource group; the Azure Migrate Collector for Linux extension was not installed.'
+            } else {
+                Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Azure Migrate Collector' -Message 'Azure Migrate Collector for Linux extension installed on the Ubuntu VM.'
+            }
+            } catch {
+                Write-Warning "Component 'ArcBox-Ubuntu Azure Migrate Collector' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'ArcBox-Ubuntu Azure Migrate Collector' -Status Failed -Message $_.Exception.Message
             }
         }
         

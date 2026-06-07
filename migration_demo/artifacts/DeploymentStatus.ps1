@@ -98,6 +98,17 @@ $defaultComponents = @(
         RecoveryInstructions = 'Confirm the nested SQL VM is running and has network access, then rerun ArcServersLogonScript to acquire a fresh token and retry onboarding.'
     }
     @{
+        Name = 'ArcBox-SQL Azure Migrate Collector'
+        Description = 'Azure Migrate Collector for Windows (AzureMigrateCollectorForWindows) VM extension on the Arc-enabled SQL VM for additional discovery and assessment data.'
+        RunsOn = 'Nested VM: SQL'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'New-AzConnectedMachineExtension -Name AzureMigrateCollectorForWindows -MachineName <prefix>-SQL -Publisher Microsoft.Azure.Migrate -ExtensionType AzureMigrateCollectorForWindows -Settings @{ migrateProjects = @(@{ id = <migrate project id>; location = <region> }) }'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm an Azure Migrate project exists in the resource group and the SQL VM is Arc-onboarded, then rerun ArcServersLogonScript. The extension install is idempotent.'
+    }
+    @{
         Name = 'ArcBox-Ubuntu VM'
         Description = 'Ubuntu nested VM VHD download, Hyper-V VM creation, SSH preparation, and hostname setup.'
         RunsOn = 'Client VM / Hyper-V host'
@@ -140,6 +151,17 @@ $defaultComponents = @(
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
         RecoveryInstructions = 'Confirm the Ubuntu VM is running and reachable over SSH, then rerun ArcServersLogonScript to render a fresh token and retry onboarding.'
+    }
+    @{
+        Name = 'ArcBox-Ubuntu Azure Migrate Collector'
+        Description = 'Azure Migrate Collector for Linux (AzureMigrateCollectorForLinux) VM extension on the Arc-enabled Ubuntu VM for additional discovery and assessment data.'
+        RunsOn = 'Nested VM: Ubuntu'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'New-AzConnectedMachineExtension -Name AzureMigrateCollectorForLinux -MachineName <prefix>-pgsql -Publisher Microsoft.Azure.Migrate -ExtensionType AzureMigrateCollectorForLinux -Settings @{ migrateProjects = @(@{ id = <migrate project id>; location = <region> }) }'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm an Azure Migrate project exists in the resource group and the Ubuntu VM is Arc-onboarded, then rerun ArcServersLogonScript. The extension install is idempotent.'
     }
     @{
         Name = 'Time zone configuration'
