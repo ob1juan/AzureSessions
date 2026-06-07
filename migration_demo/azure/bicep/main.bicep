@@ -145,6 +145,45 @@ resource migrateProject 'Microsoft.Migrate/migrateProjects@2020-05-01' = {
   }
 }
 
+// The migrateProject resource on its own creates an empty project: its read-only `registeredTools`
+// property is populated by registering solution child resources, which the portal normally creates
+// behind the scenes. Without these solutions the Azure Migrate tools (Discovery and assessment,
+// Migration and modernization) never appear and discovered/assessment data has nowhere to land,
+// which is why the project looks half-configured. These three Server* solutions mirror what the
+// portal registers for a new server-migration project.
+resource serverDiscoverySolution 'Microsoft.Migrate/migrateProjects/solutions@2018-09-01-preview' = {
+  parent: migrateProject
+  name: 'Servers-Discovery-ServerDiscovery'
+  properties: {
+    tool: 'ServerDiscovery'
+    purpose: 'Discovery'
+    goal: 'Servers'
+    status: 'Active'
+  }
+}
+
+resource serverAssessmentSolution 'Microsoft.Migrate/migrateProjects/solutions@2018-09-01-preview' = {
+  parent: migrateProject
+  name: 'Servers-Assessment-ServerAssessment'
+  properties: {
+    tool: 'ServerAssessment'
+    purpose: 'Assessment'
+    goal: 'Servers'
+    status: 'Active'
+  }
+}
+
+resource serverMigrationSolution 'Microsoft.Migrate/migrateProjects/solutions@2018-09-01-preview' = {
+  parent: migrateProject
+  name: 'Servers-Migration-ServerMigration'
+  properties: {
+    tool: 'ServerMigration'
+    purpose: 'Migration'
+    goal: 'Servers'
+    status: 'Active'
+  }
+}
+
 module clientVmDeployment 'clientVm/clientVm.bicep' = {
   name: 'clientVmDeployment'
   params: {

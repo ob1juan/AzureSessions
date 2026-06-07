@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "9818330696501928895"
+      "templateHash": "7206296151879565100"
     }
   },
   "parameters": {
@@ -253,6 +253,48 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Migrate/migrateProjects/solutions",
+      "apiVersion": "2018-09-01-preview",
+      "name": "[format('{0}/{1}', parameters('migrateProjectName'), 'Servers-Discovery-ServerDiscovery')]",
+      "properties": {
+        "tool": "ServerDiscovery",
+        "purpose": "Discovery",
+        "goal": "Servers",
+        "status": "Active"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Migrate/migrateProjects/solutions",
+      "apiVersion": "2018-09-01-preview",
+      "name": "[format('{0}/{1}', parameters('migrateProjectName'), 'Servers-Assessment-ServerAssessment')]",
+      "properties": {
+        "tool": "ServerAssessment",
+        "purpose": "Assessment",
+        "goal": "Servers",
+        "status": "Active"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Migrate/migrateProjects/solutions",
+      "apiVersion": "2018-09-01-preview",
+      "name": "[format('{0}/{1}', parameters('migrateProjectName'), 'Servers-Migration-ServerMigration')]",
+      "properties": {
+        "tool": "ServerMigration",
+        "purpose": "Migration",
+        "goal": "Servers",
+        "status": "Active"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
       ]
     },
     {
