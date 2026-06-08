@@ -222,6 +222,9 @@ function New-StatusState {
         OverallStartTime = $null
         OverallStopTime  = $null
         OverallSeconds   = $null
+        TotalComponents  = 0
+        FinishedComponents = 0
+        ProgressPercent  = 0
         Components       = @()
         AzureDeployments = @()
         AzureResources   = @()
@@ -268,6 +271,10 @@ function Get-Component {
     )
 
     $definition = @($defaultComponents | Where-Object { $_.Name -eq $Name } | Select-Object -First 1)
+    $sectionNumber = [array]::IndexOf(@($defaultComponents.Name), $Name) + 1
+    if ($sectionNumber -le 0) {
+        $sectionNumber = $null
+    }
     $metadataFields = @('RunsOn', 'ScriptPath', 'Command', 'RerunCommand', 'LogPath', 'WorkingDirectory', 'RecoveryInstructions')
     if ($definition.Count -gt 0 -and [string]::IsNullOrWhiteSpace($Description)) {
         $Description = $definition[0].Description
@@ -276,6 +283,7 @@ function Get-Component {
     $componentEntry = @($State.Components | Where-Object { $_.Name -eq $Name } | Select-Object -First 1)
     if ($componentEntry.Count -eq 0) {
         $component = [pscustomobject]@{
+            SectionNumber        = $sectionNumber
             Name                 = $Name
             Description          = $Description
             Status               = 'Pending'
@@ -303,6 +311,13 @@ function Get-Component {
     }
 
     $component = $componentEntry[0]
+    if (-not ($component.PSObject.Properties.Name -contains 'SectionNumber')) {
+        $component | Add-Member -MemberType NoteProperty -Name SectionNumber -Value $sectionNumber
+    }
+    elseif ($null -ne $sectionNumber -and ($null -eq $component.SectionNumber -or [int]$component.SectionNumber -le 0)) {
+        $component.SectionNumber = $sectionNumber
+    }
+
     if ($Description -and [string]::IsNullOrWhiteSpace([string]$component.Description)) {
         $component.Description = $Description
     }
@@ -362,6 +377,8 @@ function Set-ComponentStatus {
         $component.Message = $StatusMessage
     }
 
+    Update-OverallStatus -State $state
+    Update-DeploymentProgressTag -State $state -ComponentName $Name -ComponentStatus $NewStatus -StatusMessage $StatusMessage
     Save-StatusState -State $state
 }
 
@@ -450,6 +467,16 @@ function Update-OverallStatus {
     $components = @(Convert-ToArray -Value $State.Components)
     $failed = @($components | Where-Object { $_.Status -eq 'Failed' })
     $active = @($components | Where-Object { $_.Status -in @('Pending', 'InProgress') })
+    $finished = @($components | Where-Object { $_.Status -in @('Completed', 'Failed', 'Skipped') })
+
+    $State.TotalComponents = $components.Count
+    $State.FinishedComponents = $finished.Count
+    $State.ProgressPercent = if ($components.Count -gt 0) {
+        [int][math]::Round((100 * $finished.Count) / $components.Count, 0)
+    } else {
+        0
+    }
+
     if ($failed.Count -gt 0) {
         $State.OverallStatus = 'Failed'
     }
@@ -470,6 +497,69 @@ function Update-OverallStatus {
     }
     if ($State.OverallStartTime -and $State.OverallStopTime) {
         $State.OverallSeconds = [math]::Round((New-TimeSpan -Start ([datetime]$State.OverallStartTime) -End ([datetime]$State.OverallStopTime)).TotalSeconds, 1)
+    }
+}
+
+function Update-DeploymentProgressTag {
+    param(
+        [pscustomobject]$State,
+        [string]$ComponentName,
+        [string]$ComponentStatus,
+        [string]$StatusMessage
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ResourceGroup)) {
+        return
+    }
+
+    $component = @($State.Components | Where-Object { $_.Name -eq $ComponentName } | Select-Object -First 1)
+    $sectionLabel = $ComponentName
+    if ($component.Count -gt 0 -and $component[0].SectionNumber) {
+        $sectionLabel = '{0}. {1}' -f $component[0].SectionNumber, $component[0].Name
+    }
+
+    $shortDescription = if (-not [string]::IsNullOrWhiteSpace($StatusMessage)) {
+        $StatusMessage
+    }
+    elseif ($component.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$component[0].Description)) {
+        $component[0].Description
+    }
+    else {
+        $ComponentStatus
+    }
+
+    $shortDescription = [regex]::Replace([string]$shortDescription, '\s+', ' ').Trim()
+    if ($shortDescription.Length -gt 100) {
+        $shortDescription = $shortDescription.Substring(0, 97) + '...'
+    }
+
+    $progressText = '{0}% - {1} ({2})' -f $State.ProgressPercent, $sectionLabel, $shortDescription
+    if ($progressText.Length -gt 255) {
+        $progressText = $progressText.Substring(0, 255)
+    }
+
+    try {
+        if (-not (Get-Command Get-AzResourceGroup -ErrorAction SilentlyContinue) -or -not (Get-Command Set-AzResourceGroup -ErrorAction SilentlyContinue)) {
+            return
+        }
+
+        $resourceGroup = Get-AzResourceGroup -Name $ResourceGroup -ErrorAction Stop
+        $tags = @{}
+        if ($null -ne $resourceGroup.Tags) {
+            foreach ($key in $resourceGroup.Tags.Keys) {
+                $tags[$key] = [string]$resourceGroup.Tags[$key]
+            }
+        }
+
+        $tags['DeploymentProgress'] = $progressText
+        $null = Set-AzResourceGroup -ResourceGroupName $ResourceGroup -Tag $tags -ErrorAction Stop
+
+        if (-not [string]::IsNullOrWhiteSpace($env:computername) -and (Get-Command Set-AzResource -ErrorAction SilentlyContinue)) {
+            $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $ResourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        Write-Verbose "Unable to update DeploymentProgress tag: $($_.Exception.Message)"
     }
 }
 
@@ -518,10 +608,11 @@ function Write-HtmlReport {
     $componentCards = (@(Convert-ToArray -Value $state.Components) | ForEach-Object {
         $componentStatusClass = ([string]$_.Status).ToLowerInvariant()
         $scriptMarkup = ConvertTo-HtmlText $_.ScriptPath
+        $componentTitle = if ($_.SectionNumber) { '{0}. {1}' -f $_.SectionNumber, $_.Name } else { $_.Name }
 @"
         <section class='component-card'>
           <div class='component-heading'>
-            <h3>$(ConvertTo-HtmlText $_.Name)</h3>
+            <h3>$(ConvertTo-HtmlText $componentTitle)</h3>
             <span class='pill $componentStatusClass'>$(ConvertTo-HtmlText $_.Status)</span>
           </div>
           <p>$(ConvertTo-HtmlText $_.Description)</p>
@@ -569,7 +660,7 @@ function Write-HtmlReport {
     h2 { margin: 28px 0 14px; font-size: 20px; }
     h3 { font-size: 16px; }
     p { margin: 8px 0 0; color: var(--muted); }
-    .summary { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 14px; margin-top: 18px; }
+    .summary { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 14px; margin-top: 18px; }
     .metric, .component-card, .table-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(16, 32, 51, 0.06); }
     .metric span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
     .metric strong { display: block; margin-top: 8px; font-size: 18px; }
@@ -608,6 +699,7 @@ function Write-HtmlReport {
   <main>
     <section class='summary'>
       <div class='metric'><span>Overall Status</span><strong><span class='pill $statusClass'>$(ConvertTo-HtmlText $state.OverallStatus)</span></strong></div>
+            <div class='metric'><span>Progress</span><strong>$(ConvertTo-HtmlText $state.ProgressPercent)% ($(ConvertTo-HtmlText $state.FinishedComponents)/$(ConvertTo-HtmlText $state.TotalComponents))</strong></div>
       <div class='metric'><span>Start</span><strong>$(Format-DateTime $state.OverallStartTime)</strong></div>
       <div class='metric'><span>Stop</span><strong>$(Format-DateTime $state.OverallStopTime)</strong></div>
       <div class='metric'><span>Total Time</span><strong>$(Format-Duration $state.OverallSeconds)</strong></div>

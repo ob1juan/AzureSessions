@@ -1060,19 +1060,6 @@ if ($Env:flavor -ne 'DevOps') {
     Write-Header 'Az PowerShell Login'
     Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId
 
-    $DeploymentProgressString = 'Started ArcServersLogonScript'
-
-    $tags = Get-AzResourceGroup -Name $env:resourceGroup | Select-Object -ExpandProperty Tags
-
-    if ($null -ne $tags) {
-        $tags['DeploymentProgress'] = $DeploymentProgressString
-    } else {
-        $tags = @{'DeploymentProgress' = $DeploymentProgressString }
-    }
-
-    $null = Set-AzResourceGroup -ResourceGroupName $env:resourceGroup -Tag $tags
-    $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $env:resourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force
-
     $existingVMDisk = Get-AzDisk -ResourceGroupName $env:resourceGroup | Where-Object name -Like *VMsDisk
 
     # Update disk IOPS and throughput before downloading nested VMs
@@ -1089,19 +1076,6 @@ if ($Env:flavor -ne 'DevOps') {
     if (-not (Test-ComponentCompleted -Name 'ArcBox-SQL VM')) {
         Start-DeploymentComponent -Name 'ArcBox-SQL VM' -Message 'Downloading SQL VHD and creating the nested SQL Hyper-V VM.'
         try {
-
-        $DeploymentProgressString = 'Downloading and configuring nested SQL VM'
-
-        $tags = Get-AzResourceGroup -Name $env:resourceGroup | Select-Object -ExpandProperty Tags
-
-        if ($null -ne $tags) {
-            $tags['DeploymentProgress'] = $DeploymentProgressString
-        } else {
-            $tags = @{'DeploymentProgress' = $DeploymentProgressString }
-        }
-
-        $null = Set-AzResourceGroup -ResourceGroupName $env:resourceGroup -Tag $tags
-        $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $env:resourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force
 
         Write-Host 'Fetching SQL VM'
         $SQLvmName = "$namingPrefix-SQL"
@@ -1316,19 +1290,6 @@ if ($Env:flavor -ne 'DevOps') {
             $ubuntuVhdPath = "${Env:ArcBoxVMDir}\$namingPrefix-pgsql.vhdx"
             $ubuntuSourceVhdName = 'ArcBox-Ubuntu-01.vhdx'
             $ubuntuSourceVhdPath = Join-Path -Path $Env:ArcBoxVMDir -ChildPath $ubuntuSourceVhdName
-
-            $DeploymentProgressString = 'Downloading and configuring nested VMs'
-
-            $tags = Get-AzResourceGroup -Name $env:resourceGroup | Select-Object -ExpandProperty Tags
-
-            if ($null -ne $tags) {
-                $tags['DeploymentProgress'] = $DeploymentProgressString
-            } else {
-                $tags = @{'DeploymentProgress' = $DeploymentProgressString }
-            }
-
-            $null = Set-AzResourceGroup -ResourceGroupName $env:resourceGroup -Tag $tags
-            $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $env:resourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force
 
             # Verify if VHD file is already downloaded especially when re-running this script
             if (!(Test-Path $ubuntuVhdPath)) {
@@ -1846,14 +1807,11 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
 
     Start-DeploymentComponent -Name 'Deployment report' -Message 'Collecting Azure deployment/resource status and writing the final HTML report.'
 
-    $DeploymentProgressString = 'Completed'
     $tags = Get-AzResourceGroup -Name $env:resourceGroup | Select-Object -ExpandProperty Tags
     if ($null -ne $tags) {
-        $tags['DeploymentProgress'] = $DeploymentProgressString
         $tags['DeploymentStatus'] = 'Completed'
     } else {
         $tags = @{
-            'DeploymentProgress' = $DeploymentProgressString
             'DeploymentStatus' = 'Completed'
         }
     }
