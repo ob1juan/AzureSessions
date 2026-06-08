@@ -87,6 +87,17 @@ $defaultComponents = @(
         RecoveryInstructions = 'Fix VHD download, disk, or Hyper-V errors, then rerun ArcServersLogonScript. Existing VHDs are reused.'
     }
     @{
+        Name = 'Azure Migrate Appliance VM'
+        Description = 'Azure Migrate appliance VHD download and Hyper-V VM creation for migdem-am (not Arc-enabled by this script).'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'Downloads the Azure Migrate appliance .vhd, creates Hyper-V VM migdem-am on InternalNATSwitch, starts it, and updates hosts mapping.'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Set environment variable azureMigrateApplianceVhdUrl to a direct appliance .vhd URL (or configure azureMigrateApplianceVhdSourceFolder), then rerun ArcServersLogonScript.'
+    }
+    @{
         Name = 'ArcBox-SQL Arc onboarding'
         Description = 'Azure Connected Machine agent installation and onboarding for the SQL VM.'
         RunsOn = 'Nested VM: SQL'
@@ -96,17 +107,6 @@ $defaultComponents = @(
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
         RecoveryInstructions = 'Confirm the nested SQL VM is running and has network access, then rerun ArcServersLogonScript to acquire a fresh token and retry onboarding.'
-    }
-    @{
-        Name = 'ArcBox-SQL Azure Migrate Collector'
-        Description = 'Azure Migrate Collector for Windows (AzureMigrateCollectorForWindows) VM extension on the Arc-enabled SQL VM for additional discovery and assessment data.'
-        RunsOn = 'Nested VM: SQL'
-        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
-        Command = 'New-AzConnectedMachineExtension -Name AzureMigrateCollectorForWindows -MachineName <prefix>-SQL -Publisher Microsoft.Azure.Migrate -ExtensionType AzureMigrateCollectorForWindows -Settings @{ migrateProjects = @(@{ id = <migrate project id>; location = <region> }) }'
-        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
-        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
-        WorkingDirectory = 'C:\ArcBox'
-        RecoveryInstructions = 'Confirm an Azure Migrate project exists in the resource group and the SQL VM is Arc-onboarded, then rerun ArcServersLogonScript. The extension install is idempotent.'
     }
     @{
         Name = 'ArcBox-Ubuntu VM'
@@ -151,17 +151,6 @@ $defaultComponents = @(
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
         RecoveryInstructions = 'Confirm the Ubuntu VM is running and reachable over SSH, then rerun ArcServersLogonScript to render a fresh token and retry onboarding.'
-    }
-    @{
-        Name = 'ArcBox-Ubuntu Azure Migrate Collector'
-        Description = 'Azure Migrate Collector for Linux (AzureMigrateCollectorForLinux) VM extension on the Arc-enabled Ubuntu VM for additional discovery and assessment data.'
-        RunsOn = 'Nested VM: Ubuntu'
-        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
-        Command = 'New-AzConnectedMachineExtension -Name AzureMigrateCollectorForLinux -MachineName <prefix>-pgsql -Publisher Microsoft.Azure.Migrate -ExtensionType AzureMigrateCollectorForLinux -Settings @{ migrateProjects = @(@{ id = <migrate project id>; location = <region> }) }'
-        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
-        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
-        WorkingDirectory = 'C:\ArcBox'
-        RecoveryInstructions = 'Confirm an Azure Migrate project exists in the resource group and the Ubuntu VM is Arc-onboarded, then rerun ArcServersLogonScript. The extension install is idempotent.'
     }
     @{
         Name = 'Time zone configuration'
@@ -708,6 +697,7 @@ function Write-HtmlReport {
     <div style='margin-top: 20px; display: flex; gap: 14px;'>
       <a href='https://$($env:namingPrefix)-SQL/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS Website</a>
       <a href='https://$($env:namingPrefix)-pgsql/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Website</a>
+            <a href='https://migdem-am:44368/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Azure Migrate Appliance</a>
     </div>
 
     <h2>Startup Components</h2>
