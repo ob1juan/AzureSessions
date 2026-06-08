@@ -19,9 +19,40 @@ SQL_PASSWORD=$(printf "%s" "${WEB_PASSWORD}" | sed "s/'/''/g")
 
 export DEBIAN_FRONTEND=noninteractive
 
+wait_for_apt_locks() {
+    while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+          sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+          sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+          sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
+        echo 'Waiting for apt/dpkg locks to clear'
+        sleep 10
+    done
+}
+
+run_apt_with_retry() {
+    local attempt=1
+    local max_attempts=5
+
+    while (( attempt <= max_attempts )); do
+        wait_for_apt_locks
+        sudo dpkg --configure -a >/dev/null 2>&1 || true
+        if sudo apt-get -o DPkg::Lock::Timeout=300 "$@"; then
+            return 0
+        fi
+
+        echo "apt-get $* failed on attempt ${attempt}/${max_attempts}" >&2
+        sudo apt-get install -f -y >/dev/null 2>&1 || true
+        ((attempt++))
+        sleep 15
+    done
+
+    echo "apt-get $* failed after ${max_attempts} attempts" >&2
+    return 1
+}
+
 echo 'Updating apt and installing PostgreSQL, Apache, and PHP'
-sudo apt-get update -y
-sudo apt-get install -y postgresql postgresql-contrib apache2 php libapache2-mod-php php-pgsql
+run_apt_with_retry update
+run_apt_with_retry install -y postgresql postgresql-contrib apache2 php libapache2-mod-php php-pgsql
 
 PG_VERSION=$(ls /etc/postgresql 2>/dev/null | sort -V | tail -n 1)
 PG_CONF="/etc/postgresql/${PG_VERSION}/main/postgresql.conf"

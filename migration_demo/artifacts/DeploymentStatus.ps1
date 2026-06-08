@@ -88,14 +88,14 @@ $defaultComponents = @(
     }
     @{
         Name = 'Azure Migrate Appliance VM'
-        Description = 'Azure Migrate appliance VHD download and Hyper-V VM creation for migdem-am (not Arc-enabled by this script).'
+        Description = 'Azure Migrate appliance ZIP download, VHD extraction/rename, and Hyper-V VM creation for <prefix>-am (not Arc-enabled by this script).'
         RunsOn = 'Client VM / Hyper-V host'
         ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
-        Command = 'Downloads the Azure Migrate appliance .vhd, creates Hyper-V VM migdem-am on InternalNATSwitch, starts it, and updates hosts mapping.'
+        Command = 'Downloads the Azure Migrate appliance .zip, extracts the appliance .vhd to the Hyper-V storage path as <prefix>-am.vhd, creates Hyper-V VM <prefix>-am on InternalNATSwitch, starts it, and updates hosts mapping.'
         RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
-        RecoveryInstructions = 'Set environment variable azureMigrateApplianceVhdUrl to a direct appliance .vhd URL (or configure azureMigrateApplianceVhdSourceFolder), then rerun ArcServersLogonScript.'
+        RecoveryInstructions = 'Set environment variable azureMigrateApplianceVhdUrl to the appliance ZIP download URL if needed, then rerun ArcServersLogonScript.'
     }
     @{
         Name = 'ArcBox-SQL Arc onboarding'
@@ -403,6 +403,41 @@ function ConvertTo-HtmlText {
     return [System.Net.WebUtility]::HtmlEncode([string]$Value)
 }
 
+function Get-ReportTitle {
+    if ([string]::IsNullOrWhiteSpace($env:namingPrefix)) {
+        return 'Migration Demo Deployment Status'
+    }
+
+    return "$($env:namingPrefix) Migration Demo Deployment Status"
+}
+
+function Get-DisplayComponentName {
+    param([string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($env:namingPrefix) -or [string]::IsNullOrWhiteSpace($Name)) {
+        return $Name
+    }
+
+    return ($Name -replace 'ArcBox', $env:namingPrefix)
+}
+
+function Get-DisplayText {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $Text
+    }
+
+    $displayText = $Text
+    if (-not [string]::IsNullOrWhiteSpace($env:namingPrefix)) {
+        $displayText = $displayText -replace 'ArcBox', $env:namingPrefix
+        $displayText = $displayText -replace 'migdem-am', "$($env:namingPrefix)-am"
+        $displayText = $displayText -replace '<prefix>', $env:namingPrefix
+    }
+
+    return $displayText
+}
+
 function ConvertTo-FileHref {
     param([string]$Path)
 
@@ -502,9 +537,9 @@ function Update-DeploymentProgressTag {
     }
 
     $component = @($State.Components | Where-Object { $_.Name -eq $ComponentName } | Select-Object -First 1)
-    $sectionLabel = $ComponentName
+    $sectionLabel = Get-DisplayText $ComponentName
     if ($component.Count -gt 0 -and $component[0].SectionNumber) {
-        $sectionLabel = '{0}. {1}' -f $component[0].SectionNumber, $component[0].Name
+        $sectionLabel = '{0}. {1}' -f $component[0].SectionNumber, (Get-DisplayText $component[0].Name)
     }
 
     $shortDescription = if (-not [string]::IsNullOrWhiteSpace($StatusMessage)) {
@@ -518,6 +553,7 @@ function Update-DeploymentProgressTag {
     }
 
     $shortDescription = [regex]::Replace([string]$shortDescription, '\s+', ' ').Trim()
+    $shortDescription = Get-DisplayText $shortDescription
     if ($shortDescription.Length -gt 100) {
         $shortDescription = $shortDescription.Substring(0, 97) + '...'
     }
@@ -593,35 +629,39 @@ function Write-HtmlReport {
     Update-OverallStatus -State $state
     Save-StatusState -State $state
 
+    $reportTitle = Get-ReportTitle
+    $applianceHostName = if ([string]::IsNullOrWhiteSpace($env:namingPrefix)) { 'migdem-am' } else { "$($env:namingPrefix)-am" }
+
     $statusClass = ([string]$state.OverallStatus).ToLowerInvariant()
     $componentCards = (@(Convert-ToArray -Value $state.Components) | ForEach-Object {
         $componentStatusClass = ([string]$_.Status).ToLowerInvariant()
         $scriptMarkup = ConvertTo-HtmlText $_.ScriptPath
-        $componentTitle = if ($_.SectionNumber) { '{0}. {1}' -f $_.SectionNumber, $_.Name } else { $_.Name }
+        $displayComponentName = Get-DisplayComponentName -Name $_.Name
+        $componentTitle = if ($_.SectionNumber) { '{0}. {1}' -f $_.SectionNumber, $displayComponentName } else { $displayComponentName }
 @"
         <section class='component-card'>
           <div class='component-heading'>
             <h3>$(ConvertTo-HtmlText $componentTitle)</h3>
             <span class='pill $componentStatusClass'>$(ConvertTo-HtmlText $_.Status)</span>
           </div>
-          <p>$(ConvertTo-HtmlText $_.Description)</p>
+          <p>$(ConvertTo-HtmlText (Get-DisplayText $_.Description))</p>
           <dl>
             <div><dt>Start</dt><dd>$(Format-DateTime $_.StartTime)</dd></div>
             <div><dt>Stop</dt><dd>$(Format-DateTime $_.StopTime)</dd></div>
             <div><dt>Total</dt><dd>$(Format-Duration $_.TotalSeconds)</dd></div>
           </dl>
-          <p class='message'>$(ConvertTo-HtmlText $_.Message)</p>
+          <p class='message'>$(ConvertTo-HtmlText (Get-DisplayText $_.Message))</p>
                     <details>
                         <summary>Script and rerun details</summary>
                         <dl class='execution-details'>
-                            <div><dt>Runs on</dt><dd>$(ConvertTo-HtmlText $_.RunsOn)</dd></div>
-                            <div><dt>Working directory</dt><dd>$(ConvertTo-HtmlText $_.WorkingDirectory)</dd></div>
+                            <div><dt>Runs on</dt><dd>$(ConvertTo-HtmlText (Get-DisplayText $_.RunsOn))</dd></div>
+                            <div><dt>Working directory</dt><dd>$(ConvertTo-HtmlText (Get-DisplayText $_.WorkingDirectory))</dd></div>
                             <div><dt>Script</dt><dd>$scriptMarkup</dd></div>
-                            <div><dt>Log</dt><dd>$(ConvertTo-HtmlText $_.LogPath)</dd></div>
+                            <div><dt>Log</dt><dd>$(ConvertTo-HtmlText (Get-DisplayText $_.LogPath))</dd></div>
                         </dl>
-                        <div class='command-block'><span>Executed command</span><pre>$(ConvertTo-HtmlText $_.Command)</pre></div>
-                        <div class='command-block'><span>Rerun command or action</span><pre>$(ConvertTo-HtmlText $_.RerunCommand)</pre></div>
-                        <p class='message'>$(ConvertTo-HtmlText $_.RecoveryInstructions)</p>
+                        <div class='command-block'><span>Executed command</span><pre>$(ConvertTo-HtmlText (Get-DisplayText $_.Command))</pre></div>
+                        <div class='command-block'><span>Rerun command or action</span><pre>$(ConvertTo-HtmlText (Get-DisplayText $_.RerunCommand))</pre></div>
+                        <p class='message'>$(ConvertTo-HtmlText (Get-DisplayText $_.RecoveryInstructions))</p>
                     </details>
         </section>
 "@
@@ -637,7 +677,7 @@ function Write-HtmlReport {
 <head>
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>Migration Demo Deployment Status</title>
+    <title>$(ConvertTo-HtmlText $reportTitle)</title>
   <style>
     :root { color-scheme: light; --bg: #f5f7fb; --panel: #ffffff; --ink: #18212f; --muted: #607089; --line: #d9e1ec; --ok: #137333; --warn: #9a6700; --fail: #b3261e; --active: #0b57d0; }
     * { box-sizing: border-box; }
@@ -682,7 +722,7 @@ function Write-HtmlReport {
 </head>
 <body>
   <header>
-    <h1>Migration Demo Deployment Status</h1>
+        <h1>$(ConvertTo-HtmlText $reportTitle)</h1>
     <p>Generated $(Format-DateTime $state.GeneratedAt) on $env:COMPUTERNAME</p>
   </header>
   <main>
@@ -697,7 +737,7 @@ function Write-HtmlReport {
     <div style='margin-top: 20px; display: flex; gap: 14px;'>
       <a href='https://$($env:namingPrefix)-SQL/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS Website</a>
       <a href='https://$($env:namingPrefix)-pgsql/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Website</a>
-            <a href='https://migdem-am:44368/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Azure Migrate Appliance</a>
+            <a href='https://$applianceHostName:44368/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Azure Migrate Appliance</a>
     </div>
 
     <h2>Startup Components</h2>

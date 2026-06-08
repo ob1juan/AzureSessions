@@ -731,6 +731,15 @@ function Invoke-ArcBoxLinuxScript {
     }
 
     if ($result.ExitCode -ne 0) {
+        $errorOutput = [string]$result.Output
+        if (-not [string]::IsNullOrWhiteSpace($errorOutput)) {
+            $errorOutput = [regex]::Replace($errorOutput, '\s+', ' ').Trim()
+            if ($errorOutput.Length -gt 1200) {
+                $errorOutput = $errorOutput.Substring(0, 1197) + '...'
+            }
+            throw "Remote Linux command failed with exit code $($result.ExitCode): $Command Output: $errorOutput"
+        }
+
         throw "Remote Linux command failed with exit code $($result.ExitCode): $Command"
     }
 }
@@ -902,8 +911,10 @@ if ($Env:flavor -ne 'DevOps') {
     $winCreds = New-Object System.Management.Automation.PSCredential ($nestedWindowsUsername, $secWindowsPassword)
     $SQLvmName = "$namingPrefix-SQL"
     $SQLvmvhdPath = "$Env:ArcBoxVMDir\$namingPrefix-SQL.vhdx"
-    $azureMigrateApplianceVmName = 'migdem-am'
+    $azureMigrateApplianceVmName = "$namingPrefix-am"
     $azureMigrateApplianceVhdPath = "$Env:ArcBoxVMDir\$azureMigrateApplianceVmName.vhd"
+    $azureMigrateApplianceZipPath = "$Env:ArcBoxVMDir\$azureMigrateApplianceVmName.zip"
+    $azureMigrateApplianceExtractPath = Join-Path -Path $Env:ArcBoxVMDir -ChildPath "$azureMigrateApplianceVmName-extract"
     $azureMigrateApplianceSwitchName = 'InternalNATSwitch'
     $azureMigrateApplianceVhdUrl = if ([string]::IsNullOrWhiteSpace($env:azureMigrateApplianceVhdUrl)) { $defaultAzureMigrateApplianceVhdUrl } else { $env:azureMigrateApplianceVhdUrl }
     # Default to the SQL VM's DHCP reservation address; the actual DHCP-assigned IP is discovered
@@ -993,20 +1004,40 @@ if ($Env:flavor -ne 'DevOps') {
     Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId
 
     if (-not (Test-ComponentCompleted -Name 'Azure Migrate Appliance VM')) {
-        Start-DeploymentComponent -Name 'Azure Migrate Appliance VM' -Message 'Downloading the Azure Migrate appliance VHD and creating Hyper-V VM migdem-am.'
+        Start-DeploymentComponent -Name 'Azure Migrate Appliance VM' -Message "Downloading the Azure Migrate appliance ZIP, extracting the VHD, and creating Hyper-V VM $azureMigrateApplianceVmName."
         try {
 
         Write-Header 'Preparing Azure Migrate Appliance VM'
-        Write-Host 'Arc onboarding is intentionally skipped for migdem-am. This VM is deployed only for Azure Migrate appliance usage.'
+        Write-Host "Arc onboarding is intentionally skipped for $azureMigrateApplianceVmName. This VM is deployed only for Azure Migrate appliance usage."
 
         if (-not (Test-Path $azureMigrateApplianceVhdPath)) {
-            Write-Host 'Azure Migrate appliance VHD not found locally. Downloading...'
+            Write-Host 'Azure Migrate appliance VHD not found locally. Downloading ZIP package and extracting appliance VHD...'
 
             if ([string]::IsNullOrWhiteSpace($azureMigrateApplianceVhdUrl)) {
                 throw "Azure Migrate appliance VHD URL is empty. Set environment variable 'azureMigrateApplianceVhdUrl' and rerun."
             }
 
-            azcopy cp "$azureMigrateApplianceVhdUrl" "$azureMigrateApplianceVhdPath" --check-length=false --log-level=ERROR
+            if (Test-Path $azureMigrateApplianceZipPath) {
+                Remove-Item -Path $azureMigrateApplianceZipPath -Force -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $azureMigrateApplianceExtractPath) {
+                Remove-Item -Path $azureMigrateApplianceExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+
+            azcopy cp "$azureMigrateApplianceVhdUrl" "$azureMigrateApplianceZipPath" --check-length=false --log-level=ERROR
+
+            Expand-Archive -Path $azureMigrateApplianceZipPath -DestinationPath $azureMigrateApplianceExtractPath -Force
+            $extractedApplianceVhd = Get-ChildItem -Path $azureMigrateApplianceExtractPath -Filter '*.vhd' -Recurse -File -ErrorAction SilentlyContinue |
+                Sort-Object -Property FullName |
+                Select-Object -First 1
+
+            if ($null -eq $extractedApplianceVhd) {
+                throw "No .vhd file was found after extracting '$azureMigrateApplianceZipPath'."
+            }
+
+            Move-Item -Path $extractedApplianceVhd.FullName -Destination $azureMigrateApplianceVhdPath -Force
+            Remove-Item -Path $azureMigrateApplianceExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $azureMigrateApplianceZipPath -Force -ErrorAction SilentlyContinue
         }
 
         if (-not (Get-VMSwitch -Name $azureMigrateApplianceSwitchName -ErrorAction SilentlyContinue)) {
@@ -1190,13 +1221,81 @@ if ($Env:flavor -ne 'DevOps') {
             Write-Warning "Arc-enabled server '$SQLvmName' has no managed identity principal id; the SQL Server Arc extension may be unable to create SQL resources."
         }
 
-        Write-Host 'Installing SQL Server - Azure Arc extension (WindowsAgent.SqlServer). This may take several minutes.'
+        $sqlExtensionName = 'WindowsAgent.SqlServer'
         $sqlExtensionSettings = @{ SqlManagement = @{ IsEnabled = $true } }
-        $sqlExtension = New-AzConnectedMachineExtension -Name 'WindowsAgent.SqlServer' -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Location $azureLocation -Publisher 'Microsoft.AzureData' -ExtensionType 'WindowsAgent.SqlServer' -Settings $sqlExtensionSettings -ErrorAction Stop
-        if ($sqlExtension.ProvisioningState -eq 'Failed') {
-            throw "SQL Server - Azure Arc extension installation reported 'Failed' provisioning state on '$SQLvmName'."
+        $sqlExtensionTerminalStates = @('Succeeded', 'Failed', 'Canceled', 'Cancelled')
+        $sqlExtension = $null
+        $shouldCreateSqlExtension = $true
+        $sqlExtensionDeadline = (Get-Date).AddSeconds(900)
+
+        do {
+            $existingSqlExtension = Get-AzConnectedMachineExtension -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Name $sqlExtensionName -ErrorAction SilentlyContinue
+            if ($null -eq $existingSqlExtension) {
+                break
+            }
+
+            switch ([string]$existingSqlExtension.ProvisioningState) {
+                'Succeeded' {
+                    Write-Output "SQL Server - Azure Arc extension is already installed on '$SQLvmName'."
+                    $sqlExtension = $existingSqlExtension
+                    $shouldCreateSqlExtension = $false
+                    break
+                }
+                'Failed' {
+                    Write-Warning "Existing SQL Server - Azure Arc extension on '$SQLvmName' is in Failed state. Removing it before retrying."
+                    Remove-AzConnectedMachineExtension -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Name $sqlExtensionName -Force -ErrorAction Stop
+                    Start-Sleep -Seconds 15
+                }
+                'Canceled' {
+                    Write-Warning "Existing SQL Server - Azure Arc extension on '$SQLvmName' is in Canceled state. Removing it before retrying."
+                    Remove-AzConnectedMachineExtension -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Name $sqlExtensionName -Force -ErrorAction Stop
+                    Start-Sleep -Seconds 15
+                }
+                'Cancelled' {
+                    Write-Warning "Existing SQL Server - Azure Arc extension on '$SQLvmName' is in Cancelled state. Removing it before retrying."
+                    Remove-AzConnectedMachineExtension -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Name $sqlExtensionName -Force -ErrorAction Stop
+                    Start-Sleep -Seconds 15
+                }
+                default {
+                    Write-Host "Existing SQL Server - Azure Arc extension on '$SQLvmName' is still processing with state '$($existingSqlExtension.ProvisioningState)'. Waiting before retrying."
+                    Start-Sleep -Seconds 20
+                }
+            }
+        } while ($shouldCreateSqlExtension -and -not $sqlExtension -and (Get-Date) -lt $sqlExtensionDeadline)
+
+        if ($shouldCreateSqlExtension -and -not $sqlExtension) {
+            $existingSqlExtension = Get-AzConnectedMachineExtension -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Name $sqlExtensionName -ErrorAction SilentlyContinue
+            if ($null -ne $existingSqlExtension -and $existingSqlExtension.ProvisioningState -notin $sqlExtensionTerminalStates) {
+                throw "SQL Server - Azure Arc extension '$sqlExtensionName' on '$SQLvmName' is still processing with state '$($existingSqlExtension.ProvisioningState)'."
+            }
+
+            Write-Host 'Installing SQL Server - Azure Arc extension (WindowsAgent.SqlServer). This may take several minutes.'
+            $null = New-AzConnectedMachineExtension -Name $sqlExtensionName -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Location $azureLocation -Publisher 'Microsoft.AzureData' -ExtensionType 'WindowsAgent.SqlServer' -Settings $sqlExtensionSettings -ErrorAction Stop
+
+            do {
+                $sqlExtension = Get-AzConnectedMachineExtension -ResourceGroupName $resourceGroup -MachineName $SQLvmName -Name $sqlExtensionName -ErrorAction SilentlyContinue
+                if ($null -eq $sqlExtension) {
+                    Start-Sleep -Seconds 15
+                    continue
+                }
+
+                if ($sqlExtension.ProvisioningState -eq 'Succeeded') {
+                    break
+                }
+                if ($sqlExtension.ProvisioningState -in @('Failed', 'Canceled', 'Cancelled')) {
+                    throw "SQL Server - Azure Arc extension installation reported '$($sqlExtension.ProvisioningState)' on '$SQLvmName'."
+                }
+
+                Write-Host "Waiting for SQL Server - Azure Arc extension on '$SQLvmName' to finish. Current state: $($sqlExtension.ProvisioningState)"
+                Start-Sleep -Seconds 20
+            } while ((Get-Date) -lt $sqlExtensionDeadline)
         }
-        Write-Output "SQL Server - Azure Arc extension installed on '$SQLvmName'."
+
+        if ($null -eq $sqlExtension -or $sqlExtension.ProvisioningState -ne 'Succeeded') {
+            throw "SQL Server - Azure Arc extension installation did not reach Succeeded state on '$SQLvmName'."
+        }
+
+        Write-Output "SQL Server - Azure Arc extension is in Succeeded state on '$SQLvmName'."
 
         Complete-DeploymentComponent -Name 'ArcBox-SQL Arc onboarding' -Message 'SQL VM Azure Connected Machine onboarding and SQL Server Arc extension completed.'
         } catch {
@@ -1543,9 +1642,8 @@ fi
             $rootStore.Add($cert)
             $rootStore.Close()
             
-            $pwd = ConvertTo-SecureString -String "ArcBoxSSL123!" -Force -AsPlainText
-            $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $pwd)
-            $pfxBase64 = [Convert]::ToBase64String($pfxBytes)
+            $pfxPassword = ConvertTo-SecureString -String "ArcBoxSSL123!" -Force -AsPlainText
+            $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $pfxPassword)
             
             $certBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
             $certBase64 = [Convert]::ToBase64String($certBytes)
@@ -1553,9 +1651,8 @@ fi
             Invoke-Command -VMName $SQLvmName -Credential $winCreds -ScriptBlock {
                 $ErrorActionPreference = 'Stop'
                 $certB64 = $using:certBase64
-                $pfxB64 = $using:pfxBase64
                 $bytes = [Convert]::FromBase64String($certB64)
-                $pfxBytes = [Convert]::FromBase64String($pfxB64)
+                $pfxBytes = $using:pfxBytes
                 
                 $innerCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$bytes)
                 $rStore = New-Object System.Security.Cryptography.X509Certificates.X509Store([System.Security.Cryptography.X509Certificates.StoreName]::Root, [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
@@ -1597,25 +1694,34 @@ fi
                 }
             }
             
-            # Build a robust bash script to trust the host CA, extract the Apache key/cert from the
-            # PFX, and enable SSL. The PFX produced by .NET uses legacy PKCS#12 encryption, so on
-            # OpenSSL 3 (Ubuntu 22.04+) the '-legacy' flag is required or extraction fails silently.
-            $apacheSslScript = @"
+            $ubuntuCertFileName = "$ubuntuVmName-host-ca.cer"
+            $ubuntuPfxFileName = "$ubuntuVmName-site-cert.pfx"
+            $ubuntuCertLocalPath = Join-Path -Path $env:TEMP -ChildPath $ubuntuCertFileName
+            $ubuntuPfxLocalPath = Join-Path -Path $env:TEMP -ChildPath $ubuntuPfxFileName
+            [System.IO.File]::WriteAllBytes($ubuntuCertLocalPath, $certBytes)
+            [System.IO.File]::WriteAllBytes($ubuntuPfxLocalPath, $pfxBytes)
+
+            try {
+                Copy-FileToLinuxVm -LocalPath $ubuntuCertLocalPath -RemotePath "/home/$nestedLinuxUsername/$ubuntuCertFileName" -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+                Copy-FileToLinuxVm -LocalPath $ubuntuPfxLocalPath -RemotePath "/home/$nestedLinuxUsername/$ubuntuPfxFileName" -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+
+                # Trust the host CA, extract the Apache key/cert from the transferred PFX, and
+                # enable SSL without embedding the large certificate payload in the remote command.
+                $apacheSslScript = @"
 set -euo pipefail
-CERT_B64='$certBase64'
-PFX_B64='$pfxBase64'
+CERT_PATH='/home/$nestedLinuxUsername/$ubuntuCertFileName'
+PFX_PATH='/home/$nestedLinuxUsername/$ubuntuPfxFileName'
 PASSWORD='ArcBoxSSL123!'
 
-printf -- '-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----\n' "`$CERT_B64" | sudo tee /usr/local/share/ca-certificates/hyperv-host.crt >/dev/null
+sudo install -m 644 "`$CERT_PATH" /usr/local/share/ca-certificates/hyperv-host.crt
 sudo update-ca-certificates
-
-echo "`$PFX_B64" | base64 -d | sudo tee /tmp/cert.pfx >/dev/null
+sudo install -m 600 "`$PFX_PATH" /tmp/cert.pfx
 
 LEGACY=''
 if openssl version | grep -qE 'OpenSSL 3'; then LEGACY='-legacy'; fi
 sudo openssl pkcs12 `$LEGACY -in /tmp/cert.pfx -nocerts -nodes -passin pass:"`$PASSWORD" -out /etc/ssl/private/apache-selfsigned.key
 sudo openssl pkcs12 `$LEGACY -in /tmp/cert.pfx -clcerts -nokeys -passin pass:"`$PASSWORD" -out /etc/ssl/certs/apache-selfsigned.crt
-sudo rm -f /tmp/cert.pfx
+sudo rm -f /tmp/cert.pfx "`$CERT_PATH" "`$PFX_PATH"
 
 sudo test -s /etc/ssl/private/apache-selfsigned.key
 sudo test -s /etc/ssl/certs/apache-selfsigned.crt
@@ -1632,11 +1738,15 @@ sudo systemctl is-active --quiet apache2
 sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
 "@
 
-            $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
-            try {
-                Invoke-ArcBoxLinuxScript -Session $ubuntuSession -Command $apacheSslScript
+                $ubuntuSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+                try {
+                    Invoke-ArcBoxLinuxScript -Session $ubuntuSession -Command $apacheSslScript
+                } finally {
+                    Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
+                }
             } finally {
-                Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
+                Remove-Item -Path $ubuntuCertLocalPath -Force -ErrorAction SilentlyContinue
+                Remove-Item -Path $ubuntuPfxLocalPath -Force -ErrorAction SilentlyContinue
             }
 
             # Verify HTTPS (port 443) is actually reachable on both VMs so this component only
