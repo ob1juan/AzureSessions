@@ -33,6 +33,7 @@
     },
     "windowsAdminUsername": {
       "type": "string",
+      "defaultValue": "azadmin",
       "metadata": {
         "description": "Username for Windows account"
       }
@@ -362,7 +363,7 @@
             },
             "windowsAdminUsername": {
               "type": "string",
-              "defaultValue": "arcdemo",
+              "defaultValue": "azadmin",
               "metadata": {
                 "description": "Username for the Virtual Machine"
               }
@@ -568,7 +569,7 @@
               },
               "properties": {
                 "hardwareProfile": {
-                  "vmSize": "Standard_D4s_v3"
+                  "vmSize": "Standard_E4s_v7"
                 },
                 "storageProfile": {
                   "osDisk": {

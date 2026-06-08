@@ -3,7 +3,7 @@
     "contentVersion": "1.0.0.0",
     "parameters": {
         "windowsAdminUsername": {
-            "value": "arcdemo"
+            "value": "azadmin"
         },
         "passwordLength": {
             "value": 16
