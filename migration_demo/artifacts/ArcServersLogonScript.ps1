@@ -26,8 +26,11 @@ $resourceGroup = $env:resourceGroup
 $namingPrefix = $env:namingPrefix
 $autoShutdownTimezone = $env:autoShutdownTimezone
 
-# Moved VHD storage account details here to keep only in place to prevent duplicates.
+# Shared ArcBox VHD source used by SQL/Ubuntu VM downloads.
 $vhdSourceFolder = 'https://jumpstartprodsg.blob.core.windows.net/arcbox/prod/*'
+
+# Default Microsoft fwlink for Azure Migrate appliance Hyper-V VHD.
+$defaultAzureMigrateApplianceVhdUrl = 'https://go.microsoft.com/fwlink/?linkid=2191848'
 
 function Write-Header {
     param(
@@ -902,8 +905,7 @@ if ($Env:flavor -ne 'DevOps') {
     $azureMigrateApplianceVmName = 'migdem-am'
     $azureMigrateApplianceVhdPath = "$Env:ArcBoxVMDir\$azureMigrateApplianceVmName.vhd"
     $azureMigrateApplianceSwitchName = 'InternalNATSwitch'
-    $azureMigrateApplianceVhdSourceFolder = if ([string]::IsNullOrWhiteSpace($env:azureMigrateApplianceVhdSourceFolder)) { $vhdSourceFolder } else { $env:azureMigrateApplianceVhdSourceFolder }
-    $azureMigrateApplianceVhdUrl = $env:azureMigrateApplianceVhdUrl
+    $azureMigrateApplianceVhdUrl = if ([string]::IsNullOrWhiteSpace($env:azureMigrateApplianceVhdUrl)) { $defaultAzureMigrateApplianceVhdUrl } else { $env:azureMigrateApplianceVhdUrl }
     # Default to the SQL VM's DHCP reservation address; the actual DHCP-assigned IP is discovered
     # over Hyper-V KVP once the VM is running (Windows honors the MAC reservation, so this matches).
     $SQLvmIp = '10.10.1.101'
@@ -1000,30 +1002,11 @@ if ($Env:flavor -ne 'DevOps') {
         if (-not (Test-Path $azureMigrateApplianceVhdPath)) {
             Write-Host 'Azure Migrate appliance VHD not found locally. Downloading...'
 
-            if (-not [string]::IsNullOrWhiteSpace($azureMigrateApplianceVhdUrl)) {
-                azcopy cp "$azureMigrateApplianceVhdUrl" "$azureMigrateApplianceVhdPath" --check-length=false --log-level=ERROR
-            } else {
-                $candidatePatterns = @('Azure*Migrate*Appliance*.vhd', '*migrate*appliance*.vhd')
-                $downloaded = $false
-                foreach ($candidatePattern in $candidatePatterns) {
-                    azcopy cp $azureMigrateApplianceVhdSourceFolder $Env:ArcBoxVMDir --include-pattern $candidatePattern --recursive=true --check-length=false --log-level=ERROR
-
-                    $candidateVhd = @(Get-ChildItem -Path $Env:ArcBoxVMDir -Filter '*.vhd' -ErrorAction SilentlyContinue |
-                        Where-Object { $_.Name -match 'migrate' -and $_.Name -match 'appliance' } |
-                        Sort-Object -Property LastWriteTime -Descending |
-                        Select-Object -First 1)
-
-                    if ($candidateVhd.Count -gt 0) {
-                        Move-Item -Path $candidateVhd[0].FullName -Destination $azureMigrateApplianceVhdPath -Force
-                        $downloaded = $true
-                        break
-                    }
-                }
-
-                if (-not $downloaded -and -not (Test-Path $azureMigrateApplianceVhdPath)) {
-                    throw "Unable to locate an Azure Migrate appliance .vhd in '$azureMigrateApplianceVhdSourceFolder'. Set environment variable 'azureMigrateApplianceVhdUrl' to a direct .vhd download URL and rerun."
-                }
+            if ([string]::IsNullOrWhiteSpace($azureMigrateApplianceVhdUrl)) {
+                throw "Azure Migrate appliance VHD URL is empty. Set environment variable 'azureMigrateApplianceVhdUrl' and rerun."
             }
+
+            azcopy cp "$azureMigrateApplianceVhdUrl" "$azureMigrateApplianceVhdPath" --check-length=false --log-level=ERROR
         }
 
         if (-not (Get-VMSwitch -Name $azureMigrateApplianceSwitchName -ErrorAction SilentlyContinue)) {
