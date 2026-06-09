@@ -631,6 +631,11 @@ function Write-HtmlReport {
 
     $reportTitle = Get-ReportTitle
     $applianceHostName = if ([string]::IsNullOrWhiteSpace($env:namingPrefix)) { 'migdem-am' } else { "$($env:namingPrefix)-am" }
+    $applianceVmConnectShortcutPath = 'C:\ArcBox\Logs\Open Azure Migrate Appliance Console.lnk'
+    $applianceVmConnectShortcutHref = ConvertTo-FileHref -Path $applianceVmConnectShortcutPath
+    if ([string]::IsNullOrWhiteSpace($applianceVmConnectShortcutHref)) {
+        $applianceVmConnectShortcutHref = '#'
+    }
 
     $statusClass = ([string]$state.OverallStatus).ToLowerInvariant()
     $componentCards = (@(Convert-ToArray -Value $state.Components) | ForEach-Object {
@@ -737,7 +742,7 @@ function Write-HtmlReport {
     <div style='margin-top: 20px; display: flex; gap: 14px;'>
       <a href='https://$($env:namingPrefix)-SQL/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS Website</a>
       <a href='https://$($env:namingPrefix)-pgsql/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Website</a>
-            <a href='https://$applianceHostName:44368/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Azure Migrate Appliance</a>
+            <a href='$applianceVmConnectShortcutHref' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Azure Migrate Appliance VM Console</a>
     </div>
 
     <h2>Startup Components</h2>

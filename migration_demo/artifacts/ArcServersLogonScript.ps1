@@ -1080,6 +1080,16 @@ if ($Env:flavor -ne 'DevOps') {
         $azureMigrateApplianceIp = Wait-ArcBoxVmIPv4 -Name $azureMigrateApplianceVmName
         Set-HostFileEntry -HostName $azureMigrateApplianceVmName -IPAddress $azureMigrateApplianceIp
 
+        # Create a local shortcut that opens Hyper-V VM console (vmconnect) directly to the
+        # Azure Migrate appliance VM. The deployment status report links to this shortcut.
+        $applianceConsoleShortcutPath = Join-Path -Path $Env:ArcBoxLogsDir -ChildPath 'Open Azure Migrate Appliance Console.lnk'
+        $applianceConsoleShortcut = $WshShell.CreateShortcut($applianceConsoleShortcutPath)
+        $applianceConsoleShortcut.TargetPath = "$env:windir\System32\vmconnect.exe"
+        $applianceConsoleShortcut.Arguments = "localhost $azureMigrateApplianceVmName"
+        $applianceConsoleShortcut.WorkingDirectory = "$env:windir\System32"
+        $applianceConsoleShortcut.IconLocation = "$env:windir\System32\vmconnect.exe,0"
+        $applianceConsoleShortcut.Save()
+
         Complete-DeploymentComponent -Name 'Azure Migrate Appliance VM' -Message "Azure Migrate appliance VM '$azureMigrateApplianceVmName' is running at $azureMigrateApplianceIp (not Arc-enabled)."
         } catch {
             Write-Warning "Component 'Azure Migrate Appliance VM' failed: $($_.Exception.Message)"
