@@ -1024,7 +1024,27 @@ if ($Env:flavor -ne 'DevOps') {
                 Remove-Item -Path $azureMigrateApplianceExtractPath -Recurse -Force -ErrorAction SilentlyContinue
             }
 
-            azcopy cp "$azureMigrateApplianceVhdUrl" "$azureMigrateApplianceZipPath" --check-length=false --log-level=ERROR
+            # azcopy is designed for Azure Blob/File Storage and cannot follow HTTP fwlink redirects.
+            # Use BITS (Background Intelligent Transfer Service) instead, which handles arbitrary HTTPS
+            # downloads including multi-step redirects. Fall back to Invoke-WebRequest if BITS is unavailable.
+            $bitsTransferAvailable = (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue) -ne $null
+            if ($bitsTransferAvailable) {
+                Write-Host "Downloading Azure Migrate appliance package via BITS: $azureMigrateApplianceVhdUrl"
+                Start-BitsTransfer -Source "$azureMigrateApplianceVhdUrl" -Destination "$azureMigrateApplianceZipPath" -ErrorAction Stop
+            } else {
+                Write-Host "Downloading Azure Migrate appliance package via WebRequest: $azureMigrateApplianceVhdUrl"
+                $progressPreference = $ProgressPreference
+                $ProgressPreference = 'SilentlyContinue'
+                try {
+                    Invoke-WebRequest -Uri "$azureMigrateApplianceVhdUrl" -OutFile "$azureMigrateApplianceZipPath" -UseBasicParsing -ErrorAction Stop
+                } finally {
+                    $ProgressPreference = $progressPreference
+                }
+            }
+
+            if (-not (Test-Path $azureMigrateApplianceZipPath) -or (Get-Item $azureMigrateApplianceZipPath).Length -eq 0) {
+                throw "Download of Azure Migrate appliance package failed - file not found or empty: $azureMigrateApplianceZipPath"
+            }
 
             Expand-Archive -Path $azureMigrateApplianceZipPath -DestinationPath $azureMigrateApplianceExtractPath -Force
             $extractedApplianceVhd = Get-ChildItem -Path $azureMigrateApplianceExtractPath -Filter '*.vhd' -Recurse -File -ErrorAction SilentlyContinue |
