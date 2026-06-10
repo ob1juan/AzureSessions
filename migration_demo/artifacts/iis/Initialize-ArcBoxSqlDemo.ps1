@@ -31,13 +31,110 @@ if (-not (Get-Module -ListAvailable -Name SqlServer)) {
 }
 Import-Module SqlServer -Force
 
-Write-Host 'Ensuring SQL Server is in mixed-mode authentication'
-$loginModeKey = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL16.MSSQLSERVER\MSSQLServer'
-if (-not (Test-Path $loginModeKey)) {
-    $loginModeKey = (Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -ErrorAction SilentlyContinue |
+$sqlInstanceName = 'MSSQLSERVER'
+$sqlInstanceId = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name $sqlInstanceName -ErrorAction SilentlyContinue).$sqlInstanceName
+if ([string]::IsNullOrWhiteSpace($sqlInstanceId)) {
+    $sqlInstanceId = (Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match 'MSSQL\d+\.MSSQLSERVER$' } |
-        Select-Object -First 1).PSPath + '\MSSQLServer'
+        Select-Object -First 1 -ExpandProperty PSChildName)
 }
+if ([string]::IsNullOrWhiteSpace($sqlInstanceId)) {
+    throw 'SQL Server default instance registry key was not found.'
+}
+
+$instanceRootKey = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$sqlInstanceId"
+$loginModeKey = Join-Path -Path $instanceRootKey -ChildPath 'MSSQLServer'
+if (-not (Test-Path $loginModeKey)) {
+    throw 'SQL Server default instance registry key was not found.'
+}
+$superSocketKey = Join-Path -Path $loginModeKey -ChildPath 'SuperSocketNetLib'
+$tcpRegistryKey = Join-Path -Path $superSocketKey -ChildPath 'Tcp'
+$ipAllRegistryKey = Join-Path -Path $tcpRegistryKey -ChildPath 'IPAll'
+
+Write-Host 'Ensuring SQL Server accepts remote TCP/IP connections on port 1433 with encryption optional'
+$sqlServerNetworkChanged = $false
+
+if (-not (Test-Path $tcpRegistryKey)) {
+    New-Item -Path $tcpRegistryKey -Force | Out-Null
+}
+if (-not (Test-Path $ipAllRegistryKey)) {
+    New-Item -Path $ipAllRegistryKey -Force | Out-Null
+}
+
+$tcpRegistry = Get-ItemProperty -Path $tcpRegistryKey
+if ($tcpRegistry.Enabled -ne 1) {
+    New-ItemProperty -Path $tcpRegistryKey -Name Enabled -PropertyType DWord -Value 1 -Force | Out-Null
+    $sqlServerNetworkChanged = $true
+}
+if ($tcpRegistry.ListenOnAllIPs -ne 1) {
+    New-ItemProperty -Path $tcpRegistryKey -Name ListenOnAllIPs -PropertyType DWord -Value 1 -Force | Out-Null
+    $sqlServerNetworkChanged = $true
+}
+
+$ipAllRegistry = Get-ItemProperty -Path $ipAllRegistryKey
+if ([string]$ipAllRegistry.TcpPort -ne '1433') {
+    New-ItemProperty -Path $ipAllRegistryKey -Name TcpPort -PropertyType String -Value '1433' -Force | Out-Null
+    $sqlServerNetworkChanged = $true
+}
+$tcpDynamicPortsRegistryValue = (Get-ItemProperty -Path $ipAllRegistryKey -Name TcpDynamicPorts -ErrorAction SilentlyContinue).TcpDynamicPorts
+if ($null -eq $tcpDynamicPortsRegistryValue -or -not [string]::IsNullOrWhiteSpace([string]$tcpDynamicPortsRegistryValue)) {
+    New-ItemProperty -Path $ipAllRegistryKey -Name TcpDynamicPorts -PropertyType String -Value '' -Force | Out-Null
+    $sqlServerNetworkChanged = $true
+}
+
+$managedComputer = New-Object Microsoft.SqlServer.Management.Smo.Wmi.ManagedComputer
+$tcpProtocol = $managedComputer.ServerInstances[$sqlInstanceName].ServerProtocols | Where-Object { $_.Name -eq 'Tcp' }
+if ($null -eq $tcpProtocol) {
+    throw 'SQL Server TCP/IP protocol configuration was not found for default instance MSSQLSERVER.'
+}
+
+if (-not $tcpProtocol.IsEnabled) {
+    $tcpProtocol.IsEnabled = $true
+    $sqlServerNetworkChanged = $true
+}
+
+$ipAll = $tcpProtocol.IPAddresses | Where-Object { $_.Name -eq 'IPAll' }
+if ($null -eq $ipAll) {
+    throw 'SQL Server TCP/IP IPAll configuration was not found for default instance MSSQLSERVER.'
+}
+
+$tcpPort = $ipAll.IPAddressProperties | Where-Object { $_.Name -eq 'TcpPort' }
+$tcpDynamicPorts = $ipAll.IPAddressProperties | Where-Object { $_.Name -eq 'TcpDynamicPorts' }
+if ($null -ne $tcpPort -and [string]$tcpPort.Value -ne '1433') {
+    $tcpPort.Value = '1433'
+    $sqlServerNetworkChanged = $true
+}
+if ($null -ne $tcpDynamicPorts -and -not [string]::IsNullOrWhiteSpace([string]$tcpDynamicPorts.Value)) {
+    $tcpDynamicPorts.Value = ''
+    $sqlServerNetworkChanged = $true
+}
+
+if ($sqlServerNetworkChanged) {
+    $tcpProtocol.Alter()
+}
+
+if (-not (Test-Path $superSocketKey)) {
+    New-Item -Path $superSocketKey -Force | Out-Null
+}
+foreach ($encryptionPolicyName in @('ForceEncryption', 'ForceStrictEncryption')) {
+    $encryptionPolicy = (Get-ItemProperty -Path $superSocketKey -Name $encryptionPolicyName -ErrorAction SilentlyContinue).$encryptionPolicyName
+    if ($encryptionPolicy -ne 0) {
+        New-ItemProperty -Path $superSocketKey -Name $encryptionPolicyName -PropertyType DWord -Value 0 -Force | Out-Null
+        $sqlServerNetworkChanged = $true
+    }
+}
+
+if (-not (Get-NetFirewallRule -DisplayName 'Allow SQL Server TCP 1433' -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName 'Allow SQL Server TCP 1433' -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow | Out-Null
+}
+
+if ($sqlServerNetworkChanged) {
+    Restart-Service -Name MSSQLSERVER -Force
+    Start-Sleep -Seconds 10
+    (Get-Service -Name MSSQLSERVER).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromMinutes(5))
+}
+
+Write-Host 'Ensuring SQL Server is in mixed-mode authentication'
 if ($loginModeKey -and (Test-Path $loginModeKey)) {
     $current = (Get-ItemProperty -Path $loginModeKey -Name LoginMode -ErrorAction SilentlyContinue).LoginMode
     if ($current -ne 2) {
@@ -49,6 +146,8 @@ if ($loginModeKey -and (Test-Path $loginModeKey)) {
 
 $tsql = @'
 USE master;
+EXEC sp_configure 'remote access', 1;
+RECONFIGURE;
 IF DB_ID(N'ArcBoxDemo') IS NULL
     CREATE DATABASE ArcBoxDemo;
 '@
