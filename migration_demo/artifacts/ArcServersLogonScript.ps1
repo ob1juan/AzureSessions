@@ -1597,9 +1597,9 @@ fi
         }
 
         if ($ubuntuVmReady -and -not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu website and database')) {
-            Start-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message 'Installing the AdventureWorksLT PostgreSQL conversion and PHP storefront on Ubuntu.'
+            Start-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message 'Installing the AdventureWorksLT PostgreSQL conversion and Java/Tomcat storefront on Ubuntu, fronted by Apache.'
             try {
-            Write-Header 'Installing PostgreSQL AdventureWorks storefront on Ubuntu VM'
+            Write-Header 'Installing PostgreSQL Java/Tomcat storefront on Ubuntu VM'
             Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
 
             # Copy the configuration script to the Ubuntu VM using scp with retries and CRLF
@@ -1615,7 +1615,7 @@ fi
             } finally {
                 Remove-PSSession $ubuntuSession -ErrorAction SilentlyContinue
             }
-            Complete-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message "AdventureWorks PostgreSQL storefront is configured at http://$ubuntuVmIp/."
+            Complete-DeploymentComponent -Name 'ArcBox-Ubuntu website and database' -Message "AdventureWorks Java/Tomcat storefront is configured through Apache at http://$ubuntuVmIp/."
             
             $Shortcut = $WshShell.CreateShortcut("$Env:USERPROFILE\Desktop\Ubuntu Website.lnk")
             $Shortcut.TargetPath = "http://$ubuntuVmIp/"
@@ -1758,10 +1758,25 @@ sudo test -s /etc/ssl/certs/apache-selfsigned.crt
 sudo openssl x509 -in /etc/ssl/certs/apache-selfsigned.crt -noout
 sudo chmod 600 /etc/ssl/private/apache-selfsigned.key
 
-sudo a2enmod ssl
-sudo a2ensite default-ssl
-sudo sed -i 's/ssl-cert-snakeoil.pem/apache-selfsigned.crt/g' /etc/apache2/sites-available/default-ssl.conf
-sudo sed -i 's/ssl-cert-snakeoil.key/apache-selfsigned.key/g' /etc/apache2/sites-available/default-ssl.conf
+sudo a2enmod ssl proxy proxy_http headers
+sudo tee /etc/apache2/sites-available/arcbox-tomcat-ssl.conf > /dev/null <<'APACHE'
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerName arcbox-java.local
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/apache-selfsigned.crt
+    SSLCertificateKeyFile /etc/ssl/private/apache-selfsigned.key
+    ProxyPreserveHost On
+    RequestHeader set X-Forwarded-Proto "https"
+    ProxyPass / http://127.0.0.1:8080/arcbox/
+    ProxyPassReverse / http://127.0.0.1:8080/arcbox/
+    ErrorLog `${APACHE_LOG_DIR}/arcbox-tomcat-ssl-error.log
+    CustomLog `${APACHE_LOG_DIR}/arcbox-tomcat-ssl-access.log combined
+</VirtualHost>
+</IfModule>
+APACHE
+sudo a2dissite default-ssl >/dev/null 2>&1 || true
+sudo a2ensite arcbox-tomcat-ssl
 sudo apache2ctl configtest
 sudo systemctl restart apache2
 sudo systemctl is-active --quiet apache2
@@ -1843,7 +1858,7 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
         }
 
         Write-Header "AdventureWorks SQL Server storefront reachable at https://$SQLvmName/"
-        Write-Header "AdventureWorks PostgreSQL storefront reachable at https://$ubuntuVmName/"
+        Write-Header "AdventureWorks Java/Tomcat storefront reachable at https://$ubuntuVmName/"
     }
 
     if (-not (Test-ComponentCompleted -Name 'Re-enable auto-shutdown')) {

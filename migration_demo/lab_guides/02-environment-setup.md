@@ -54,7 +54,7 @@ After deployment completes:
 Check that the sample applications are available:
 
 - SQL/IIS storefront endpoint (HTTPS)
-- Ubuntu/PostgreSQL storefront endpoint (HTTPS)
+- Ubuntu Java/Tomcat storefront endpoint fronted by Apache (HTTPS)
 
 Use the generated desktop shortcuts and the deployment status HTML report for current endpoints.
 

@@ -55,9 +55,8 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
      - `migdem-sql` (Windows Server + SQL Server)
      - `migdem-ubuntu` (Ubuntu Linux)
    - **Application Configuration:**
-     - Connects to the **SQL VM** via PowerShell Direct, deploying the AdventureWorks database.
-     - Connects to the **IIS VM** via PowerShell Direct, deploying the legacy ASP.NET Web Forms storefront.
-     - Connects to the **Ubuntu VM** via SSH, transferring `Configure-Postgres.sh` to install Apache, PHP, and the PostgreSQL schema instance.
+     - Connects to the **SQL VM** via PowerShell Direct, deploying the AdventureWorks database and the IIS-hosted ASP.NET Framework Web Forms storefront.
+     - Connects to the **Ubuntu VM** via SSH, transferring `Configure-Postgres.sh` to install PostgreSQL plus a Java/Tomcat storefront fronted by Apache HTTPD.
 
 ### Step 4: Azure Arc Hybrid Onboarding
 1. **Execution Context:** Nested Hyper-V VMs.

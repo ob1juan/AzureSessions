@@ -50,9 +50,19 @@ run_apt_with_retry() {
     return 1
 }
 
-echo 'Updating apt and installing PostgreSQL, Apache, and PHP'
+echo 'Updating apt and installing PostgreSQL, Apache, Java, and Tomcat'
 run_apt_with_retry update
-run_apt_with_retry install -y postgresql postgresql-contrib apache2 php libapache2-mod-php php-pgsql
+run_apt_with_retry install -y postgresql postgresql-contrib apache2
+
+if apt-cache show tomcat10 >/dev/null 2>&1; then
+    TOMCAT_PACKAGE='tomcat10'
+else
+    TOMCAT_PACKAGE='tomcat9'
+fi
+TOMCAT_SERVICE="${TOMCAT_PACKAGE}"
+TOMCAT_BASE="/var/lib/${TOMCAT_PACKAGE}"
+
+run_apt_with_retry install -y default-jdk "${TOMCAT_PACKAGE}" libpostgresql-jdbc-java curl
 
 PG_VERSION=$(ls /etc/postgresql 2>/dev/null | sort -V | tail -n 1)
 PG_CONF="/etc/postgresql/${PG_VERSION}/main/postgresql.conf"
@@ -513,7 +523,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA dbo GRANT USAGE, SELECT, UPDATE ON SEQUENCES 
 ALTER DEFAULT PRIVILEGES IN SCHEMA saleslt GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${WEB_USER};
 SQL
 
-echo 'Installing legacy PHP AdventureWorks storefront'
+: <<'LEGACY_PHP_STOREFRONT_REMOVED'
+echo 'Installing retired AdventureWorks storefront payload'
 sudo tee /var/www/html/index.php > /dev/null <<'PHP'
 <?php
 $dbName = '__WEB_DB__';
@@ -644,7 +655,7 @@ try {
             $addressId = scalar('SELECT address_id FROM saleslt.customer_address WHERE customer_id=? ORDER BY address_id LIMIT 1', array($customerId));
             if (!$addressId) { throw new Exception('Add a customer address before creating an order.'); }
             $unitPrice = scalar('SELECT list_price FROM saleslt.product WHERE product_id=?', array($productId));
-            $stmt = db()->prepare("INSERT INTO saleslt.sales_order_header (customer_id, ship_to_address_id, bill_to_address_id, purchase_order_number, account_number, status, comment) VALUES (?, ?, ?, ?, '10-4020-WEB', 1, 'Created from PHP storefront') RETURNING sales_order_id");
+            $stmt = db()->prepare("INSERT INTO saleslt.sales_order_header (customer_id, ship_to_address_id, bill_to_address_id, purchase_order_number, account_number, status, comment) VALUES (?, ?, ?, ?, '10-4020-WEB', 1, 'Created from retired storefront payload') RETURNING sales_order_id");
             $stmt->execute(array($customerId, $addressId, $addressId, 'WEB-' . gmdate('YmdHis')));
             $orderId = $stmt->fetchColumn();
             db()->prepare('INSERT INTO saleslt.sales_order_detail (sales_order_id, product_id, order_qty, unit_price) VALUES (?, ?, ?, ?)')->execute(array($orderId, $productId, $quantity, $unitPrice));
@@ -758,7 +769,325 @@ sudo WEB_DB="${WEB_DB}" WEB_USER="${WEB_USER}" WEB_PASSWORD="${WEB_PASSWORD}" pe
 sudo chown www-data:www-data /var/www/html/index.php
 sudo rm -f /var/www/html/index.html
 sudo systemctl enable --now apache2
-sudo systemctl restart apache2
-sudo ufw allow 'Apache' >/dev/null 2>&1 || true
+LEGACY_PHP_STOREFRONT_REMOVED
 
-echo 'PostgreSQL AdventureWorksLT schema, Apache, PHP, and storefront are configured'
+echo 'Installing Java/Tomcat AdventureWorks storefront fronted by Apache'
+APP_DIR="${TOMCAT_BASE}/webapps/arcbox"
+JDBC_JAR=$(find /usr/share/java -maxdepth 1 -name 'postgresql*.jar' -print | sort | head -n 1)
+if [[ -z "${JDBC_JAR}" ]]; then
+    echo 'PostgreSQL JDBC driver jar was not found under /usr/share/java' >&2
+    exit 1
+fi
+
+sudo rm -rf "${APP_DIR}"
+sudo install -d -m 755 "${APP_DIR}/WEB-INF/lib" "${APP_DIR}/META-INF"
+sudo cp "${JDBC_JAR}" "${APP_DIR}/WEB-INF/lib/postgresql.jar"
+
+sudo tee "${APP_DIR}/WEB-INF/db.properties" > /dev/null <<EOF
+db=${WEB_DB}
+user=${WEB_USER}
+password=${WEB_PASSWORD}
+EOF
+
+if [[ "${TOMCAT_PACKAGE}" == 'tomcat10' ]]; then
+    sudo tee "${APP_DIR}/WEB-INF/web.xml" > /dev/null <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd" version="5.0">
+  <display-name>ArcBox AdventureWorks Java Storefront</display-name>
+  <welcome-file-list>
+    <welcome-file>index.jsp</welcome-file>
+  </welcome-file-list>
+</web-app>
+XML
+else
+    sudo tee "${APP_DIR}/WEB-INF/web.xml" > /dev/null <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd" version="4.0">
+  <display-name>ArcBox AdventureWorks Java Storefront</display-name>
+  <welcome-file-list>
+    <welcome-file>index.jsp</welcome-file>
+  </welcome-file-list>
+</web-app>
+XML
+fi
+
+sudo tee "${APP_DIR}/index.jsp" > /dev/null <<'JSP'
+<%@ page import="java.sql.*,java.util.*,java.math.BigDecimal,java.text.NumberFormat,java.io.InputStream" %>
+<%!
+String h(Object value) {
+    if (value == null) {
+        return "";
+    }
+    return String.valueOf(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+}
+
+String money(Object value) {
+    if (value == null) {
+        return "$0.00";
+    }
+    return NumberFormat.getCurrencyInstance(Locale.US).format(value);
+}
+
+int asInt(String raw, int fallback) {
+    try {
+        return Integer.parseInt(raw);
+    } catch (Exception ex) {
+        return fallback;
+    }
+}
+
+void bind(PreparedStatement statement, Object... values) throws SQLException {
+    for (int i = 0; i < values.length; i++) {
+        statement.setObject(i + 1, values[i]);
+    }
+}
+
+List<Map<String,Object>> rows(Connection connection, String sql, Object... values) throws SQLException {
+    List<Map<String,Object>> output = new ArrayList<Map<String,Object>>();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        bind(statement, values);
+        try (ResultSet result = statement.executeQuery()) {
+            ResultSetMetaData metadata = result.getMetaData();
+            while (result.next()) {
+                Map<String,Object> row = new LinkedHashMap<String,Object>();
+                for (int i = 1; i <= metadata.getColumnCount(); i++) {
+                    row.put(metadata.getColumnLabel(i).toLowerCase(Locale.ROOT), result.getObject(i));
+                }
+                output.add(row);
+            }
+        }
+    }
+    return output;
+}
+
+Object scalar(Connection connection, String sql, Object... values) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        bind(statement, values);
+        try (ResultSet result = statement.executeQuery()) {
+            return result.next() ? result.getObject(1) : null;
+        }
+    }
+}
+
+int scalarInt(Connection connection, String sql, Object... values) throws SQLException {
+    Object value = scalar(connection, sql, values);
+    return value instanceof Number ? ((Number)value).intValue() : asInt(String.valueOf(value), 0);
+}
+
+void execute(Connection connection, String sql, Object... values) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        bind(statement, values);
+        statement.executeUpdate();
+    }
+}
+
+String statusName(Object value) {
+    int status = value instanceof Number ? ((Number)value).intValue() : asInt(String.valueOf(value), 0);
+    switch (status) {
+        case 1: return "In process";
+        case 2: return "Approved";
+        case 3: return "Backordered";
+        case 4: return "Rejected";
+        case 5: return "Shipped";
+        case 6: return "Cancelled";
+        default: return "Unknown";
+    }
+}
+
+String nav(String currentView, String targetView, String label) {
+    return "<a" + (currentView.equals(targetView) ? " class='active'" : "") + " href='?view=" + h(targetView) + "'>" + h(label) + "</a>";
+}
+%>
+<%
+request.setCharacterEncoding("UTF-8");
+
+Set<String> validViews = new HashSet<String>(Arrays.asList("catalog", "orders", "customers", "reports"));
+String view = request.getParameter("view") == null ? "catalog" : request.getParameter("view").toLowerCase(Locale.ROOT);
+if (!validViews.contains(view)) {
+    view = "catalog";
+}
+
+String search = request.getParameter("search") == null ? "" : request.getParameter("search").trim();
+int categoryId = asInt(request.getParameter("category"), 0);
+String message = "";
+String error = "";
+
+Map<String,Object> stats = new HashMap<String,Object>();
+List<Map<String,Object>> categories = Collections.emptyList();
+List<Map<String,Object>> customers = Collections.emptyList();
+List<Map<String,Object>> catalog = Collections.emptyList();
+List<Map<String,Object>> orders = Collections.emptyList();
+List<Map<String,Object>> details = Collections.emptyList();
+List<Map<String,Object>> categoryRevenue = Collections.emptyList();
+List<Map<String,Object>> customerRevenue = Collections.emptyList();
+
+Properties properties = new Properties();
+try (InputStream propertiesStream = application.getResourceAsStream("/WEB-INF/db.properties")) {
+    if (propertiesStream == null) {
+        throw new IllegalStateException("Missing WEB-INF/db.properties");
+    }
+    properties.load(propertiesStream);
+}
+
+String dbName = properties.getProperty("db");
+String dbUser = properties.getProperty("user");
+String dbPassword = properties.getProperty("password");
+
+try {
+    Class.forName("org.postgresql.Driver");
+    try (Connection connection = DriverManager.getConnection("jdbc:postgresql://localhost:5432/" + dbName, dbUser, dbPassword)) {
+        if ("POST".equalsIgnoreCase(request.getMethod())) {
+            String action = request.getParameter("action") == null ? "" : request.getParameter("action");
+            if ("createOrder".equals(action)) {
+                int customerId = asInt(request.getParameter("customer_id"), 0);
+                int productId = asInt(request.getParameter("product_id"), 0);
+                int quantity = asInt(request.getParameter("quantity"), 1);
+                if (customerId == 0 || productId == 0 || quantity < 1) {
+                    throw new IllegalArgumentException("Choose a customer, product, and positive quantity.");
+                }
+                Object addressId = scalar(connection, "SELECT address_id FROM saleslt.customer_address WHERE customer_id = ? ORDER BY address_id LIMIT 1", customerId);
+                if (addressId == null) {
+                    throw new IllegalStateException("The selected customer needs an address before an order can be created.");
+                }
+                Object unitPrice = scalar(connection, "SELECT list_price FROM saleslt.product WHERE product_id = ?", productId);
+                int orderId = scalarInt(connection, "INSERT INTO saleslt.sales_order_header (customer_id, ship_to_address_id, bill_to_address_id, purchase_order_number, account_number, status, comment) VALUES (?, ?, ?, ?, '10-4020-JAVA', 1, 'Created from Java Tomcat storefront') RETURNING sales_order_id", customerId, addressId, addressId, "JAVA-" + Long.toString(System.currentTimeMillis()));
+                execute(connection, "INSERT INTO saleslt.sales_order_detail (sales_order_id, product_id, order_qty, unit_price) VALUES (?, ?, ?, ?)", orderId, productId, quantity, unitPrice);
+                view = "orders";
+                message = "Order created.";
+            } else if ("updateOrderStatus".equals(action)) {
+                int orderId = asInt(request.getParameter("sales_order_id"), 0);
+                int status = asInt(request.getParameter("status"), 0);
+                if (orderId == 0 || status < 1 || status > 6) {
+                    throw new IllegalArgumentException("Choose a valid order status.");
+                }
+                execute(connection, "UPDATE saleslt.sales_order_header SET status = ?, ship_date = CASE WHEN ? >= 5 THEN COALESCE(ship_date, now()) ELSE ship_date END, modified_date = now() WHERE sales_order_id = ?", status, status, orderId);
+                view = "orders";
+                message = "Order status updated.";
+            }
+        }
+
+        List<Map<String,Object>> statRows = rows(connection, "SELECT (SELECT count(*) FROM saleslt.product WHERE sell_end_date IS NULL) AS products, (SELECT count(*) FROM saleslt.customer) AS customers, (SELECT count(*) FROM saleslt.sales_order_header) AS orders, (SELECT coalesce(sum(total_due), 0) FROM saleslt.sales_order_header) AS revenue");
+        stats = statRows.isEmpty() ? stats : statRows.get(0);
+        categories = rows(connection, "SELECT c.product_category_id, COALESCE(parent.name || ' / ', '') || c.name AS label FROM saleslt.product_category c LEFT JOIN saleslt.product_category parent ON parent.product_category_id = c.parent_product_category_id ORDER BY label");
+        customers = rows(connection, "SELECT customer_id, last_name || ', ' || first_name || COALESCE(' - ' || company_name, '') AS label FROM saleslt.customer ORDER BY last_name, first_name");
+
+        catalog = rows(connection, "SELECT p.product_id, p.name, p.product_number, COALESCE(p.color, 'Any') AS color, COALESCE(p.size, '') AS size, p.list_price, COALESCE(p.category_name, 'Uncategorized') AS category_name, COALESCE(p.product_model, 'Legacy model') AS product_model, COALESCE(p.description, 'AdventureWorks catalog item') AS description FROM saleslt.v_storefront_catalog p JOIN saleslt.product source ON source.product_id = p.product_id WHERE source.sell_end_date IS NULL AND (? = 0 OR source.product_category_id = ?) AND (? = '' OR p.name ILIKE '%' || ? || '%' OR p.product_number ILIKE '%' || ? || '%' OR p.description ILIKE '%' || ? || '%') ORDER BY p.category_name, p.name", categoryId, categoryId, search, search, search, search);
+        orders = rows(connection, "SELECT h.sales_order_id, h.sales_order_number, h.purchase_order_number, h.order_date, h.status, h.total_due, c.first_name, c.last_name, c.company_name FROM saleslt.sales_order_header h JOIN saleslt.customer c ON c.customer_id = h.customer_id ORDER BY h.sales_order_id DESC");
+        details = rows(connection, "SELECT d.sales_order_id, p.name, d.order_qty, d.unit_price, d.line_total FROM saleslt.sales_order_detail d JOIN saleslt.product p ON p.product_id = d.product_id ORDER BY d.sales_order_id DESC, d.sales_order_detail_id");
+        categoryRevenue = rows(connection, "SELECT COALESCE(c.name, 'Uncategorized') AS category_name, SUM(d.order_qty) AS units, SUM(d.line_total) AS revenue FROM saleslt.sales_order_detail d JOIN saleslt.product p ON p.product_id = d.product_id LEFT JOIN saleslt.product_category c ON c.product_category_id = p.product_category_id GROUP BY c.name ORDER BY revenue DESC");
+        customerRevenue = rows(connection, "SELECT c.last_name, c.first_name, COUNT(h.sales_order_id) AS orders, SUM(h.total_due) AS revenue FROM saleslt.customer c JOIN saleslt.sales_order_header h ON h.customer_id = c.customer_id GROUP BY c.last_name, c.first_name ORDER BY revenue DESC");
+    }
+} catch (Exception ex) {
+    error = ex.getMessage();
+}
+%>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AdventureWorks Java Storefront</title>
+    <style>
+        :root { --ink:#172027; --muted:#62706d; --line:#d4ddd8; --paper:#fbfaf2; --panel:#fff; --brand:#245f56; --accent:#b95734; --soft:#eef6ef; }
+        * { box-sizing:border-box; }
+        body { margin:0; color:var(--ink); font-family:Georgia,"Times New Roman",serif; background:linear-gradient(135deg,#fbfaf2 0%,#eef6ef 52%,#f8e6dc 100%); }
+        header, nav, main, footer { width:min(1180px,calc(100% - 30px)); margin:auto; }
+        header { padding:30px 0 12px; display:grid; grid-template-columns:1fr auto; gap:18px; align-items:end; border-bottom:1px solid var(--line); }
+        h1 { margin:0; font-size:clamp(2rem,5vw,4rem); line-height:1; }
+        h2, h3 { margin:0 0 12px; }
+        p { color:var(--muted); line-height:1.5; }
+        nav { display:flex; flex-wrap:wrap; gap:8px; padding:18px 0; }
+        nav a, button { border:1px solid var(--brand); border-radius:7px; padding:10px 14px; background:#fff; color:var(--brand); text-decoration:none; font:bold .86rem Verdana,sans-serif; cursor:pointer; }
+        nav a.active, button { background:var(--brand); color:#fff; }
+        .metrics { display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:12px; margin-bottom:18px; }
+        .metric, .panel, .card, .order-card { background:rgba(255,255,255,.92); border:1px solid var(--line); border-radius:8px; box-shadow:0 12px 30px rgba(24,33,31,.08); }
+        .metric { padding:16px; }
+        .metric span, label, .pill, .small { color:var(--muted); font:.78rem Verdana,sans-serif; }
+        .metric strong { display:block; font-size:1.8rem; margin-top:8px; }
+        .panel { padding:20px; margin-bottom:16px; }
+        .hero { display:grid; grid-template-columns:1fr auto; gap:18px; background:linear-gradient(120deg,#fff,var(--soft)); }
+        .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+        .card, .order-card { padding:16px; }
+        .pill { display:inline-block; background:var(--soft); color:var(--brand); padding:5px 9px; border-radius:999px; margin-bottom:10px; }
+        dl { display:grid; grid-template-columns:75px 1fr; gap:5px 10px; margin:0; font:.86rem Verdana,sans-serif; }
+        dt { color:var(--muted); } dd { margin:0; }
+        form.filters, form.quick, form.status { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+        input, select { width:100%; border:1px solid #c6d1ca; border-radius:6px; padding:9px; background:#fff; color:var(--ink); }
+        label { display:grid; gap:4px; min-width:160px; }
+        table { width:100%; border-collapse:collapse; background:#fff; }
+        th, td { border-bottom:1px solid var(--line); padding:9px; text-align:left; vertical-align:top; }
+        th { background:#f4f7f2; color:var(--muted); font:.78rem Verdana,sans-serif; }
+        .stack { display:grid; gap:14px; }
+        .heading { display:flex; justify-content:space-between; gap:10px; align-items:baseline; margin-bottom:10px; }
+        .notice { padding:12px 14px; border-radius:7px; margin-bottom:14px; font:bold .86rem Verdana,sans-serif; }
+        .ok { background:#e8f4ea; border:1px solid #a8d2ae; color:#175b2a; }
+        .err { background:#fff0ea; border:1px solid #e7b39f; color:#8a2b13; white-space:pre-wrap; }
+        footer { color:var(--muted); font:.78rem Verdana,sans-serif; padding:22px 0 34px; }
+        @media (max-width:700px){ header,.hero{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr} nav a,button{width:100%;text-align:center} }
+    </style>
+</head>
+<body>
+<header><div><p class="small">AdventureWorksLT on PostgreSQL</p><h1>Java commerce operations</h1></div><p class="small">Apache + Tomcat + JDBC</p></header>
+<nav><%= nav(view, "catalog", "Catalog") %><%= nav(view, "orders", "Orders") %><%= nav(view, "customers", "Customers") %><%= nav(view, "reports", "Reports") %></nav>
+<main>
+<% if (!message.isEmpty()) { %><div class="notice ok"><%= h(message) %></div><% } %>
+<% if (!error.isEmpty()) { %><div class="notice err">PostgreSQL error: <%= h(error) %></div><% } %>
+<section class="metrics"><div class="metric"><span>Products</span><strong><%= h(stats.get("products")) %></strong></div><div class="metric"><span>Customers</span><strong><%= h(stats.get("customers")) %></strong></div><div class="metric"><span>Orders</span><strong><%= h(stats.get("orders")) %></strong></div><div class="metric"><span>Revenue</span><strong><%= money(stats.get("revenue")) %></strong></div></section>
+
+<% if ("catalog".equals(view)) { %>
+<section class="panel hero"><div><p class="small">PostgreSQL AdventureWorks storefront</p><h2>Converted catalog and order flow</h2><p>Browse products, place orders, and exercise the JDBC path through Tomcat.</p></div></section>
+<section class="panel"><form class="filters" method="get"><input type="hidden" name="view" value="catalog" /><label>Search<input name="search" value="<%= h(search) %>" /></label><label>Category<select name="category"><option value="0">All categories</option><% for (Map<String,Object> category : categories) { %><option value="<%= h(category.get("product_category_id")) %>" <%= String.valueOf(category.get("product_category_id")).equals(String.valueOf(categoryId)) ? "selected" : "" %>><%= h(category.get("label")) %></option><% } %></select></label><button type="submit">Filter</button></form></section>
+<section class="grid">
+<% for (Map<String,Object> product : catalog) { %><article class="card"><span class="pill"><%= h(product.get("category_name")) %></span><h3><%= h(product.get("name")) %></h3><p><%= h(product.get("description")) %></p><dl><dt>Model</dt><dd><%= h(product.get("product_model")) %></dd><dt>Number</dt><dd><%= h(product.get("product_number")) %></dd><dt>Color</dt><dd><%= h(product.get("color")) %></dd></dl><form class="quick" method="post"><input type="hidden" name="action" value="createOrder" /><input type="hidden" name="product_id" value="<%= h(product.get("product_id")) %>" /><strong><%= money(product.get("list_price")) %></strong><select name="customer_id"><% for (Map<String,Object> customer : customers) { %><option value="<%= h(customer.get("customer_id")) %>"><%= h(customer.get("label")) %></option><% } %></select><input name="quantity" type="number" min="1" value="1" /><button type="submit">Create order</button></form></article><% } %>
+</section>
+<% } else if ("orders".equals(view)) { %>
+<section class="stack">
+<% for (Map<String,Object> order : orders) { %><article class="order-card"><div class="heading"><strong><%= h(order.get("sales_order_number")) %></strong><span><%= h(order.get("last_name")) %>, <%= h(order.get("first_name")) %> - <%= money(order.get("total_due")) %></span></div><form class="status" method="post"><input type="hidden" name="action" value="updateOrderStatus" /><input type="hidden" name="sales_order_id" value="<%= h(order.get("sales_order_id")) %>" /><select name="status"><% for (int status = 1; status <= 6; status++) { %><option value="<%= status %>" <%= statusName(order.get("status")).equals(statusName(status)) ? "selected" : "" %>><%= h(statusName(status)) %></option><% } %></select><button type="submit">Update</button></form><table><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Total</th></tr><% for (Map<String,Object> detail : details) { if (String.valueOf(detail.get("sales_order_id")).equals(String.valueOf(order.get("sales_order_id")))) { %><tr><td><%= h(detail.get("name")) %></td><td><%= h(detail.get("order_qty")) %></td><td><%= money(detail.get("unit_price")) %></td><td><%= money(detail.get("line_total")) %></td></tr><% }} %></table></article><% } %>
+</section>
+<% } else if ("customers".equals(view)) { %>
+<section class="panel"><h2>Customers</h2><table><tr><th>Name</th><th>Customer ID</th></tr><% for (Map<String,Object> customer : customers) { %><tr><td><%= h(customer.get("label")) %></td><td><%= h(customer.get("customer_id")) %></td></tr><% } %></table></section>
+<% } else { %>
+<section class="grid"><article class="panel"><h2>Revenue by category</h2><table><tr><th>Category</th><th>Units</th><th>Revenue</th></tr><% for (Map<String,Object> row : categoryRevenue) { %><tr><td><%= h(row.get("category_name")) %></td><td><%= h(row.get("units")) %></td><td><%= money(row.get("revenue")) %></td></tr><% } %></table></article><article class="panel"><h2>Customer revenue</h2><table><tr><th>Customer</th><th>Orders</th><th>Revenue</th></tr><% for (Map<String,Object> row : customerRevenue) { %><tr><td><%= h(row.get("last_name")) %>, <%= h(row.get("first_name")) %></td><td><%= h(row.get("orders")) %></td><td><%= money(row.get("revenue")) %></td></tr><% } %></table></article></section>
+<% } %>
+</main>
+<footer>Host: <%= h(java.net.InetAddress.getLocalHost().getHostName()) %> &middot; Database: <%= h(dbName) %> &middot; Runtime: <%= h(System.getProperty("java.runtime.version")) %></footer>
+</body>
+</html>
+JSP
+
+TOMCAT_USER=$(id -un tomcat 2>/dev/null || echo root)
+TOMCAT_GROUP=$(id -gn "${TOMCAT_USER}" 2>/dev/null || echo root)
+sudo chown -R "${TOMCAT_USER}:${TOMCAT_GROUP}" "${APP_DIR}"
+sudo chmod 640 "${APP_DIR}/WEB-INF/db.properties"
+
+sudo rm -f /var/www/html/index.php /var/www/html/index.html
+sudo a2enmod proxy proxy_http headers >/dev/null
+sudo tee /etc/apache2/sites-available/arcbox-tomcat.conf > /dev/null <<'APACHE'
+<VirtualHost *:80>
+    ServerName arcbox-java.local
+    ProxyPreserveHost On
+    RequestHeader set X-Forwarded-Proto "http"
+    ProxyPass / http://127.0.0.1:8080/arcbox/
+    ProxyPassReverse / http://127.0.0.1:8080/arcbox/
+    ErrorLog ${APACHE_LOG_DIR}/arcbox-tomcat-error.log
+    CustomLog ${APACHE_LOG_DIR}/arcbox-tomcat-access.log combined
+</VirtualHost>
+APACHE
+sudo a2dissite 000-default >/dev/null 2>&1 || true
+sudo a2ensite arcbox-tomcat >/dev/null
+sudo systemctl enable --now "${TOMCAT_SERVICE}"
+sudo systemctl restart "${TOMCAT_SERVICE}"
+
+for attempt in {1..30}; do
+    if curl -fsS http://127.0.0.1:8080/arcbox/ >/dev/null; then
+        break
+    fi
+    echo "Waiting for Tomcat application startup (${attempt}/30)"
+    sleep 5
+done
+curl -fsS http://127.0.0.1:8080/arcbox/ >/dev/null
+
+sudo systemctl restart apache2
+curl -fsS http://127.0.0.1/ >/dev/null
+sudo ufw allow 'Apache' >/dev/null 2>&1 || true
+echo 'PostgreSQL AdventureWorksLT schema and Java/Tomcat storefront are running behind Apache'

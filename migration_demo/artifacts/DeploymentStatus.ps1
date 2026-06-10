@@ -121,7 +121,7 @@ $defaultComponents = @(
     }
     @{
         Name = 'ArcBox-SQL website and database'
-        Description = 'AdventureWorksLT SQL Server database, IIS, and legacy ASP.NET Web Forms storefront setup.'
+        Description = 'AdventureWorksLT SQL Server database, IIS, and ASP.NET Framework Web Forms storefront setup.'
         RunsOn = 'Nested VM: SQL'
         ScriptPath = 'C:\ArcBox\Initialize-ArcBoxSqlDemo.ps1 and C:\ArcBox\Configure-IIS.ps1 copied to the nested SQL VM'
         Command = 'Invoke-Command -VMName <prefix>-SQL to run Initialize-ArcBoxSqlDemo.ps1 and Configure-IIS.ps1 with SQL authentication parameters.'
@@ -132,10 +132,10 @@ $defaultComponents = @(
     }
     @{
         Name = 'ArcBox-Ubuntu website and database'
-        Description = 'AdventureWorksLT PostgreSQL schema conversion, Apache/PHP, and legacy PHP storefront setup.'
+        Description = 'AdventureWorksLT PostgreSQL schema conversion, Apache HTTPD reverse proxy, and Java/Tomcat storefront setup.'
         RunsOn = 'Nested VM: Ubuntu'
         ScriptPath = 'C:\ArcBox\Configure-Postgres.sh copied to /home/jumpstart/Configure-Postgres.sh on the nested Ubuntu VM'
-        Command = 'Invoke-JSSudoCommand -Session <Ubuntu session> -Command "WEB_USER=<user> WEB_PASSWORD=<password> WEB_DB=<db> ALLOW_CIDR=10.10.1.0/24 bash /home/jumpstart/Configure-Postgres.sh"'
+        Command = 'Invoke-ArcBoxLinuxScript -Session <Ubuntu session> -Command "WEB_USER=<user> WEB_PASSWORD=<password> WEB_DB=<db> ALLOW_CIDR=10.10.1.0/24 bash /home/jumpstart/Configure-Postgres.sh"'
         RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1"'
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
@@ -740,8 +740,8 @@ function Write-HtmlReport {
     </section>
 
     <div style='margin-top: 20px; display: flex; gap: 14px;'>
-      <a href='https://$($env:namingPrefix)-SQL/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS Website</a>
-      <a href='https://$($env:namingPrefix)-pgsql/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Website</a>
+            <a href='https://$($env:namingPrefix)-SQL/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open IIS .NET Website</a>
+            <a href='https://$($env:namingPrefix)-pgsql/' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Ubuntu Java Website</a>
             <a href='$applianceVmConnectShortcutHref' target='_blank' class='pill inprogress' style='text-decoration: none;'>Open Azure Migrate Appliance VM Console</a>
     </div>
 

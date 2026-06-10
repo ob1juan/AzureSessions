@@ -370,7 +370,7 @@ INSERT SalesLT.CustomerAddress (CustomerID, AddressID, AddressType) VALUES (@Cus
 
         decimal unitPrice = Convert.ToDecimal(Scalar("SELECT ListPrice FROM SalesLT.Product WHERE ProductID = @ProductID;", Param("@ProductID", SqlDbType.Int, productId)), CultureInfo.InvariantCulture);
         int salesOrderId = ScalarInt(@"INSERT SalesLT.SalesOrderHeader (CustomerID, ShipToAddressID, BillToAddressID, PurchaseOrderNumber, AccountNumber, ShipMethod, Status, Comment)
-VALUES (@CustomerID, @AddressID, @AddressID, @PurchaseOrderNumber, @AccountNumber, N'CARGO TRANSPORT 5', 1, N'Created from the legacy Web Forms storefront');
+VALUES (@CustomerID, @AddressID, @AddressID, @PurchaseOrderNumber, @AccountNumber, N'CARGO TRANSPORT 5', 1, N'Created from the IIS .NET storefront');
 SELECT CONVERT(int, SCOPE_IDENTITY());",
             Param("@CustomerID", SqlDbType.Int, customerId),
             Param("@AddressID", SqlDbType.Int, addressId),
@@ -569,7 +569,7 @@ ORDER BY p.CategoryName, p.Name;",
             Param("@Search", SqlDbType.NVarChar, search));
 
         StringBuilder html = new StringBuilder();
-        html.Append("<section class='panel hero'><div><p class='eyebrow'>SQL Server products</p><h2>AdventureWorks storefront</h2><p>Browse products, create orders, and manage customers from a classic ASP.NET Web Forms application running on IIS.</p></div><div class='hero-badge'><strong>").Append(H(Environment.MachineName)).Append("</strong><span>ArcBox-SQL</span></div></section>");
+        html.Append("<section class='panel hero'><div><p class='eyebrow'>IIS migration candidate</p><h2>AdventureWorks .NET storefront</h2><p>Browse products, create orders, and manage customers from an ASP.NET Framework Web Forms application running on IIS.</p></div><div class='hero-badge'><strong>").Append(H(Environment.MachineName)).Append("</strong><span>ArcBox-SQL</span></div></section>");
         html.Append("<section class='panel'><form class='filters' method='get'><input type='hidden' name='view' value='catalog' /><label>Search<input name='search' value='").Append(H(search)).Append("' placeholder='bike, helmet, light' /></label><label>Category<select name='category'><option value='0'>All categories</option>").Append(CategoryOptions(categoryId)).Append("</select></label><button type='submit'>Filter</button></form></section>");
         html.Append("<section class='catalog-grid'>");
 
@@ -723,7 +723,7 @@ ORDER BY Revenue DESC;");
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>AdventureWorks Legacy Storefront</title>
+    <title>AdventureWorks IIS .NET Storefront</title>
     <style>
         :root { --ink: #172026; --muted: #5f6b73; --line: #d7ddd8; --paper: #fbfaf4; --panel: #ffffff; --brand: #0b6b5d; --brand-dark: #084b41; --accent: #d98d1b; --soft: #edf5ef; }
         * { box-sizing: border-box; }
@@ -786,9 +786,9 @@ ORDER BY Revenue DESC;");
     <header>
         <div>
             <p class="eyebrow">AdventureWorksLT on SQL Server</p>
-            <h1>Legacy commerce operations</h1>
+            <h1>IIS .NET commerce operations</h1>
         </div>
-        <div class="eyebrow">IIS + ASP.NET Web Forms + SQL auth</div>
+        <div class="eyebrow">IIS + ASP.NET Framework Web Forms + SQL auth</div>
     </header>
     <nav>
         <%= NavLink("catalog", "Storefront") %>

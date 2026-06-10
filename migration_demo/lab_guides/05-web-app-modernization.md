@@ -4,14 +4,14 @@ Use this guide to modernize the demo web applications after migration, moving fr
 
 ## Outcomes
 
-- Define modernization target for ASP.NET and PHP workloads
+- Define modernization targets for ASP.NET Framework and Java/Tomcat workloads
 - Move web tiers from IaaS VMs to PaaS where practical
 - Keep database dependencies aligned with migration outcomes
 
 ## Workload Scope
 
-- Legacy ASP.NET Web Forms storefront (Windows/IIS)
-- PHP storefront on Ubuntu/Apache
+- ASP.NET Framework Web Forms storefront (Windows/IIS)
+- Java storefront on Ubuntu/Tomcat, fronted by Apache HTTPD
 - Back-end SQL and PostgreSQL data services
 
 ## Modernization Decision Matrix
@@ -21,8 +21,9 @@ Use this as a quick target selector:
 1. ASP.NET Web Forms on full .NET Framework:
    - Near-term: Azure App Service (Windows)
    - Strategic: refactor to ASP.NET Core where feasible
-2. PHP on Apache:
-   - Azure App Service (Linux) or containerized deployment on Azure Container Apps
+2. Java on Apache Tomcat:
+   - Near-term: Azure App Service (Linux, Java/Tomcat stack) where compatibility fits
+   - Strategic: containerized deployment on Azure Container Apps or Azure Kubernetes Service when OS-level dependencies are required
 3. SQL back end:
    - Azure SQL Managed Instance or SQL on Azure VM depending on compatibility needs
 4. PostgreSQL back end:
@@ -43,11 +44,11 @@ Use this as a quick target selector:
 2. Update app settings and connection strings.
 3. Validate authentication/session behavior.
 
-### PHP Path
+### Java/Tomcat Path
 
-1. Deploy code to Azure App Service (Linux) or container target.
-2. Configure runtime version and startup command as needed.
-3. Validate routing, extensions, and database connectors.
+1. Package the Tomcat application and deploy to Azure App Service (Linux) using the matching Java/Tomcat runtime.
+2. Configure JDBC connection settings and any required startup values.
+3. Validate Apache/Tomcat routing assumptions, session behavior, and database connectors.
 
 ## Step 3: Data Tier Alignment
 
