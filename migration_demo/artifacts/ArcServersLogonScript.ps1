@@ -1366,7 +1366,7 @@ if ($Env:flavor -ne 'DevOps') {
         $ubuntuVmReady = Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM'
 
         if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM')) {
-            Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM.'
+            Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM as Generation 1 for Azure Migrate compatibility.'
             try {
 
             Write-Header 'Fetching Ubuntu VM'
@@ -1394,11 +1394,25 @@ if ($Env:flavor -ne 'DevOps') {
             # Update disk IOPS and throughput after downloading nested VMs (note: a disk's performance tier can be downgraded only once every 12 hours)
             az disk update --resource-group $env:resourceGroup --name $existingVMDisk.Name --disk-iops-read-write $existingVMDisk.DiskIOPSReadWrite --disk-mbps-read-write $existingVMDisk.DiskMBpsReadWrite
 
+            $existingUbuntuVm = Get-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue
+            if ($existingUbuntuVm -and $existingUbuntuVm.Generation -ne 1) {
+                Write-Warning "Ubuntu VM '$ubuntuVmName' is Generation $($existingUbuntuVm.Generation), which Azure Migrate cannot migrate for this demo. Recreating the VM configuration as Generation 1 and retaining the existing VHD."
+                if ($existingUbuntuVm.State -ne 'Off') {
+                    Stop-VM -Name $ubuntuVmName -Force
+                }
+                Remove-VM -Name $ubuntuVmName -Force
+            }
+
             # Create the nested Ubuntu VM if not already created
             Write-Header 'Create Hyper-V VM'
             $serversDscConfigurationFile = "$Env:ArcBoxDscDir\virtual_machines_itpro.dsc.yml"
             (Get-Content -Path $serversDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $serversDscConfigurationFile
             winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
+
+            $ubuntuVmGeneration = (Get-VM -Name $ubuntuVmName -ErrorAction Stop).Generation
+            if ($ubuntuVmGeneration -ne 1) {
+                throw "Ubuntu VM '$ubuntuVmName' was created as Generation $ubuntuVmGeneration; expected Generation 1 for Azure Migrate compatibility."
+            }
 
             $ubuntuVmMacAddressRaw = (Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
             if ([string]::IsNullOrWhiteSpace($ubuntuVmMacAddressRaw)) {
