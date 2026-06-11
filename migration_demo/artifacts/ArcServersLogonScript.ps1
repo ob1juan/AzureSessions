@@ -1363,9 +1363,17 @@ if ($Env:flavor -ne 'DevOps') {
         # components below depend on SSH to the VM, so they must be skipped (not hung on a connection
         # timeout) when the VM component did not complete. Seed it from the persisted status so a
         # re-run that only retries the app stacks still proceeds when the VM was created earlier.
-        $ubuntuVmReady = Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM'
+        # If a previous run created a Generation 1 Ubuntu VM, ignore the completed status and repair
+        # the VM configuration as Generation 2 so Azure Migrate can migrate it.
+        $ubuntuVmComponentCompleted = Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM'
+        $existingUbuntuVmForGenerationCheck = Get-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue
+        $ubuntuVmNeedsGenerationRepair = ($null -ne $existingUbuntuVmForGenerationCheck -and $existingUbuntuVmForGenerationCheck.Generation -ne 2)
+        if ($ubuntuVmNeedsGenerationRepair) {
+            Write-Warning "Ubuntu VM '$ubuntuVmName' is Generation $($existingUbuntuVmForGenerationCheck.Generation). Re-running the Ubuntu VM component to recreate it as Generation 2 for Azure Migrate."
+        }
+        $ubuntuVmReady = $ubuntuVmComponentCompleted -and -not $ubuntuVmNeedsGenerationRepair
 
-        if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM')) {
+        if (-not $ubuntuVmComponentCompleted -or $ubuntuVmNeedsGenerationRepair) {
             Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM as Generation 2 so the UEFI image boots correctly.'
             try {
 
@@ -1406,7 +1414,14 @@ if ($Env:flavor -ne 'DevOps') {
             # Create the nested Ubuntu VM if not already created
             Write-Header 'Create Hyper-V VM'
             $serversDscConfigurationFile = "$Env:ArcBoxDscDir\virtual_machines_itpro.dsc.yml"
-            (Get-Content -Path $serversDscConfigurationFile) -replace 'namingPrefixStage', $namingPrefix | Set-Content -Path $serversDscConfigurationFile
+            $serversDscConfiguration = (Get-Content -Path $serversDscConfigurationFile -Raw) -replace 'namingPrefixStage', $namingPrefix
+            $serversDscConfiguration = $serversDscConfiguration -replace '(?m)^(\s*)Generation:\s*\d+\s*$', '${1}Generation: 2'
+            if ($serversDscConfiguration -match '(?m)^\s*SecureBoot:\s*') {
+                $serversDscConfiguration = $serversDscConfiguration -replace '(?m)^(\s*)SecureBoot:\s*\S+\s*$', '${1}SecureBoot: false'
+            } else {
+                $serversDscConfiguration = $serversDscConfiguration -replace '(?m)^(\s*EnableGuestService:\s*true\s*)$', "`$1`n        SecureBoot: false"
+            }
+            Set-Content -Path $serversDscConfigurationFile -Value $serversDscConfiguration
             winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
 
             $ubuntuVmGeneration = (Get-VM -Name $ubuntuVmName -ErrorAction Stop).Generation
