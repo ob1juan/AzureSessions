@@ -25,20 +25,11 @@ if (Test-Path $DeploymentStatusScript) {
     & $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Installing WinGet, DSC resources, and Hyper-V host configuration.'
 }
 
-$DeploymentProgressString = "Installing WinGet packages..."
-
 Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId
 
-$tags = Get-AzResourceGroup -Name $resourceGroup | Select-Object -ExpandProperty Tags
-
-if ($null -ne $tags) {
-    $tags["DeploymentProgress"] = $DeploymentProgressString
-} else {
-    $tags = @{"DeploymentProgress" = $DeploymentProgressString}
+if (Test-Path $DeploymentStatusScript) {
+    & $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Installing WinGet packages...' -ResourceGroup $resourceGroup -SubscriptionId $subscriptionId -TenantId $tenantId
 }
-
-$null = Set-AzResourceGroup -ResourceGroupName $resourceGroup -Tag $tags
-$null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $resourceGroup -ResourceType "microsoft.compute/virtualmachines" -Tag $tags -Force
 
 # Install WinGet PowerShell modules
 # Pinned to version 1.11.460 to avoid known issue: https://github.com/microsoft/winget-cli/issues/5826

@@ -403,6 +403,31 @@ function ConvertTo-HtmlText {
     return [System.Net.WebUtility]::HtmlEncode([string]$Value)
 }
 
+function Format-DeploymentTagValue {
+    param(
+        [object]$ProgressPercent,
+        [string]$Text
+    )
+
+    $percentComplete = 0
+    if ($null -ne $ProgressPercent -and -not [string]::IsNullOrWhiteSpace([string]$ProgressPercent)) {
+        $percentComplete = [int][math]::Round([double]$ProgressPercent, 0)
+    }
+    $percentComplete = [math]::Max(0, [math]::Min(100, $percentComplete))
+
+    $tagText = [regex]::Replace([string]$Text, '\s+', ' ').Trim()
+    if ([string]::IsNullOrWhiteSpace($tagText)) {
+        $tagText = 'Updating deployment status'
+    }
+
+    $tagValue = '{0}% complete - {1}' -f $percentComplete, $tagText
+    if ($tagValue.Length -gt 255) {
+        return $tagValue.Substring(0, 255)
+    }
+
+    return $tagValue
+}
+
 function Get-ReportTitle {
     if ([string]::IsNullOrWhiteSpace($env:namingPrefix)) {
         return 'Migration Demo Deployment Status'
@@ -558,10 +583,8 @@ function Update-DeploymentProgressTag {
         $shortDescription = $shortDescription.Substring(0, 97) + '...'
     }
 
-    $progressText = '{0}% - {1} ({2})' -f $State.ProgressPercent, $sectionLabel, $shortDescription
-    if ($progressText.Length -gt 255) {
-        $progressText = $progressText.Substring(0, 255)
-    }
+    $statusText = Format-DeploymentTagValue -ProgressPercent $State.ProgressPercent -Text $State.OverallStatus
+    $progressText = Format-DeploymentTagValue -ProgressPercent $State.ProgressPercent -Text ('{0} ({1})' -f $sectionLabel, $shortDescription)
 
     try {
         if (-not (Get-Command Get-AzResourceGroup -ErrorAction SilentlyContinue) -or -not (Get-Command Set-AzResourceGroup -ErrorAction SilentlyContinue)) {
@@ -576,6 +599,7 @@ function Update-DeploymentProgressTag {
             }
         }
 
+        $tags['DeploymentStatus'] = $statusText
         $tags['DeploymentProgress'] = $progressText
         $null = Set-AzResourceGroup -ResourceGroupName $ResourceGroup -Tag $tags -ErrorAction Stop
 
@@ -584,7 +608,7 @@ function Update-DeploymentProgressTag {
         }
     }
     catch {
-        Write-Verbose "Unable to update DeploymentProgress tag: $($_.Exception.Message)"
+        Write-Verbose "Unable to update DeploymentStatus/DeploymentProgress tags: $($_.Exception.Message)"
     }
 }
 

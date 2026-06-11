@@ -1916,10 +1916,12 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
 
     $tags = Get-AzResourceGroup -Name $env:resourceGroup | Select-Object -ExpandProperty Tags
     if ($null -ne $tags) {
-        $tags['DeploymentStatus'] = 'Completed'
+        $tags['DeploymentStatus'] = '100% complete - Completed'
+        $tags['DeploymentProgress'] = '100% complete - Deployment report (Final HTML report generated and opened in Microsoft Edge.)'
     } else {
         $tags = @{
-            'DeploymentStatus' = 'Completed'
+            'DeploymentStatus'   = '100% complete - Completed'
+            'DeploymentProgress' = '100% complete - Deployment report (Final HTML report generated and opened in Microsoft Edge.)'
         }
     }
 

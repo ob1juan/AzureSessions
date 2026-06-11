@@ -126,19 +126,11 @@ Import-Module Az.Accounts -RequiredVersion 5.3.1 -Force
 Import-Module Az.KeyVault -RequiredVersion 6.4.1 -Force
 Import-Module Az.Resources -RequiredVersion 9.0.0 -Force
 
-$DeploymentProgressString = "Started bootstrap-script..."
-
 Connect-AzAccount -Identity
 
-$tags = Get-AzResourceGroup -Name $resourceGroup | Select-Object -ExpandProperty Tags
-
-if ($null -ne $tags) {
-    $tags["DeploymentProgress"] = $DeploymentProgressString
-} else {
-    $tags = @{"DeploymentProgress" = $DeploymentProgressString}
+if (Test-Path $DeploymentStatusScript) {
+    & $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Started bootstrap-script...' -ResourceGroup $resourceGroup -SubscriptionId $subscriptionId -TenantId $tenantId
 }
-
-$null = Set-AzResourceGroup -ResourceGroupName $resourceGroup -Tag $tags
 
 $KeyVault = Get-AzKeyVault -ResourceGroupName $resourceGroup
 
@@ -347,17 +339,9 @@ Write-Header "Configuring Logon Scripts"
 
 $ScheduledTaskExecutable = "pwsh.exe"
 
-$DeploymentProgressString = "Restarting and installing WinGet packages..."
-
-$tags = Get-AzResourceGroup -Name $resourceGroup | Select-Object -ExpandProperty Tags
-
-if ($null -ne $tags) {
-    $tags["DeploymentProgress"] = $DeploymentProgressString
-} else {
-    $tags = @{"DeploymentProgress" = $DeploymentProgressString}
+if (Test-Path $DeploymentStatusScript) {
+    & $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Restarting and installing WinGet packages...' -ResourceGroup $resourceGroup -SubscriptionId $subscriptionId -TenantId $tenantId
 }
-
-$null = Set-AzResourceGroup -ResourceGroupName $resourceGroup -Tag $tags
 
 # Creating scheduled task for WinGet.ps1
 $Trigger = New-ScheduledTaskTrigger -AtLogOn

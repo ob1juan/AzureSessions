@@ -45,14 +45,14 @@ $tests_itpro.Passed | Out-File -FilePath $DeploymentStatusPath -Append
 
 Write-Header "Exporting deployment test results to resource group tag DeploymentStatus"
 
-$DeploymentStatusString = "Tests succeeded: $tests_passed Tests failed: $tests_failed"
+$DeploymentStatusString = "100% complete - Tests succeeded: $tests_passed Tests failed: $tests_failed"
 
 $tags = Get-AzResourceGroup -Name $env:resourceGroup | Select-Object -ExpandProperty Tags
 
 if ($tests_failed -gt 0) {
-    $DeploymentProgressString = 'Failed'
+    $DeploymentProgressString = '100% complete - Failed'
 } else {
-    $DeploymentProgressString = 'Completed'
+    $DeploymentProgressString = '100% complete - Completed'
 }
 
 if ($null -ne $tags) {
