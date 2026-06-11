@@ -1366,7 +1366,7 @@ if ($Env:flavor -ne 'DevOps') {
         $ubuntuVmReady = Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM'
 
         if (-not (Test-ComponentCompleted -Name 'ArcBox-Ubuntu VM')) {
-            Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM as Generation 1 for Azure Migrate compatibility.'
+            Start-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Message 'Downloading Ubuntu VHD and creating the nested Ubuntu Hyper-V VM as Generation 2 so the UEFI image boots correctly.'
             try {
 
             Write-Header 'Fetching Ubuntu VM'
@@ -1395,8 +1395,8 @@ if ($Env:flavor -ne 'DevOps') {
             az disk update --resource-group $env:resourceGroup --name $existingVMDisk.Name --disk-iops-read-write $existingVMDisk.DiskIOPSReadWrite --disk-mbps-read-write $existingVMDisk.DiskMBpsReadWrite
 
             $existingUbuntuVm = Get-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue
-            if ($existingUbuntuVm -and $existingUbuntuVm.Generation -ne 1) {
-                Write-Warning "Ubuntu VM '$ubuntuVmName' is Generation $($existingUbuntuVm.Generation), which Azure Migrate cannot migrate for this demo. Recreating the VM configuration as Generation 1 and retaining the existing VHD."
+            if ($existingUbuntuVm -and $existingUbuntuVm.Generation -ne 2) {
+                Write-Warning "Ubuntu VM '$ubuntuVmName' is Generation $($existingUbuntuVm.Generation), but the downloaded Ubuntu VHD requires Generation 2. Recreating the VM configuration as Generation 2 and retaining the existing VHD."
                 if ($existingUbuntuVm.State -ne 'Off') {
                     Stop-VM -Name $ubuntuVmName -Force
                 }
@@ -1410,8 +1410,8 @@ if ($Env:flavor -ne 'DevOps') {
             winget configure --file C:\ArcBox\DSC\virtual_machines_itpro.dsc.yml --accept-configuration-agreements --disable-interactivity
 
             $ubuntuVmGeneration = (Get-VM -Name $ubuntuVmName -ErrorAction Stop).Generation
-            if ($ubuntuVmGeneration -ne 1) {
-                throw "Ubuntu VM '$ubuntuVmName' was created as Generation $ubuntuVmGeneration; expected Generation 1 for Azure Migrate compatibility."
+            if ($ubuntuVmGeneration -ne 2) {
+                throw "Ubuntu VM '$ubuntuVmName' was created as Generation $ubuntuVmGeneration; expected Generation 2 for the downloaded Ubuntu VHD."
             }
 
             $ubuntuVmMacAddressRaw = (Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)

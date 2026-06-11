@@ -14,7 +14,8 @@ properties:
         StartupMemory: '4GB'
         RestartIfNeeded: true
         State: Running
-        Generation: 1
+        Generation: 2
         Path: F:\Virtual Machines
         EnableGuestService: true
+        SecureBoot: false
   configurationVersion: 0.2.0
