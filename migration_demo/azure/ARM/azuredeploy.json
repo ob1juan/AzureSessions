@@ -1424,9 +1424,6 @@
                   "enablePurgeProtection": {
                     "value": false
                   },
-                  "enableSoftDelete": {
-                    "value": true
-                  },
                   "location": {
                     "value": "[parameters('location')]"
                   }
@@ -2046,20 +2043,6 @@
                         "description": "Optional. Specifies if the azure platform has access to the vault for enabling disk encryption scenarios."
                       }
                     },
-                    "enableSoftDelete": {
-                      "type": "bool",
-                      "defaultValue": true,
-                      "metadata": {
-                        "description": "Optional. Switch to enable/disable Key Vault's soft delete feature."
-                      }
-                    },
-                    "softDeleteRetentionInDays": {
-                      "type": "int",
-                      "defaultValue": 90,
-                      "metadata": {
-                        "description": "Optional. softDelete data retention days. It accepts >=7 and <=90."
-                      }
-                    },
                     "enableRbacAuthorization": {
                       "type": "bool",
                       "defaultValue": true,
@@ -2212,8 +2195,6 @@
                         "enabledForDeployment": "[parameters('enableVaultForDeployment')]",
                         "enabledForTemplateDeployment": "[parameters('enableVaultForTemplateDeployment')]",
                         "enabledForDiskEncryption": "[parameters('enableVaultForDiskEncryption')]",
-                        "enableSoftDelete": "[parameters('enableSoftDelete')]",
-                        "softDeleteRetentionInDays": "[parameters('softDeleteRetentionInDays')]",
                         "enableRbacAuthorization": "[parameters('enableRbacAuthorization')]",
                         "createMode": "[parameters('createMode')]",
                         "enablePurgeProtection": "[if(parameters('enablePurgeProtection'), parameters('enablePurgeProtection'), null())]",
