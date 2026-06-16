@@ -32,6 +32,9 @@ $vhdSourceFolder = 'https://jumpstartprodsg.blob.core.windows.net/arcbox/prod/*'
 # Default Microsoft fwlink for Azure Migrate appliance Hyper-V VHD.
 $defaultAzureMigrateApplianceVhdUrl = 'https://go.microsoft.com/fwlink/?linkid=2191848'
 
+# Default Microsoft short link for the Azure Site Recovery Provider installer.
+$defaultAzureSiteRecoveryProviderUrl = 'https://aka.ms/downloaddra_cus'
+
 function Write-Header {
     param(
         [string]$Title
@@ -917,6 +920,9 @@ if ($Env:flavor -ne 'DevOps') {
     $azureMigrateApplianceExtractPath = Join-Path -Path $Env:ArcBoxVMDir -ChildPath "$azureMigrateApplianceVmName-extract"
     $azureMigrateApplianceSwitchName = 'InternalNATSwitch'
     $azureMigrateApplianceVhdUrl = if ([string]::IsNullOrWhiteSpace($env:azureMigrateApplianceVhdUrl)) { $defaultAzureMigrateApplianceVhdUrl } else { $env:azureMigrateApplianceVhdUrl }
+    $azureSiteRecoveryProviderUrl = if ([string]::IsNullOrWhiteSpace($env:azureSiteRecoveryProviderUrl)) { $defaultAzureSiteRecoveryProviderUrl } else { $env:azureSiteRecoveryProviderUrl }
+    $hyperVHostDesktopPath = Join-Path -Path $Env:USERPROFILE -ChildPath 'Desktop'
+    $azureSiteRecoveryProviderInstallerPath = Join-Path -Path $hyperVHostDesktopPath -ChildPath 'MicrosoftAzureSiteRecoveryProvider.exe'
     # Default to the SQL VM's DHCP reservation address; the actual DHCP-assigned IP is discovered
     # over Hyper-V KVP once the VM is running (Windows honors the MAC reservation, so this matches).
     $SQLvmIp = '10.10.1.101'
@@ -959,6 +965,51 @@ if ($Env:flavor -ne 'DevOps') {
         } catch {
             Write-Warning "Component 'Hyper-V network setup' failed: $($_.Exception.Message)"
             Complete-DeploymentComponent -Name 'Hyper-V network setup' -Status Failed -Message $_.Exception.Message
+        }
+    }
+
+    if (-not (Test-ComponentCompleted -Name 'Azure Site Recovery Provider download')) {
+        Start-DeploymentComponent -Name 'Azure Site Recovery Provider download' -Message 'Downloading the Azure Site Recovery Provider installer to the Hyper-V host desktop.'
+        try {
+
+        Write-Header 'Download Azure Site Recovery Provider'
+
+        if (-not (Test-Path -Path $hyperVHostDesktopPath)) {
+            New-Item -Path $hyperVHostDesktopPath -ItemType Directory -Force | Out-Null
+        }
+
+        $existingAsrProviderInstaller = Get-Item -Path $azureSiteRecoveryProviderInstallerPath -ErrorAction SilentlyContinue
+        if ($null -eq $existingAsrProviderInstaller -or $existingAsrProviderInstaller.Length -eq 0) {
+            if ($null -ne $existingAsrProviderInstaller -and $existingAsrProviderInstaller.Length -eq 0) {
+                Remove-Item -Path $azureSiteRecoveryProviderInstallerPath -Force -ErrorAction SilentlyContinue
+            }
+
+            $bitsTransferAvailable = $null -ne (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)
+            if ($bitsTransferAvailable) {
+                Write-Host "Downloading Azure Site Recovery Provider via BITS: $azureSiteRecoveryProviderUrl"
+                Start-BitsTransfer -Source "$azureSiteRecoveryProviderUrl" -Destination "$azureSiteRecoveryProviderInstallerPath" -ErrorAction Stop
+            } else {
+                Write-Host "Downloading Azure Site Recovery Provider via WebRequest: $azureSiteRecoveryProviderUrl"
+                $progressPreference = $ProgressPreference
+                $ProgressPreference = 'SilentlyContinue'
+                try {
+                    Invoke-WebRequest -Uri "$azureSiteRecoveryProviderUrl" -OutFile "$azureSiteRecoveryProviderInstallerPath" -UseBasicParsing -ErrorAction Stop
+                } finally {
+                    $ProgressPreference = $progressPreference
+                }
+            }
+        } else {
+            Write-Host "Azure Site Recovery Provider installer already exists on the Hyper-V host desktop: $azureSiteRecoveryProviderInstallerPath"
+        }
+
+        if (-not (Test-Path $azureSiteRecoveryProviderInstallerPath) -or (Get-Item $azureSiteRecoveryProviderInstallerPath).Length -eq 0) {
+            throw "Download of Azure Site Recovery Provider failed - file not found or empty: $azureSiteRecoveryProviderInstallerPath"
+        }
+
+        Complete-DeploymentComponent -Name 'Azure Site Recovery Provider download' -Message "Azure Site Recovery Provider installer is available on the Hyper-V host desktop: $azureSiteRecoveryProviderInstallerPath"
+        } catch {
+            Write-Warning "Component 'Azure Site Recovery Provider download' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'Azure Site Recovery Provider download' -Status Failed -Message $_.Exception.Message
         }
     }
 
@@ -1027,7 +1078,7 @@ if ($Env:flavor -ne 'DevOps') {
             # azcopy is designed for Azure Blob/File Storage and cannot follow HTTP fwlink redirects.
             # Use BITS (Background Intelligent Transfer Service) instead, which handles arbitrary HTTPS
             # downloads including multi-step redirects. Fall back to Invoke-WebRequest if BITS is unavailable.
-            $bitsTransferAvailable = (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue) -ne $null
+            $bitsTransferAvailable = $null -ne (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)
             if ($bitsTransferAvailable) {
                 Write-Host "Downloading Azure Migrate appliance package via BITS: $azureMigrateApplianceVhdUrl"
                 Start-BitsTransfer -Source "$azureMigrateApplianceVhdUrl" -Destination "$azureMigrateApplianceZipPath" -ErrorAction Stop
