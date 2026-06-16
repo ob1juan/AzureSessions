@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "7206296151879565100"
+      "templateHash": "8790616050433500432"
     }
   },
   "parameters": {
@@ -33,7 +33,6 @@
     },
     "windowsAdminUsername": {
       "type": "string",
-      "defaultValue": "azadmin",
       "metadata": {
         "description": "Username for Windows account"
       }
@@ -222,7 +221,10 @@
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "flavor": "ITPro",
     "customerUsageAttributionDeploymentName": "c4a26bed-72cb-415d-91a3-e2577c7c92f5",
-    "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]"
+    "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]",
+    "migrateModernizeProjectName": "[format('azmig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]",
+    "contributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+    "storageBlobDataContributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]"
   },
   "resources": [
     {
@@ -299,6 +301,57 @@
       ]
     },
     {
+      "type": "Microsoft.Migrate/modernizeProjects",
+      "apiVersion": "2022-05-01-preview",
+      "name": "[variables('migrateModernizeProjectName')]",
+      "location": "[variables('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "migrationConfiguration": {
+          "keyVaultResourceId": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.keyVaultId.value]",
+          "migrationSolutionResourceId": "[resourceId('Microsoft.Migrate/migrateProjects/solutions', parameters('migrateProjectName'), 'Servers-Migration-ServerMigration')]",
+          "storageAccountResourceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]",
+        "[resourceId('Microsoft.Migrate/migrateProjects/solutions', parameters('migrateProjectName'), 'Servers-Migration-ServerMigration')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName')), resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), variables('contributorRoleDefinitionId'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), '2022-05-01-preview', 'full').identity.principalId]",
+        "roleDefinitionId": "[variables('contributorRoleDefinitionId')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName')), resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), variables('storageBlobDataContributorRoleDefinitionId'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), '2022-05-01-preview', 'full').identity.principalId]",
+        "roleDefinitionId": "[variables('storageBlobDataContributorRoleDefinitionId')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "clientVmDeployment",
@@ -350,7 +403,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "4116840687574818810"
+              "templateHash": "3585183165535060151"
             }
           },
           "parameters": {
@@ -363,7 +416,7 @@
             },
             "windowsAdminUsername": {
               "type": "string",
-              "defaultValue": "azadmin",
+              "defaultValue": "arcdemo",
               "metadata": {
                 "description": "Username for the Virtual Machine"
               }
@@ -1424,6 +1477,9 @@
                   "enablePurgeProtection": {
                     "value": false
                   },
+                  "enableSoftDelete": {
+                    "value": true
+                  },
                   "location": {
                     "value": "[parameters('location')]"
                   }
@@ -2043,6 +2099,20 @@
                         "description": "Optional. Specifies if the azure platform has access to the vault for enabling disk encryption scenarios."
                       }
                     },
+                    "enableSoftDelete": {
+                      "type": "bool",
+                      "defaultValue": true,
+                      "metadata": {
+                        "description": "Optional. Switch to enable/disable Key Vault's soft delete feature."
+                      }
+                    },
+                    "softDeleteRetentionInDays": {
+                      "type": "int",
+                      "defaultValue": 90,
+                      "metadata": {
+                        "description": "Optional. softDelete data retention days. It accepts >=7 and <=90."
+                      }
+                    },
                     "enableRbacAuthorization": {
                       "type": "bool",
                       "defaultValue": true,
@@ -2195,6 +2265,8 @@
                         "enabledForDeployment": "[parameters('enableVaultForDeployment')]",
                         "enabledForTemplateDeployment": "[parameters('enableVaultForTemplateDeployment')]",
                         "enabledForDiskEncryption": "[parameters('enableVaultForDiskEncryption')]",
+                        "enableSoftDelete": "[parameters('enableSoftDelete')]",
+                        "softDeleteRetentionInDays": "[parameters('softDeleteRetentionInDays')]",
                         "enableRbacAuthorization": "[parameters('enableRbacAuthorization')]",
                         "createMode": "[parameters('createMode')]",
                         "enablePurgeProtection": "[if(parameters('enablePurgeProtection'), parameters('enablePurgeProtection'), null())]",
