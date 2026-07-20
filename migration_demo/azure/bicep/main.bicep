@@ -139,6 +139,32 @@ resource migrateUtilityStorageAccount 'Microsoft.Storage/storageAccounts@2023-05
   }
 }
 
+resource migrateUtilityBlobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: migrateUtilityStorageAccount
+  name: 'default'
+  properties: {
+    deleteRetentionPolicy: {
+      enabled: false
+    }
+    containerDeleteRetentionPolicy: {
+      enabled: false
+    }
+    restorePolicy: {
+      enabled: false
+    }
+  }
+}
+
+resource migrateUtilityFileService 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' = {
+  parent: migrateUtilityStorageAccount
+  name: 'default'
+  properties: {
+    shareDeleteRetentionPolicy: {
+      enabled: false
+    }
+  }
+}
+
 resource migrateProject 'Microsoft.Migrate/migrateProjects@2020-05-01' = {
   name: migrateProjectName
   location: location

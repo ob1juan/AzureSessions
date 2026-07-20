@@ -569,7 +569,8 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.5.1' = {
   params: {
     name: toLower(keyVaultName)
     enablePurgeProtection: false
-    enableSoftDelete: false
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 7
     location: location
   }
 }

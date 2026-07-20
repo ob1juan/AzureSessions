@@ -684,7 +684,10 @@
             "value": false
           },
           "enableSoftDelete": {
-            "value": false
+            "value": true
+          },
+          "softDeleteRetentionInDays": {
+            "value": 7
           },
           "location": {
             "value": "[parameters('location')]"

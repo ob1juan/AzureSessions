@@ -246,6 +246,38 @@
       }
     },
     {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('migrateUtilityStorageAccountName'), 'default')]",
+      "properties": {
+        "deleteRetentionPolicy": {
+          "enabled": false
+        },
+        "containerDeleteRetentionPolicy": {
+          "enabled": false
+        },
+        "restorePolicy": {
+          "enabled": false
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('migrateUtilityStorageAccountName'), 'default')]",
+      "properties": {
+        "shareDeleteRetentionPolicy": {
+          "enabled": false
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Migrate/migrateProjects",
       "apiVersion": "2020-05-01",
       "name": "[parameters('migrateProjectName')]",
@@ -1479,6 +1511,9 @@
                   },
                   "enableSoftDelete": {
                     "value": true
+                  },
+                  "softDeleteRetentionInDays": {
+                    "value": 7
                   },
                   "location": {
                     "value": "[parameters('location')]"
