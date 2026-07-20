@@ -108,8 +108,7 @@ stages:
       displayName: 'Delete resource group'
       inputs:
         azureSubscription: 'Azure Arc Jumpstart Develop(98a19988-5c3d-4824-a685-f5cf12ae5c19)'
-        ScriptType: 'InlineScript'
+        ScriptType: FilePath
         azurePowerShellVersion: 'LatestVersion'
-        Inline: |
-          Write-Host "Deleting resource group $(ResourceGroupName)"
-          Remove-AzResourceGroup -Name $(ResourceGroupName) -Force
+        ScriptPath: 'azure_jumpstart_arcbox/artifacts/integration_tests/scripts/Remove-ArcBoxResourceGroup.ps1'
+        ScriptArguments: -ResourceGroupName $(ResourceGroupName)

@@ -684,7 +684,7 @@
             "value": false
           },
           "enableSoftDelete": {
-            "value": true
+            "value": false
           },
           "location": {
             "value": "[parameters('location')]"
