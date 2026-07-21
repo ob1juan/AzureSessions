@@ -110,5 +110,5 @@ stages:
         azureSubscription: 'Azure Arc Jumpstart Develop(98a19988-5c3d-4824-a685-f5cf12ae5c19)'
         ScriptType: FilePath
         azurePowerShellVersion: 'LatestVersion'
-        ScriptPath: 'azure_jumpstart_arcbox/artifacts/integration_tests/scripts/Remove-ArcBoxResourceGroup.ps1'
+        ScriptPath: 'azure_jumpstart_arcbox/artifacts/integration_tests/scripts/Remove-MigrationDemo.ps1'
         ScriptArguments: -ResourceGroupName $(ResourceGroupName)

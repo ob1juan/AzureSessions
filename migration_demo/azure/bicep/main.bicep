@@ -8,11 +8,6 @@ param passwordLength int = 16
 @description('Secret name in Key Vault for the Windows admin password')
 param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
 
-@description('Key Vault soft-delete retention in days. This value is immutable after vault creation; for redeployments to an existing vault, keep it equal to the current vault setting.')
-@minValue(7)
-@maxValue(90)
-param keyVaultSoftDeleteRetentionInDays int = 90
-
 @description('Username for Windows account')
 param windowsAdminUsername string
 
@@ -281,7 +276,6 @@ module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
     namingPrefix: namingPrefix
     windowsAdminPassword: generatedWindowsAdminPassword
     windowsAdminPasswordSecretName: windowsAdminPasswordSecretName
-    keyVaultSoftDeleteRetentionInDays: keyVaultSoftDeleteRetentionInDays
     natGatewayName: natGatewayName
   }
 }

@@ -64,11 +64,6 @@ param windowsAdminPassword string?
 @description('Key Vault secret name for the generated Windows admin password')
 param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
 
-@description('Key Vault soft-delete retention in days. This value is immutable after vault creation; for redeployments to an existing vault, keep it equal to the current vault setting.')
-@minValue(7)
-@maxValue(90)
-param keyVaultSoftDeleteRetentionInDays int = 90
-
 var keyVaultName = toLower('${namingPrefix}${uniqueString(resourceGroup().id)}')
 
 var subnetAddressPrefix = '10.16.1.0/24'
@@ -569,22 +564,21 @@ resource bastionHost 'Microsoft.Network/bastionHosts@2024-05-01' = if (deployBas
   }
 }
 
-module keyVault 'br/public:avm/res/key-vault/vault:0.5.1' = {
-  name: 'keyVaultDeployment'
-  params: {
-    name: toLower(keyVaultName)
-    enablePurgeProtection: false
-    enableSoftDelete: true
-    softDeleteRetentionInDays: keyVaultSoftDeleteRetentionInDays
-    location: location
-  }
-}
-
-resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' existing = {
+resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
   name: keyVaultName
-  dependsOn: [
-    keyVault
-  ]
+  location: location
+  properties: {
+    tenantId: subscription().tenantId
+    sku: {
+      name: 'standard'
+      family: 'A'
+    }
+    enabledForDeployment: true
+    enabledForTemplateDeployment: true
+    enabledForDiskEncryption: true
+    enableRbacAuthorization: true
+    enablePurgeProtection: false
+  }
 }
 
 resource windowsAdminPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-04-01-preview' = if (!empty(windowsAdminPassword)) {
@@ -593,9 +587,6 @@ resource windowsAdminPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-
   properties: {
     value: windowsAdminPassword
   }
-  dependsOn: [
-    keyVault
-  ]
 }
 
 output vnetId string = arcVirtualNetwork.id

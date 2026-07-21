@@ -1,4 +1,4 @@
-[CmdletBinding(SupportsShouldProcess = $true)]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory = $true)]
     [string] $ResourceGroupName
@@ -74,6 +74,9 @@ function Get-ArcBoxResourceGroupResources {
 }
 
 function Remove-ArcBoxResourceLocks {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
     Write-Host "Removing locks in resource group '$ResourceGroupName'"
 
     $locks = @(Get-AzResourceLock -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue)
@@ -99,6 +102,115 @@ function Get-ArcBoxRecoveryServicesVaults {
     @(Get-AzResource -ResourceGroupName $ResourceGroupName -ResourceType 'Microsoft.RecoveryServices/vaults' -ErrorAction SilentlyContinue)
 }
 
+function Add-ArcBoxKeyVaultPurgeTarget {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable] $Targets,
+
+        [string] $Name,
+
+        [string] $Location
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Name) -or [string]::IsNullOrWhiteSpace($Location)) {
+        return
+    }
+
+    $key = '{0}|{1}' -f $Name.ToLowerInvariant(), $Location.ToLowerInvariant()
+    if (-not $Targets.ContainsKey($key)) {
+        $Targets[$key] = [pscustomobject]@{
+            Name     = $Name
+            Location = $Location
+        }
+    }
+}
+
+function Get-ArcBoxKeyVaultPurgeTargets {
+    $targets = @{}
+
+    foreach ($resource in @(Get-AzResource -ResourceGroupName $ResourceGroupName -ResourceType 'Microsoft.KeyVault/vaults' -ErrorAction SilentlyContinue)) {
+        Add-ArcBoxKeyVaultPurgeTarget -Targets $targets -Name $resource.Name -Location $resource.Location
+    }
+
+    if (Get-Command Get-AzKeyVault -ErrorAction SilentlyContinue) {
+        try {
+            foreach ($vault in @(Get-AzKeyVault -ResourceGroupName $ResourceGroupName -ErrorAction Stop)) {
+                $vaultName = if ($vault.VaultName) { $vault.VaultName } else { $vault.Name }
+                Add-ArcBoxKeyVaultPurgeTarget -Targets $targets -Name $vaultName -Location $vault.Location
+            }
+        }
+        catch {
+            Write-Verbose "Unable to enumerate Key Vaults with Get-AzKeyVault: $($_.Exception.Message)"
+        }
+    }
+
+    @($targets.Values)
+}
+
+function Remove-ArcBoxKeyVaults {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([object[]] $KeyVaults)
+
+    foreach ($vault in @($KeyVaults)) {
+        Write-Host "Deleting Key Vault '$($vault.Name)' before resource group removal so it can be purged"
+
+        if ($PSCmdlet.ShouldProcess($vault.Name, 'Delete Key Vault')) {
+            try {
+                if (Get-Command Remove-AzKeyVault -ErrorAction SilentlyContinue) {
+                    Invoke-ArcBoxCommandVariant -CommandName 'Remove-AzKeyVault' -ParameterSets @(
+                        @{ VaultName = $vault.Name; ResourceGroupName = $ResourceGroupName; Force = $true },
+                        @{ VaultName = $vault.Name; ResourceGroupName = $ResourceGroupName }
+                    ) | Out-Null
+                } else {
+                    $resource = Get-AzResource -ResourceGroupName $ResourceGroupName -ResourceType 'Microsoft.KeyVault/vaults' -Name $vault.Name -ErrorAction SilentlyContinue
+                    if ($resource) {
+                        Remove-AzResource -ResourceId (Get-ArcBoxResourceId -Resource $resource) -Force -ErrorAction Stop | Out-Null
+                    }
+                }
+            }
+            catch {
+                if ($_.Exception.Message -match 'not found|could not be found|ResourceNotFound') {
+                    Write-Verbose "Key Vault '$($vault.Name)' was already deleted."
+                } else {
+                    Write-Warning "Unable to delete Key Vault '$($vault.Name)': $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+}
+
+function Remove-ArcBoxDeletedKeyVaults {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([object[]] $KeyVaults)
+
+    foreach ($vault in @($KeyVaults)) {
+        Write-Host "Purging soft-deleted Key Vault '$($vault.Name)' in location '$($vault.Location)'"
+
+        if ($PSCmdlet.ShouldProcess($vault.Name, 'Purge soft-deleted Key Vault')) {
+            try {
+                if (Get-Command Remove-AzKeyVault -ErrorAction SilentlyContinue) {
+                    Invoke-ArcBoxCommandVariant -CommandName 'Remove-AzKeyVault' -ParameterSets @(
+                        @{ VaultName = $vault.Name; Location = $vault.Location; InRemovedState = $true; Force = $true },
+                        @{ VaultName = $vault.Name; Location = $vault.Location; InRemovedState = $true }
+                    ) | Out-Null
+                } else {
+                    $subscriptionId = (Get-AzContext).Subscription.Id
+                    $escapedLocation = [System.Uri]::EscapeDataString($vault.Location)
+                    $escapedName = [System.Uri]::EscapeDataString($vault.Name)
+                    Invoke-AzRestMethod -Method DELETE -Path "/subscriptions/$subscriptionId/providers/Microsoft.KeyVault/locations/$escapedLocation/deletedVaults/$escapedName?api-version=2023-07-01" | Out-Null
+                }
+            }
+            catch {
+                if ($_.Exception.Message -match 'not found|could not be found|ResourceNotFound|DeletedVaultNotFound') {
+                    Write-Verbose "No soft-deleted Key Vault named '$($vault.Name)' was found in '$($vault.Location)'."
+                } else {
+                    Write-Warning "Unable to purge soft-deleted Key Vault '$($vault.Name)': $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+}
+
 function Get-ArcBoxRecoveryServicesVaultObject {
     param([Parameter(Mandatory = $true)] [object] $Vault)
 
@@ -116,6 +228,7 @@ function Get-ArcBoxRecoveryServicesVaultObject {
 }
 
 function Disable-ArcBoxRecoveryServicesVaultSoftDelete {
+    [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory = $true)] [object] $Vault)
 
     $vaultId = Get-ArcBoxResourceId -Resource $Vault
@@ -252,6 +365,7 @@ function Wait-ArcBoxBackupJob {
 }
 
 function Disable-ArcBoxBackupItems {
+    [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory = $true)] [string] $VaultId)
 
     if (-not (Get-Command Disable-AzRecoveryServicesBackupProtection -ErrorAction SilentlyContinue)) {
@@ -305,6 +419,9 @@ function Wait-ArcBoxAsrJob {
 }
 
 function Disable-ArcBoxAsrProtectedItems {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
     if (-not (Get-Command Get-AzRecoveryServicesAsrFabric -ErrorAction SilentlyContinue) -or
         -not (Get-Command Get-AzRecoveryServicesAsrProtectionContainer -ErrorAction SilentlyContinue) -or
         -not (Get-Command Get-AzRecoveryServicesAsrReplicationProtectedItem -ErrorAction SilentlyContinue) -or
@@ -339,6 +456,34 @@ function Disable-ArcBoxAsrProtectedItems {
     }
 }
 
+function Remove-ArcBoxRecoveryServicesVaults {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([object[]] $Vaults)
+
+    foreach ($vault in @($Vaults)) {
+        $vaultObject = Get-ArcBoxRecoveryServicesVaultObject -Vault $vault
+        $vaultId = Get-ArcBoxResourceId -Resource $vault
+        $vaultName = Get-ArcBoxResourceDisplayName -Resource $vault
+        Write-Host "Deleting Recovery Services vault '$vaultName'"
+
+        if ($PSCmdlet.ShouldProcess($vaultName, 'Delete Recovery Services vault')) {
+            try {
+                if (Get-Command Remove-AzRecoveryServicesVault -ErrorAction SilentlyContinue) {
+                    Invoke-ArcBoxCommandVariant -CommandName 'Remove-AzRecoveryServicesVault' -ParameterSets @(
+                        @{ Vault = $vaultObject; Force = $true },
+                        @{ Vault = $vaultObject }
+                    ) | Out-Null
+                } else {
+                    Remove-AzResource -ResourceId $vaultId -Force -ErrorAction Stop | Out-Null
+                }
+            }
+            catch {
+                Write-Warning "Unable to delete Recovery Services vault '$vaultName': $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 function Test-ArcBoxAzureMigrateResource {
     param([Parameter(Mandatory = $true)] [object] $Resource)
 
@@ -367,6 +512,9 @@ function Test-ArcBoxAzureMigrateResource {
 }
 
 function Remove-ArcBoxAzureMigrateChildResources {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
     $resources = Get-ArcBoxResourceGroupResources |
         Where-Object { Test-ArcBoxAzureMigrateResource -Resource $_ } |
         Sort-Object @{ Expression = { Get-ArcBoxDeletePriority -Resource $_ }; Ascending = $true }, @{ Expression = { Get-ArcBoxResourceDepth -Resource $_ }; Descending = $true }
@@ -395,7 +543,10 @@ if (-not (Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyCont
 
 Remove-ArcBoxResourceLocks
 
-foreach ($vault in Get-ArcBoxRecoveryServicesVaults) {
+$keyVaultPurgeTargets = Get-ArcBoxKeyVaultPurgeTargets
+$recoveryServicesVaults = Get-ArcBoxRecoveryServicesVaults
+
+foreach ($vault in $recoveryServicesVaults) {
     $vaultObject = Get-ArcBoxRecoveryServicesVaultObject -Vault $vault
     $vaultId = Get-ArcBoxResourceId -Resource $vault
 
@@ -403,12 +554,18 @@ foreach ($vault in Get-ArcBoxRecoveryServicesVaults) {
     Set-ArcBoxRecoveryServicesContext -Vault $vaultObject
     Disable-ArcBoxBackupItems -VaultId $vaultId
     Disable-ArcBoxAsrProtectedItems
+    Disable-ArcBoxRecoveryServicesVaultSoftDelete -Vault $vault
 }
 
 Remove-ArcBoxAzureMigrateChildResources
+Remove-ArcBoxRecoveryServicesVaults -Vaults $recoveryServicesVaults
+Remove-ArcBoxKeyVaults -KeyVaults $keyVaultPurgeTargets
+Remove-ArcBoxDeletedKeyVaults -KeyVaults $keyVaultPurgeTargets
 Remove-ArcBoxResourceLocks
 
 if ($PSCmdlet.ShouldProcess($ResourceGroupName, 'Remove-AzResourceGroup')) {
     Write-Host "Deleting resource group '$ResourceGroupName'"
     Remove-AzResourceGroup -Name $ResourceGroupName -Force
 }
+
+Remove-ArcBoxDeletedKeyVaults -KeyVaults $keyVaultPurgeTargets
