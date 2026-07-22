@@ -118,9 +118,6 @@ var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windo
 var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = 'c4a26bed-72cb-415d-91a3-e2577c7c92f5'
 var migrateUtilityStorageAccountName = 'mig${uniqueString(resourceGroup().id, migrateProjectName)}'
-var migrateModernizeProjectName = 'azmig${uniqueString(resourceGroup().id, migrateProjectName)}'
-var contributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
-var storageBlobDataContributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
 
 resource migrateUtilityStorageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: migrateUtilityStorageAccountName
@@ -210,41 +207,6 @@ resource serverMigrationSolution 'Microsoft.Migrate/migrateProjects/solutions@20
     purpose: 'Migration'
     goal: 'Servers'
     status: 'Active'
-  }
-}
-
-resource migrateModernizeProject 'Microsoft.Migrate/modernizeProjects@2022-05-01-preview' = {
-  name: migrateModernizeProjectName
-  location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    migrationConfiguration: {
-      keyVaultResourceId: mgmtArtifactsAndPolicyDeployment.outputs.keyVaultId
-      migrationSolutionResourceId: serverMigrationSolution.id
-      storageAccountResourceId: migrateUtilityStorageAccount.id
-    }
-  }
-}
-
-resource migrateModernizeProjectStorageContributorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: sys.guid(migrateUtilityStorageAccount.id, migrateModernizeProject.id, contributorRoleDefinitionId)
-  scope: migrateUtilityStorageAccount
-  properties: {
-    principalId: migrateModernizeProject.identity.principalId
-    roleDefinitionId: contributorRoleDefinitionId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource migrateModernizeProjectStorageBlobContributorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: sys.guid(migrateUtilityStorageAccount.id, migrateModernizeProject.id, storageBlobDataContributorRoleDefinitionId)
-  scope: migrateUtilityStorageAccount
-  properties: {
-    principalId: migrateModernizeProject.identity.principalId
-    roleDefinitionId: storageBlobDataContributorRoleDefinitionId
-    principalType: 'ServicePrincipal'
   }
 }
 

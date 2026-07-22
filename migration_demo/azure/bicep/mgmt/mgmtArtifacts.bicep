@@ -577,7 +577,9 @@ resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
     enabledForTemplateDeployment: true
     enabledForDiskEncryption: true
     enableRbacAuthorization: true
-    enablePurgeProtection: false
+    // enablePurgeProtection is intentionally omitted. The Key Vault API rejects an explicit
+    // `false` ("cannot be set to false"), especially when recovering a soft-deleted vault of the
+    // same name. Omitting it leaves purge protection disabled so demo vaults remain cleanable.
   }
 }
 

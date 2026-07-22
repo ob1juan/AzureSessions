@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "4791470860375369018"
+      "templateHash": "8530860964262993972"
     }
   },
   "parameters": {
@@ -221,10 +221,7 @@
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "flavor": "ITPro",
     "customerUsageAttributionDeploymentName": "c4a26bed-72cb-415d-91a3-e2577c7c92f5",
-    "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]",
-    "migrateModernizeProjectName": "[format('azmig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]",
-    "contributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
-    "storageBlobDataContributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]"
+    "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]"
   },
   "resources": [
     {
@@ -330,57 +327,6 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Migrate/modernizeProjects",
-      "apiVersion": "2022-05-01-preview",
-      "name": "[variables('migrateModernizeProjectName')]",
-      "location": "[variables('location')]",
-      "identity": {
-        "type": "SystemAssigned"
-      },
-      "properties": {
-        "migrationConfiguration": {
-          "keyVaultResourceId": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.keyVaultId.value]",
-          "migrationSolutionResourceId": "[resourceId('Microsoft.Migrate/migrateProjects/solutions', parameters('migrateProjectName'), 'Servers-Migration-ServerMigration')]",
-          "storageAccountResourceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment')]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]",
-        "[resourceId('Microsoft.Migrate/migrateProjects/solutions', parameters('migrateProjectName'), 'Servers-Migration-ServerMigration')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]",
-      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName')), resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), variables('contributorRoleDefinitionId'))]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), '2022-05-01-preview', 'full').identity.principalId]",
-        "roleDefinitionId": "[variables('contributorRoleDefinitionId')]",
-        "principalType": "ServicePrincipal"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]",
-      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName')), resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), variables('storageBlobDataContributorRoleDefinitionId'))]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName')), '2022-05-01-preview', 'full').identity.principalId]",
-        "roleDefinitionId": "[variables('storageBlobDataContributorRoleDefinitionId')]",
-        "principalType": "ServicePrincipal"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Migrate/modernizeProjects', variables('migrateModernizeProjectName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
       ]
     },
     {
@@ -832,7 +778,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "17433029486160480765"
+              "templateHash": "17049908338116335248"
             }
           },
           "parameters": {
@@ -1486,8 +1432,7 @@
                 "enabledForDeployment": true,
                 "enabledForTemplateDeployment": true,
                 "enabledForDiskEncryption": true,
-                "enableRbacAuthorization": true,
-                "enablePurgeProtection": false
+                "enableRbacAuthorization": true
               }
             },
             "windowsAdminPassword_kv_secret": {
