@@ -73,22 +73,32 @@ function Remove-MigrationDemoLocks {
 }
 
 function Get-KeyVaultPurgeTargets {
-    $resources = Get-MigrationDemoResources |
-        Where-Object { $_.type -eq 'Microsoft.KeyVault/vaults' }
+    $activeVaults = @(Invoke-AzJson -Arguments @(
+        'keyvault', 'list',
+        '--resource-group', $ResourceGroupName,
+        '--query', '[].{name:name,location:location}'
+    ))
+    $resourceGroupPath = "/resourceGroups/$ResourceGroupName/"
+    $deletedVaults = @(Invoke-AzJson -Arguments @(
+        'keyvault', 'list-deleted',
+        '--query', '[].{name:name,location:properties.location,vaultId:properties.vaultId}'
+    )) | Where-Object {
+        $_.vaultId -and $_.vaultId.Contains($resourceGroupPath, [System.StringComparison]::OrdinalIgnoreCase)
+    }
 
-    @($resources | ForEach-Object {
+    @($activeVaults + $deletedVaults) | Where-Object { $_ } | ForEach-Object {
         [pscustomobject]@{
             Name     = $_.name
             Location = $_.location
         }
-    })
+    } | Sort-Object Name, Location -Unique
 }
 
 function Remove-MigrationDemoKeyVaults {
     [CmdletBinding(SupportsShouldProcess)]
     param([object[]] $KeyVaults)
 
-    foreach ($vault in @($KeyVaults)) {
+    foreach ($vault in $KeyVaults) {
         Write-Host "Deleting Key Vault '$($vault.Name)' before resource group removal"
         if ($PSCmdlet.ShouldProcess($vault.Name, 'az keyvault delete')) {
             try {
@@ -109,7 +119,7 @@ function Remove-DeletedKeyVaults {
     [CmdletBinding(SupportsShouldProcess)]
     param([object[]] $KeyVaults)
 
-    foreach ($vault in @($KeyVaults)) {
+    foreach ($vault in $KeyVaults) {
         Write-Host "Purging soft-deleted Key Vault '$($vault.Name)' in '$($vault.Location)'"
         if ($PSCmdlet.ShouldProcess($vault.Name, 'az keyvault purge')) {
             try {
