@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "18421128311105956441"
+      "templateHash": "15407093928977557574"
     }
   },
   "parameters": {
@@ -221,9 +221,41 @@
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "flavor": "ITPro",
     "customerUsageAttributionDeploymentName": "c4a26bed-72cb-415d-91a3-e2577c7c92f5",
-    "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]"
+    "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]",
+    "prerequisiteScriptIdentityName": "[format('{0}-PrerequisiteScript', parameters('namingPrefix'))]"
   },
   "resources": [
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('prerequisiteScriptIdentityName')]",
+      "location": "[variables('location')]"
+    },
+    {
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2023-08-01",
+      "name": "[format('{0}-RegisterPrerequisites', parameters('namingPrefix'))]",
+      "location": "[variables('location')]",
+      "kind": "AzureCLI",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('prerequisiteScriptIdentityName')))]": {}
+        }
+      },
+      "properties": {
+        "azCliVersion": "2.76.0",
+        "primaryScriptUri": "[format('{0}azure/scripts/Register-DeploymentPrerequisites.sh', variables('templateBaseUrl'))]",
+        "arguments": "[format('--subscription-id {0}', subscription().subscriptionId)]",
+        "timeout": "PT35M",
+        "cleanupPreference": "OnSuccess",
+        "retentionInterval": "P1D"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('prerequisiteScriptIdentityName'))]",
+        "[subscriptionResourceId('Microsoft.Resources/deployments', 'prerequisiteScriptPermissions')]"
+      ]
+    },
     {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2023-05-01",
@@ -327,6 +359,61 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "prerequisiteScriptPermissions",
+      "subscriptionId": "[subscription().subscriptionId]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "principalId": {
+            "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('prerequisiteScriptIdentityName')), '2023-01-31').principalId]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "771170933304941607"
+            }
+          },
+          "parameters": {
+            "principalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID of the deployment script user-assigned managed identity"
+              }
+            }
+          },
+          "variables": {
+            "contributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(subscription().id, parameters('principalId'), variables('contributorRoleDefinitionId'))]",
+              "properties": {
+                "principalId": "[parameters('principalId')]",
+                "roleDefinitionId": "[variables('contributorRoleDefinitionId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('prerequisiteScriptIdentityName'))]"
       ]
     },
     {
@@ -1467,7 +1554,10 @@
             }
           }
         }
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deploymentScripts', format('{0}-RegisterPrerequisites', parameters('namingPrefix')))]"
+      ]
     },
     {
       "type": "Microsoft.Resources/deployments",

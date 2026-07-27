@@ -118,6 +118,43 @@ var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windo
 var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = 'c4a26bed-72cb-415d-91a3-e2577c7c92f5'
 var migrateUtilityStorageAccountName = 'mig${uniqueString(resourceGroup().id, migrateProjectName)}'
+var prerequisiteScriptIdentityName = '${namingPrefix}-PrerequisiteScript'
+
+resource prerequisiteScriptIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: prerequisiteScriptIdentityName
+  location: location
+}
+
+module prerequisiteScriptPermissions 'prerequisites/subscriptionPermissions.bicep' = {
+  name: 'prerequisiteScriptPermissions'
+  scope: subscription()
+  params: {
+    principalId: prerequisiteScriptIdentity.properties.principalId
+  }
+}
+
+resource registerDeploymentPrerequisites 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+  name: '${namingPrefix}-RegisterPrerequisites'
+  location: location
+  kind: 'AzureCLI'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${prerequisiteScriptIdentity.id}': {}
+    }
+  }
+  properties: {
+    azCliVersion: '2.76.0'
+    primaryScriptUri: '${templateBaseUrl}azure/scripts/Register-DeploymentPrerequisites.sh'
+    arguments: '--subscription-id ${subscription().subscriptionId}'
+    timeout: 'PT35M'
+    cleanupPreference: 'OnSuccess'
+    retentionInterval: 'P1D'
+  }
+  dependsOn: [
+    prerequisiteScriptPermissions
+  ]
+}
 
 resource migrateUtilityStorageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: migrateUtilityStorageAccountName
@@ -230,6 +267,9 @@ module clientVmDeployment 'clientVm/clientVm.bicep' = {
 
 module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
   name: 'mgmtArtifactsAndPolicyDeployment'
+  dependsOn: [
+    registerDeploymentPrerequisites
+  ]
   params: {
     flavor: flavor
     deployBastion: deployBastion

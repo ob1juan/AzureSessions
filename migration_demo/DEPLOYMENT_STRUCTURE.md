@@ -36,8 +36,9 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
 
 ### Step 1: Azure Infrastructure Provisioning
 1. **Trigger:** The user clicks "Deploy to Azure" and submits the ARM template (`azure/ARM/azuredeploy.json`).
-2. **Azure Resources:** Azure provisions the base Network (VNet), Bastion, Storage, and the core **Client VM** (a Windows Server Azure VM that supports nested virtualization).
-3. **Bridge to Host:** The ARM template adds a Custom Script Extension to the Client VM, injecting `Bootstrap.ps1` from the `artifacts/` folder to run upon VM creation.
+2. **Prerequisites:** An Azure CLI deployment script (`azure/scripts/Register-DeploymentPrerequisites.sh`) registers required subscription features and refreshes the Network provider before dependent resources are created.
+3. **Azure Resources:** Azure provisions the base Network (VNet), Bastion, Storage, and the core **Client VM** (a Windows Server Azure VM that supports nested virtualization).
+4. **Bridge to Host:** The ARM template adds a Custom Script Extension to the Client VM, injecting `Bootstrap.ps1` from the `artifacts/` folder to run upon VM creation.
 
 ### Step 2: Hyper-V Host Bootstrap 
 1. **Execution Context:** Native Azure VM (Client VM).

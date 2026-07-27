@@ -71,6 +71,8 @@ Use the button below to deploy the migration demo from the ARM template:
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fob1juan%2FAzureSessions%2Fmain%2Fmigration_demo%2Fazure%2FARM%2Fazuredeploy.json)
 
+The template automatically runs `migration_demo/azure/scripts/Register-DeploymentPrerequisites.sh` before creating network resources. The deploying account must be able to create role assignments at subscription scope.
+
 ## Demo Usage Summary
 
 At a high level, run the demo as follows:
