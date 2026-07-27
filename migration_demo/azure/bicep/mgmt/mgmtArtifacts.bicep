@@ -197,7 +197,7 @@ resource drVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-07-01' = if (f
   }
 }
 
-resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = if (deployBastion || flavor != 'ITPro') {
+resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = if (deployBastion || flavor != 'ITPro') {
   name: '${natGatewayName}-PIP'
   location: location
   properties: {
@@ -210,7 +210,7 @@ resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = i
   }
 }
 
-resource natGatewayDRPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = if (deployBastion || flavor == 'DataOps') {
+resource natGatewayDRPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = if (deployBastion || flavor == 'DataOps') {
   name: '${natGatewayName}-DR-PIP'
   location: location
   properties: {

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "8530860964262993972"
+      "templateHash": "18421128311105956441"
     }
   },
   "parameters": {
@@ -778,7 +778,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "17049908338116335248"
+              "templateHash": "15341283704315736830"
             }
           },
           "parameters": {
@@ -1037,7 +1037,7 @@
             "natGatewayPublicIp": {
               "condition": "[or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro')))]",
               "type": "Microsoft.Network/publicIPAddresses",
-              "apiVersion": "2024-07-01",
+              "apiVersion": "2024-05-01",
               "name": "[format('{0}-PIP', parameters('natGatewayName'))]",
               "location": "[parameters('location')]",
               "properties": {
@@ -1052,7 +1052,7 @@
             "natGatewayDRPublicIp": {
               "condition": "[or(parameters('deployBastion'), equals(parameters('flavor'), 'DataOps'))]",
               "type": "Microsoft.Network/publicIPAddresses",
-              "apiVersion": "2024-07-01",
+              "apiVersion": "2024-05-01",
               "name": "[format('{0}-DR-PIP', parameters('natGatewayName'))]",
               "location": "[parameters('location')]",
               "properties": {
