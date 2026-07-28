@@ -1,7 +1,12 @@
-[CmdletBinding(SupportsShouldProcess)]
+[CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'DeleteResourceGroup')]
 param(
-    [Parameter(Mandatory = $true)]
-    [string] $ResourceGroupName
+    [Parameter(Mandatory = $true, ParameterSetName = 'DeleteResourceGroup')]
+    [string] $ResourceGroupName,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'PurgeSubscription')]
+    [switch] $PurgeOnly,
+
+    [string] $PimJustification = 'Activate Owner to remove migration demo resources'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +33,133 @@ function Invoke-AzCommand {
     if ($LASTEXITCODE -ne 0) {
         throw "Azure CLI command failed: az $($Arguments -join ' ')"
     }
+}
+
+function Test-SubscriptionOwner {
+    param(
+        [Parameter(Mandatory = $true)] [string] $SubscriptionId,
+        [Parameter(Mandatory = $true)] [string] $PrincipalId
+    )
+
+    $subscriptionScope = "/subscriptions/$SubscriptionId"
+    $assignments = @(Invoke-AzJson -Arguments @(
+        'role', 'assignment', 'list',
+        '--assignee', $PrincipalId,
+        '--scope', $subscriptionScope,
+        '--include-groups',
+        '--include-inherited'
+    ))
+
+    return @($assignments | Where-Object {
+        $_.roleDefinitionName -eq 'Owner' -or
+        ($_.roleDefinitionId -and $_.roleDefinitionId.EndsWith('/8e3af227-0b1e-42c2-bc44-97753837440b', [System.StringComparison]::OrdinalIgnoreCase))
+    }).Count -gt 0
+}
+
+function Assert-SubscriptionOwner {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory = $true)] [object] $Account,
+        [Parameter(Mandatory = $true)] [string] $Justification
+    )
+
+    $principal = Invoke-AzJson -Arguments @(
+        'ad', 'signed-in-user', 'show',
+        '--query', '{id:id,displayName:displayName,userPrincipalName:userPrincipalName}'
+    )
+    if (-not $principal.id) {
+        throw 'Unable to determine the signed-in user object ID. PIM Owner activation requires an interactive user identity.'
+    }
+
+    if (Test-SubscriptionOwner -SubscriptionId $Account.id -PrincipalId $principal.id) {
+        Write-Host "Subscription Owner access confirmed for '$($principal.userPrincipalName)'."
+        return
+    }
+
+    $subscriptionScope = "/subscriptions/$($Account.id)"
+    $ownerRoleDefinitionId = "$subscriptionScope/providers/Microsoft.Authorization/roleDefinitions/8e3af227-0b1e-42c2-bc44-97753837440b"
+    $encodedFilter = [System.Uri]::EscapeDataString("principalId eq '$($principal.id)'")
+    $eligibilityResponse = Invoke-AzJson -Arguments @(
+        'rest',
+        '--method', 'get',
+        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilitySchedules?api-version=2020-10-01-preview&%24filter=$encodedFilter"
+    )
+    $ownerEligibility = @($eligibilityResponse.value | Where-Object {
+        $_.properties.roleDefinitionId -and
+        $_.properties.roleDefinitionId.EndsWith('/8e3af227-0b1e-42c2-bc44-97753837440b', [System.StringComparison]::OrdinalIgnoreCase)
+    })
+
+    if ($ownerEligibility.Count -eq 0) {
+        throw "The signed-in user is not an Owner and has no eligible PIM Owner assignment for subscription '$($Account.name)' ($($Account.id))."
+    }
+
+    Write-Host 'Eligible PIM Owner assignments:'
+    $ownerEligibility | ForEach-Object {
+        [pscustomobject]@{
+            Scope     = $_.properties.scope
+            StartDate = $_.properties.startDateTime
+            EndDate   = $_.properties.endDateTime
+            Status    = $_.properties.status
+        }
+    } | Format-Table -AutoSize | Out-Host
+
+    $eligibility = $ownerEligibility | Select-Object -First 1
+    if (-not $PSCmdlet.ShouldProcess($subscriptionScope, 'Activate eligible PIM Owner role for one hour')) {
+        if ($WhatIfPreference) {
+            Write-Host 'Owner activation skipped because WhatIf is enabled.'
+            return
+        }
+        throw 'Owner activation was cancelled.'
+    }
+
+    $requestId = [guid]::NewGuid().ToString()
+    $requestUrl = "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleAssignmentScheduleRequests/$requestId`?api-version=2020-10-01-preview"
+    $requestBody = @{
+        properties = @{
+            principalId                    = $principal.id
+            roleDefinitionId                = $ownerRoleDefinitionId
+            requestType                     = 'SelfActivate'
+            linkedRoleEligibilityScheduleId = $eligibility.id
+            justification                   = $Justification
+            scheduleInfo                    = @{
+                startDateTime = [DateTime]::UtcNow.ToString('o')
+                expiration    = @{
+                    type     = 'AfterDuration'
+                    duration = 'PT1H'
+                }
+            }
+        }
+    } | ConvertTo-Json -Depth 10 -Compress
+
+    Write-Host "Activating PIM Owner for '$($principal.userPrincipalName)' on subscription '$($Account.name)'"
+    $activation = Invoke-AzJson -Arguments @(
+        'rest',
+        '--method', 'put',
+        '--url', $requestUrl,
+        '--body', $requestBody,
+        '--headers', 'Content-Type=application/json'
+    )
+
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+        $status = $activation.properties.status
+        if ($status -in @('Denied', 'Failed', 'Canceled', 'Revoked', 'TimedOut', 'PendingApproval')) {
+            throw "PIM Owner activation request '$requestId' cannot complete automatically. Status: '$status'."
+        }
+        if ($status -in @('Granted', 'Provisioned') -and
+            (Test-SubscriptionOwner -SubscriptionId $Account.id -PrincipalId $principal.id)) {
+            Write-Host 'PIM Owner activation is effective.'
+            return
+        }
+
+        Start-Sleep -Seconds 5
+        $activation = Invoke-AzJson -Arguments @(
+            'rest',
+            '--method', 'get',
+            '--url', $requestUrl
+        )
+    }
+
+    throw "PIM Owner activation request '$requestId' did not become effective within 60 seconds. Last status: '$($activation.properties.status)'."
 }
 
 function Get-MigrationDemoResources {
@@ -73,32 +205,105 @@ function Remove-MigrationDemoLocks {
 }
 
 function Get-KeyVaultPurgeTargets {
-    $activeVaults = @(Invoke-AzJson -Arguments @(
-        'keyvault', 'list',
-        '--resource-group', $ResourceGroupName,
-        '--query', '[].{name:name,location:location}'
-    ))
-    $resourceGroupPath = "/resourceGroups/$ResourceGroupName/"
+    param([switch] $DeletedOnly)
+
+    $activeVaults = @()
+    if (-not $DeletedOnly) {
+        $activeVaults = @(Invoke-AzJson -Arguments @(
+            'keyvault', 'list',
+            '--resource-group', $ResourceGroupName,
+            '--query', '[].{name:name,location:location}'
+        ))
+    }
+
     $deletedVaults = @(Invoke-AzJson -Arguments @(
         'keyvault', 'list-deleted',
         '--query', '[].{name:name,location:properties.location,vaultId:properties.vaultId}'
-    )) | Where-Object {
-        $_.vaultId -and $_.vaultId.Contains($resourceGroupPath, [System.StringComparison]::OrdinalIgnoreCase)
-    }
+    ))
 
-    @($activeVaults + $deletedVaults) | Where-Object { $_ } | ForEach-Object {
+    @($activeVaults) | Where-Object { $_ } | ForEach-Object {
         [pscustomobject]@{
             Name     = $_.name
             Location = $_.location
+            ResourceGroup = $ResourceGroupName
+            State    = 'Active'
         }
-    } | Sort-Object Name, Location -Unique
+    }
+    @($deletedVaults) | Where-Object { $_ } | ForEach-Object {
+        [pscustomobject]@{
+            Name     = $_.name
+            Location = $_.location
+            ResourceGroup = if ($_.vaultId -match '/resourceGroups/([^/]+)') { $Matches[1] } else { 'Unknown' }
+            State    = 'SoftDeleted'
+        }
+    }
+}
+
+function Show-DestructiveResourceInventory {
+    param(
+        [object[]] $KeyVaults,
+        [object[]] $StorageAccounts,
+        [object[]] $RecoveryServicesVaults
+    )
+
+    $inventory = @(
+        foreach ($vault in $KeyVaults) {
+            [pscustomobject]@{
+                ResourceType = 'Key Vault'
+                Name         = $vault.Name
+                ResourceGroup = $vault.ResourceGroup
+                Location     = $vault.Location
+                Action       = if ($vault.State -eq 'Active') { 'Delete and purge' } else { 'Purge' }
+            }
+        }
+        foreach ($storageAccount in $StorageAccounts) {
+            [pscustomobject]@{
+                ResourceType = 'Storage Account'
+                Name         = $storageAccount.name
+                ResourceGroup = $ResourceGroupName
+                Location     = $storageAccount.location
+                Action       = 'Delete with resource group'
+            }
+        }
+        foreach ($vault in $RecoveryServicesVaults) {
+            [pscustomobject]@{
+                ResourceType = 'Recovery Services Vault'
+                Name         = $vault.Name
+                ResourceGroup = $ResourceGroupName
+                Location     = $vault.Location
+                Action       = if ($vault.State -eq 'SoftDeleted') { 'Undelete and permanently delete' } else { 'Permanently delete' }
+            }
+        }
+    )
+
+    if ($inventory.Count -eq 0) {
+        Write-Host 'No Key Vaults, Recovery Services vaults, or Storage Accounts found for deletion or purge.'
+        return
+    }
+
+    Write-Host 'Resources scheduled for deletion or purge:'
+    $inventory | Sort-Object ResourceType, ResourceGroup, Name, Location -Unique | Format-Table -AutoSize | Out-Host
+}
+
+function Confirm-DestructiveResourceAction {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)] [string] $Description)
+
+    if ($WhatIfPreference) {
+        return $true
+    }
+
+    return $PSCmdlet.ShouldContinue(
+        $Description,
+        'Confirm permanent resource deletion'
+    )
 }
 
 function Remove-MigrationDemoKeyVaults {
     [CmdletBinding(SupportsShouldProcess)]
     param([object[]] $KeyVaults)
 
-    foreach ($vault in $KeyVaults) {
+    foreach ($vault in ($KeyVaults | Where-Object { $_.State -eq 'Active' })) {
         Write-Host "Deleting Key Vault '$($vault.Name)' before resource group removal"
         if ($PSCmdlet.ShouldProcess($vault.Name, 'az keyvault delete')) {
             try {
@@ -126,12 +331,11 @@ function Remove-DeletedKeyVaults {
                 Invoke-AzCommand -Arguments @(
                     'keyvault', 'purge',
                     '--name', $vault.Name,
-                    '--location', $vault.Location,
-                    '--no-wait'
+                    '--location', $vault.Location
                 )
             }
             catch {
-                Write-Warning "Unable to purge Key Vault '$($vault.Name)': $($_.Exception.Message)"
+                throw "Unable to purge Key Vault '$($vault.Name)': $($_.Exception.Message)"
             }
         }
     }
@@ -140,6 +344,57 @@ function Remove-DeletedKeyVaults {
 function Get-RecoveryServicesVaults {
     @(Get-MigrationDemoResources |
         Where-Object { $_.type -eq 'Microsoft.RecoveryServices/vaults' })
+}
+
+function Get-DeletedRecoveryServicesVaults {
+    $locations = @(Invoke-AzJson -Arguments @(
+        'account', 'list-locations',
+        '--query', '[].name'
+    ))
+
+    foreach ($location in $locations) {
+        $deletedVaults = @(Invoke-AzJson -Arguments @(
+            'backup', 'deleted-vault', 'list',
+            '--location', $location
+        ))
+
+        foreach ($vault in $deletedVaults) {
+            $vaultId = @(
+                $vault.properties.vaultId
+                $vault.properties.originalResourceId
+                $vault.properties.resourceId
+            ) | Where-Object { $_ } | Select-Object -First 1
+            $originalResourceGroup = $vault.properties.resourceGroupName
+            if (-not $originalResourceGroup -and $vaultId -match '/resourceGroups/([^/]+)') {
+                $originalResourceGroup = $Matches[1]
+            }
+
+            if ($originalResourceGroup -eq $ResourceGroupName) {
+                [pscustomobject]@{
+                    Name       = if ($vault.properties.vaultName) { $vault.properties.vaultName } else { $vault.name }
+                    Location   = if ($vault.location) { $vault.location } else { $location }
+                    Id         = $vault.id
+                    VaultId    = $vaultId
+                    State      = 'SoftDeleted'
+                }
+            }
+        }
+    }
+}
+
+function Restore-DeletedRecoveryServicesVaults {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([object[]] $Vaults)
+
+    foreach ($vault in $Vaults) {
+        Write-Host "Undeleting Recovery Services vault '$($vault.Name)' for permanent deletion"
+        if ($PSCmdlet.ShouldProcess($vault.Id, 'az backup deleted-vault undelete')) {
+            Invoke-AzCommand -Arguments @(
+                'backup', 'deleted-vault', 'undelete',
+                '--ids', $vault.Id
+            )
+        }
+    }
 }
 
 function Disable-RecoveryServicesSoftDelete {
@@ -272,9 +527,10 @@ function Remove-RecoveryServicesVaults {
         if ($PSCmdlet.ShouldProcess($vault.id, 'az resource delete')) {
             try {
                 Invoke-AzCommand -Arguments @('resource', 'delete', '--ids', $vault.id)
+                Invoke-AzCommand -Arguments @('resource', 'wait', '--deleted', '--ids', $vault.id)
             }
             catch {
-                Write-Warning "Unable to delete Recovery Services vault '$($vault.name)': $($_.Exception.Message)"
+                throw "Unable to permanently delete Recovery Services vault '$($vault.name)': $($_.Exception.Message)"
             }
         }
     }
@@ -284,7 +540,29 @@ if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
     throw 'Azure CLI is required but was not found in PATH.'
 }
 
-Invoke-AzJson -Arguments @('account', 'show') | Out-Null
+$account = Invoke-AzJson -Arguments @(
+    'account', 'show',
+    '--query', '{id:id,name:name,user:user}'
+)
+Assert-SubscriptionOwner -Account $account -Justification $PimJustification
+
+if ($PurgeOnly) {
+    Write-Host 'Searching the current subscription for soft-deleted Key Vaults'
+    $keyVaultPurgeTargets = @(Get-KeyVaultPurgeTargets -DeletedOnly)
+    Show-DestructiveResourceInventory -KeyVaults $keyVaultPurgeTargets -StorageAccounts @() -RecoveryServicesVaults @()
+    if ($keyVaultPurgeTargets.Count -eq 0) {
+        Write-Host 'No soft-deleted Key Vaults found in the current subscription.'
+        return
+    }
+
+    if (-not (Confirm-DestructiveResourceAction -Description "Permanently purge all $($keyVaultPurgeTargets.Count) listed soft-deleted Key Vaults from the current subscription?")) {
+        Write-Host 'Purge cancelled.'
+        return
+    }
+
+    Remove-DeletedKeyVaults -KeyVaults $keyVaultPurgeTargets
+    return
+}
 
 $resourceGroupExists = & az group exists --name $ResourceGroupName --only-show-errors --output tsv
 if ($LASTEXITCODE -ne 0) {
@@ -297,20 +575,31 @@ if ($resourceGroupExists -ne 'true') {
 }
 
 Write-Host "Preparing to delete resource group '$ResourceGroupName'"
-Remove-MigrationDemoLocks
-
 $keyVaultPurgeTargets = Get-KeyVaultPurgeTargets
+$storageAccounts = @(Get-MigrationDemoResources | Where-Object { $_.type -eq 'Microsoft.Storage/storageAccounts' })
+$recoveryServicesVaults = Get-RecoveryServicesVaults
+$deletedRecoveryServicesVaults = @(Get-DeletedRecoveryServicesVaults)
+$allRecoveryServicesVaults = @($recoveryServicesVaults) + @($deletedRecoveryServicesVaults)
+Show-DestructiveResourceInventory -KeyVaults $keyVaultPurgeTargets -StorageAccounts $storageAccounts -RecoveryServicesVaults $allRecoveryServicesVaults
+
+if (-not (Confirm-DestructiveResourceAction -Description "Permanently remove every listed Key Vault and Recovery Services vault before deleting resource group '$ResourceGroupName'?")) {
+    Write-Host 'Deletion cancelled.'
+    return
+}
+
+Remove-MigrationDemoLocks
+Restore-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
 $recoveryServicesVaults = Get-RecoveryServicesVaults
 
 foreach ($vault in $recoveryServicesVaults) {
     Disable-RecoveryServicesSoftDelete -Vault $vault
     Disable-RecoveryServicesBackupItems -Vault $vault
-    Disable-RecoveryServicesSoftDelete -Vault $vault
 }
 
 Remove-AzureMigrateChildResources
 Remove-RecoveryServicesVaults -Vaults $recoveryServicesVaults
 Remove-MigrationDemoKeyVaults -KeyVaults $keyVaultPurgeTargets
+$keyVaultPurgeTargets = @(Get-KeyVaultPurgeTargets -DeletedOnly)
 Remove-DeletedKeyVaults -KeyVaults $keyVaultPurgeTargets
 Remove-MigrationDemoLocks
 
@@ -322,5 +611,3 @@ if ($PSCmdlet.ShouldProcess($ResourceGroupName, 'az group delete')) {
         '--yes'
     )
 }
-
-Remove-DeletedKeyVaults -KeyVaults $keyVaultPurgeTargets
