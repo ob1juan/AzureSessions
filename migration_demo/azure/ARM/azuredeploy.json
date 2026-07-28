@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "511667573092355371"
+      "templateHash": "11485642544787228726"
     }
   },
   "parameters": {
@@ -117,6 +117,13 @@
         "description": "Seed suffix used for deterministic generated credentials"
       }
     },
+    "location": {
+      "type": "string",
+      "defaultValue": "centralus",
+      "metadata": {
+        "description": "Azure region for the migration demo resources. Azure Migrate must be deployed in a supported region."
+      }
+    },
     "debugEnabled": {
       "type": "bool",
       "defaultValue": false,
@@ -215,7 +222,6 @@
     }
   },
   "variables": {
-    "location": "[resourceGroup().location]",
     "templateBaseUrl": "[format('https://raw.githubusercontent.com/{0}/{1}/{2}/{3}', parameters('githubAccount'), parameters('githubRepo'), parameters('githubBranch'), parameters('githubRepoPath'))]",
     "randomSeed": "[uniqueString(resourceGroup().id, parameters('guid'))]",
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
@@ -228,7 +234,7 @@
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2023-05-01",
       "name": "[variables('migrateUtilityStorageAccountName')]",
-      "location": "[variables('location')]",
+      "location": "[parameters('location')]",
       "sku": {
         "name": "Standard_LRS"
       },
@@ -278,7 +284,7 @@
       "type": "Microsoft.Migrate/migrateProjects",
       "apiVersion": "2020-05-01",
       "name": "[parameters('migrateProjectName')]",
-      "location": "[variables('location')]",
+      "location": "[parameters('location')]",
       "properties": {
         "publicNetworkAccess": "Enabled",
         "utilityStorageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
@@ -386,7 +392,7 @@
             "value": "[parameters('deployBastion')]"
           },
           "location": {
-            "value": "[variables('location')]"
+            "value": "[parameters('location')]"
           },
           "namingPrefix": {
             "value": "[parameters('namingPrefix')]"
@@ -789,7 +795,7 @@
             "value": "[parameters('bastionSku')]"
           },
           "location": {
-            "value": "[variables('location')]"
+            "value": "[parameters('location')]"
           },
           "namingPrefix": {
             "value": "[parameters('namingPrefix')]"
@@ -1622,7 +1628,7 @@
             "value": "[variables('flavor')]"
           },
           "location": {
-            "value": "[variables('location')]"
+            "value": "[parameters('location')]"
           },
           "vmAutologon": {
             "value": "[parameters('vmAutologon')]"

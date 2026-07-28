@@ -51,7 +51,8 @@ param bastionSku string = 'Basic'
 @description('Seed suffix used for deterministic generated credentials')
 param guid string = substring(uniqueString(resourceGroup().id), 0, 4)
 
-var location = resourceGroup().location
+@description('Azure region for the migration demo resources. Azure Migrate must be deployed in a supported region.')
+param location string = 'centralus'
 
 @description('Use this parameter to enable or disable debug mode for the automation scripts on the client VM, effectively configuring PowerShell ErrorActionPreference to Break. Intended for use when troubleshooting automation scripts. Default is false.')
 param debugEnabled bool = false

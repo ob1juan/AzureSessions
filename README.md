@@ -71,6 +71,8 @@ Use the button below to deploy the migration demo from the ARM template:
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fob1juan%2FAzureSessions%2Fmain%2Fmigration_demo%2Fazure%2FARM%2Fazuredeploy.json)
 
+The template defaults resource deployment to Central US because Azure Migrate is not available in every Azure region. Select another region only after confirming that it supports `Microsoft.Migrate/migrateProjects`.
+
 The template registers required subscription features through Azure Resource Manager before creating network resources. The Azure CLI fallback is available at `migration_demo/azure/scripts/Register-DeploymentPrerequisites.sh` for manual deployments.
 
 ## Demo Usage Summary
