@@ -344,13 +344,15 @@ if (Test-Path $DeploymentStatusScript) {
 }
 
 # Creating scheduled task for WinGet.ps1
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
+$LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
+$StartupTrigger = New-ScheduledTaskTrigger -AtStartup
+$StartupTrigger.Delay = 'PT2M'
 $Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Env:ArcBoxDir\WinGet.ps1`""
-Register-ScheduledTask -TaskName "WinGetLogonScript" -Trigger $Trigger -User $adminUsername -Action $Action -RunLevel "Highest" -Force
+Register-ScheduledTask -TaskName "WinGetLogonScript" -Trigger @($LogonTrigger, $StartupTrigger) -User "$env:COMPUTERNAME\$adminUsername" -Password $adminPassword -Action $Action -RunLevel "Highest" -Force
 
 # Creating scheduled task for ArcServersLogonScript.ps1
 $Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Env:ArcBoxDir\ArcServersLogonScript.ps1`""
-Register-ScheduledTask -TaskName "ArcServersLogonScript" -User $adminUsername -Action $Action -RunLevel "Highest" -Force
+Register-ScheduledTask -TaskName "ArcServersLogonScript" -User "$env:COMPUTERNAME\$adminUsername" -Password $adminPassword -Action $Action -RunLevel "Highest" -Force
 
 # Disabling Windows Server Manager Scheduled Task
 Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask
@@ -371,6 +373,19 @@ Write-Host "Clean up Bootstrap.log"
 Stop-Transcript
 $logSuppress = Get-Content $Env:ArcBoxLogsDir\Bootstrap.log | Where-Object { $_ -notmatch "Host Application: $ScheduledTaskExecutable" }
 $logSuppress | Set-Content $Env:ArcBoxLogsDir\Bootstrap.log -Force
+
+if ($vmAutologon -eq "true") {
+    $winlogonPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    $systemPolicyPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+
+    Set-ItemProperty -Path $systemPolicyPath -Name 'legalnoticecaption' -Value ''
+    Set-ItemProperty -Path $systemPolicyPath -Name 'legalnoticetext' -Value ''
+    Set-ItemProperty -Path $winlogonPath -Name 'AutoAdminLogon' -Value '1'
+    Set-ItemProperty -Path $winlogonPath -Name 'DefaultUserName' -Value $adminUsername
+    Set-ItemProperty -Path $winlogonPath -Name 'DefaultDomainName' -Value $env:COMPUTERNAME
+    Set-ItemProperty -Path $winlogonPath -Name 'DefaultPassword' -Value $adminPassword
+    Set-ItemProperty -Path $winlogonPath -Name 'ForceAutoLogon' -Value '1'
+}
 
 # Restart computer
 Restart-Computer
