@@ -10,6 +10,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$ownerRoleDefinitionGuid = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
 
 function Get-AzCliFailureMessage {
     param(
@@ -118,7 +119,7 @@ function Test-SubscriptionOwner {
 
     return @($assignments | Where-Object {
         $_.roleDefinitionName -eq 'Owner' -or
-        ($_.roleDefinitionId -and $_.roleDefinitionId.EndsWith('/8e3af227-0b1e-42c2-bc44-97753837440b', [System.StringComparison]::OrdinalIgnoreCase))
+        ($_.roleDefinitionId -and $_.roleDefinitionId.EndsWith("/$ownerRoleDefinitionGuid", [System.StringComparison]::OrdinalIgnoreCase))
     }).Count -gt 0
 }
 
@@ -143,11 +144,12 @@ function Assert-SubscriptionOwner {
     $eligibilityResponse = Invoke-AzJson -Arguments @(
         'rest',
         '--method', 'get',
-        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilitySchedules?api-version=2020-10-01&%24filter=asTarget()"
+        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilityScheduleInstances?api-version=2020-10-01&%24filter=asTarget()"
     )
     $ownerEligibility = @($eligibilityResponse.value | Where-Object {
-        $_.properties.roleDefinitionId -and
-        $_.properties.roleDefinitionId.EndsWith('/8e3af227-0b1e-42c2-bc44-97753837440b', [System.StringComparison]::OrdinalIgnoreCase)
+        $_.properties.expandedProperties.roleDefinition.displayName -eq 'Owner' -or
+        ($_.properties.roleDefinitionId -and
+            $_.properties.roleDefinitionId.EndsWith("/$ownerRoleDefinitionGuid", [System.StringComparison]::OrdinalIgnoreCase))
     })
 
     if ($ownerEligibility.Count -eq 0) {
@@ -166,7 +168,12 @@ function Assert-SubscriptionOwner {
 
     $eligibility = $ownerEligibility | Select-Object -First 1
     $activationScope = $eligibility.properties.scope
-    $ownerRoleDefinitionId = $eligibility.properties.roleDefinitionId
+    $ownerRoleDefinitionId = if ($activationScope -like '/providers/Microsoft.Management/managementGroups/*') {
+        "/providers/Microsoft.Authorization/roleDefinitions/$ownerRoleDefinitionGuid"
+    }
+    else {
+        "$activationScope/providers/Microsoft.Authorization/roleDefinitions/$ownerRoleDefinitionGuid"
+    }
     if (-not $PSCmdlet.ShouldProcess($activationScope, 'Activate eligible PIM Owner role for one hour')) {
         if ($WhatIfPreference) {
             Write-Host 'Owner activation skipped because WhatIf is enabled.'
@@ -182,7 +189,7 @@ function Assert-SubscriptionOwner {
             principalId                    = $principal.id
             roleDefinitionId                = $ownerRoleDefinitionId
             requestType                     = 'SelfActivate'
-            linkedRoleEligibilityScheduleId = $eligibility.id
+            linkedRoleEligibilityScheduleId = $eligibility.properties.roleEligibilityScheduleId
             justification                   = $Justification
             scheduleInfo                    = @{
                 startDateTime = [DateTime]::UtcNow.ToString('o')
