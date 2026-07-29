@@ -36,7 +36,14 @@ Azure CLI details: $details
 function Invoke-AzJson {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    $output = @(& az @Arguments --only-show-errors --output json 2>&1)
+    $invocationArguments = if ($env:OS -eq 'Windows_NT' -and (Get-Command az).Source -match '\.(cmd|bat)$') {
+        @($Arguments | ForEach-Object { if ($_ -match '&') { '"{0}"' -f $_ } else { $_ } })
+    }
+    else {
+        $Arguments
+    }
+
+    $output = @(& az @invocationArguments --only-show-errors --output json 2>&1)
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
@@ -52,7 +59,14 @@ function Invoke-AzJson {
 function Invoke-AzCommand {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    $output = @(& az @Arguments --only-show-errors --output none 2>&1)
+    $invocationArguments = if ($env:OS -eq 'Windows_NT' -and (Get-Command az).Source -match '\.(cmd|bat)$') {
+        @($Arguments | ForEach-Object { if ($_ -match '&') { '"{0}"' -f $_ } else { $_ } })
+    }
+    else {
+        $Arguments
+    }
+
+    $output = @(& az @invocationArguments --only-show-errors --output none 2>&1)
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
@@ -126,11 +140,10 @@ function Assert-SubscriptionOwner {
     }
 
     $subscriptionScope = "/subscriptions/$($Account.id)"
-    $encodedFilter = [System.Uri]::EscapeDataString("principalId eq '$($principal.id)'")
     $eligibilityResponse = Invoke-AzJson -Arguments @(
         'rest',
         '--method', 'get',
-        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilitySchedules?api-version=2020-10-01&%24filter=$encodedFilter"
+        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilitySchedules?api-version=2020-10-01&%24filter=asTarget()"
     )
     $ownerEligibility = @($eligibilityResponse.value | Where-Object {
         $_.properties.roleDefinitionId -and
