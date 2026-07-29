@@ -11,12 +11,35 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Get-AzCliFailureMessage {
+    param(
+        [Parameter(Mandatory = $true)] [string[]] $Arguments,
+        [object[]] $Output
+    )
+
+    $details = (@($Output) | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+    if ($details -match 'InteractionRequired|TokenCreatedWithOutdatedPolicies') {
+        return @"
+Azure CLI authentication must be refreshed because the tenant's Conditional Access policies changed.
+Run 'az logout', then 'az login', select the original subscription with 'az account set --subscription <subscription-id>', and rerun this script.
+Azure CLI details: $details
+"@
+    }
+
+    if ([string]::IsNullOrWhiteSpace($details)) {
+        return "Azure CLI command failed: az $($Arguments -join ' ')"
+    }
+
+    return "Azure CLI command failed: az $($Arguments -join ' ')$([Environment]::NewLine)$details"
+}
+
 function Invoke-AzJson {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    $output = & az @Arguments --only-show-errors --output json
-    if ($LASTEXITCODE -ne 0) {
-        throw "Azure CLI command failed: az $($Arguments -join ' ')"
+    $output = @(& az @Arguments --only-show-errors --output json 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
     }
 
     if ([string]::IsNullOrWhiteSpace(($output -join ''))) {
@@ -29,9 +52,10 @@ function Invoke-AzJson {
 function Invoke-AzCommand {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    & az @Arguments --only-show-errors --output none
-    if ($LASTEXITCODE -ne 0) {
-        throw "Azure CLI command failed: az $($Arguments -join ' ')"
+    $output = @(& az @Arguments --only-show-errors --output none 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
     }
 }
 
