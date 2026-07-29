@@ -59,6 +59,33 @@ function Invoke-AzCommand {
     }
 }
 
+function Get-SignedInPrincipal {
+    param([Parameter(Mandatory = $true)] [object] $Account)
+
+    $arguments = @(
+        'ad', 'signed-in-user', 'show',
+        '--query', '{id:id,displayName:displayName,userPrincipalName:userPrincipalName}'
+    )
+
+    try {
+        return Invoke-AzJson -Arguments $arguments
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'InteractionRequired|TokenCreatedWithOutdatedPolicies') {
+            throw
+        }
+
+        Write-Host 'Azure CLI authentication is stale. Starting interactive sign-in to refresh Conditional Access claims.'
+        Invoke-AzCommand -Arguments @(
+            'login',
+            '--tenant', $Account.tenantId,
+            '--scope', 'https://graph.microsoft.com//.default'
+        )
+        Invoke-AzCommand -Arguments @('account', 'set', '--subscription', $Account.id)
+        return Invoke-AzJson -Arguments $arguments
+    }
+}
+
 function Test-SubscriptionOwner {
     param(
         [Parameter(Mandatory = $true)] [string] $SubscriptionId,
@@ -68,10 +95,11 @@ function Test-SubscriptionOwner {
     $subscriptionScope = "/subscriptions/$SubscriptionId"
     $assignments = @(Invoke-AzJson -Arguments @(
         'role', 'assignment', 'list',
-        '--assignee', $PrincipalId,
+        '--assignee-object-id', $PrincipalId,
         '--scope', $subscriptionScope,
         '--include-groups',
-        '--include-inherited'
+        '--include-inherited',
+        '--fill-principal-name', 'false'
     ))
 
     return @($assignments | Where-Object {
@@ -87,10 +115,7 @@ function Assert-SubscriptionOwner {
         [Parameter(Mandatory = $true)] [string] $Justification
     )
 
-    $principal = Invoke-AzJson -Arguments @(
-        'ad', 'signed-in-user', 'show',
-        '--query', '{id:id,displayName:displayName,userPrincipalName:userPrincipalName}'
-    )
+    $principal = Get-SignedInPrincipal -Account $Account
     if (-not $principal.id) {
         throw 'Unable to determine the signed-in user object ID. PIM Owner activation requires an interactive user identity.'
     }
@@ -101,12 +126,11 @@ function Assert-SubscriptionOwner {
     }
 
     $subscriptionScope = "/subscriptions/$($Account.id)"
-    $ownerRoleDefinitionId = "$subscriptionScope/providers/Microsoft.Authorization/roleDefinitions/8e3af227-0b1e-42c2-bc44-97753837440b"
     $encodedFilter = [System.Uri]::EscapeDataString("principalId eq '$($principal.id)'")
     $eligibilityResponse = Invoke-AzJson -Arguments @(
         'rest',
         '--method', 'get',
-        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilitySchedules?api-version=2020-10-01-preview&%24filter=$encodedFilter"
+        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilitySchedules?api-version=2020-10-01&%24filter=$encodedFilter"
     )
     $ownerEligibility = @($eligibilityResponse.value | Where-Object {
         $_.properties.roleDefinitionId -and
@@ -128,7 +152,9 @@ function Assert-SubscriptionOwner {
     } | Format-Table -AutoSize | Out-Host
 
     $eligibility = $ownerEligibility | Select-Object -First 1
-    if (-not $PSCmdlet.ShouldProcess($subscriptionScope, 'Activate eligible PIM Owner role for one hour')) {
+    $activationScope = $eligibility.properties.scope
+    $ownerRoleDefinitionId = $eligibility.properties.roleDefinitionId
+    if (-not $PSCmdlet.ShouldProcess($activationScope, 'Activate eligible PIM Owner role for one hour')) {
         if ($WhatIfPreference) {
             Write-Host 'Owner activation skipped because WhatIf is enabled.'
             return
@@ -137,7 +163,7 @@ function Assert-SubscriptionOwner {
     }
 
     $requestId = [guid]::NewGuid().ToString()
-    $requestUrl = "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleAssignmentScheduleRequests/$requestId`?api-version=2020-10-01-preview"
+    $requestUrl = "https://management.azure.com$activationScope/providers/Microsoft.Authorization/roleAssignmentScheduleRequests/$requestId`?api-version=2020-10-01"
     $requestBody = @{
         properties = @{
             principalId                    = $principal.id
@@ -566,7 +592,7 @@ if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
 
 $account = Invoke-AzJson -Arguments @(
     'account', 'show',
-    '--query', '{id:id,name:name,user:user}'
+    '--query', '{id:id,name:name,tenantId:tenantId,user:user}'
 )
 Assert-SubscriptionOwner -Account $account -Justification $PimJustification
 
