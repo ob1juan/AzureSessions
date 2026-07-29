@@ -37,14 +37,14 @@ Azure CLI details: $details
 function Invoke-AzJson {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    $invocationArguments = if ($env:OS -eq 'Windows_NT' -and (Get-Command az).Source -match '\.(cmd|bat)$') {
-        @($Arguments | ForEach-Object { if ($_ -match '&') { '"{0}"' -f $_ } else { $_ } })
+    $azCommand = if ($env:OS -eq 'Windows_NT' -and (Get-Command azps.ps1 -ErrorAction SilentlyContinue)) {
+        (Get-Command azps.ps1).Source
     }
     else {
-        $Arguments
+        'az'
     }
 
-    $output = @(& az @invocationArguments --only-show-errors --output json 2>&1)
+    $output = @(& $azCommand @Arguments --only-show-errors --output json 2>&1)
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
@@ -60,14 +60,14 @@ function Invoke-AzJson {
 function Invoke-AzCommand {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    $invocationArguments = if ($env:OS -eq 'Windows_NT' -and (Get-Command az).Source -match '\.(cmd|bat)$') {
-        @($Arguments | ForEach-Object { if ($_ -match '&') { '"{0}"' -f $_ } else { $_ } })
+    $azCommand = if ($env:OS -eq 'Windows_NT' -and (Get-Command azps.ps1 -ErrorAction SilentlyContinue)) {
+        (Get-Command azps.ps1).Source
     }
     else {
-        $Arguments
+        'az'
     }
 
-    $output = @(& az @invocationArguments --only-show-errors --output none 2>&1)
+    $output = @(& $azCommand @Arguments --only-show-errors --output none 2>&1)
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
@@ -191,8 +191,12 @@ function Assert-SubscriptionOwner {
             requestType                     = 'SelfActivate'
             linkedRoleEligibilityScheduleId = $eligibility.properties.roleEligibilityScheduleId
             justification                   = $Justification
+            ticketInfo                      = @{
+                ticketNumber = ''
+                ticketSystem = ''
+            }
             scheduleInfo                    = @{
-                startDateTime = [DateTime]::UtcNow.ToString('o')
+                startDateTime = [DateTimeOffset]::UtcNow.ToString('o')
                 expiration    = @{
                     type     = 'AfterDuration'
                     duration = 'PT1H'
@@ -210,7 +214,7 @@ function Assert-SubscriptionOwner {
         '--headers', 'Content-Type=application/json'
     )
 
-    for ($attempt = 1; $attempt -le 12; $attempt++) {
+    for ($attempt = 1; $attempt -le 120; $attempt++) {
         $status = $activation.properties.status
         if ($status -in @('Denied', 'Failed', 'Canceled', 'Revoked', 'TimedOut', 'PendingApproval')) {
             throw "PIM Owner activation request '$requestId' cannot complete automatically. Status: '$status'."
@@ -229,7 +233,7 @@ function Assert-SubscriptionOwner {
         )
     }
 
-    throw "PIM Owner activation request '$requestId' did not become effective within 60 seconds. Last status: '$($activation.properties.status)'."
+    throw "PIM Owner activation request '$requestId' did not become effective within 10 minutes. Last status: '$($activation.properties.status)'."
 }
 
 function Get-MigrationDemoResources {
