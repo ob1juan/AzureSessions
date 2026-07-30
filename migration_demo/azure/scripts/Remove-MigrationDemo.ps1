@@ -427,10 +427,21 @@ function Get-DeletedRecoveryServicesVaults {
     ))
 
     foreach ($location in $locations) {
-        $deletedVaults = @(Invoke-AzJson -Arguments @(
-            'backup', 'deleted-vault', 'list',
-            '--location', $location
-        ))
+        try {
+            $deletedVaults = @(Invoke-AzJson -Arguments @(
+                'backup', 'deleted-vault', 'list',
+                '--location', $location
+            ))
+        }
+        catch {
+            if ($_.Exception.Message -match 'NoRegisteredProviderFound' -and
+                $_.Exception.Message -match 'locations/deletedVaults') {
+                Write-Verbose "Skipping location '$location' because Recovery Services deleted vaults are not supported there."
+                continue
+            }
+
+            throw
+        }
 
         foreach ($vault in $deletedVaults) {
             $vaultId = @(
