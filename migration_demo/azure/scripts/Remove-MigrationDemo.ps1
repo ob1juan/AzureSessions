@@ -478,6 +478,16 @@ function Restore-DeletedRecoveryServicesVaults {
                 'backup', 'deleted-vault', 'undelete',
                 '--ids', $vault.Id
             )
+
+            if ($vault.VaultId) {
+                Write-Host "Waiting for Recovery Services vault '$($vault.Name)' to become available"
+                Invoke-AzCommand -Arguments @(
+                    'resource', 'wait',
+                    '--exists',
+                    '--ids', $vault.VaultId,
+                    '--timeout', '600'
+                )
+            }
         }
     }
 }
@@ -607,7 +617,7 @@ function Remove-RecoveryServicesVaults {
     [CmdletBinding(SupportsShouldProcess)]
     param([object[]] $Vaults)
 
-    foreach ($vault in @($Vaults)) {
+    foreach ($vault in @($Vaults | Where-Object { $null -ne $_ })) {
         Write-Host "Deleting Recovery Services vault '$($vault.name)'"
         if ($PSCmdlet.ShouldProcess($vault.id, 'az resource delete')) {
             try {
