@@ -6,7 +6,12 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'PurgeSubscription')]
     [switch] $PurgeOnly,
 
-    [string] $PimJustification = 'Activate Owner to remove migration demo resources'
+    [string] $PimJustification = 'Activate Owner to remove migration demo resources',
+
+    [string[]] $Locations = @(
+        'eastus', 'eastus2', 'westus', 'westus2', 'westus3',
+        'centralus', 'northcentralus', 'southcentralus', 'westcentralus'
+    )
 )
 
 $ErrorActionPreference = 'Stop'
@@ -421,12 +426,7 @@ function Get-RecoveryServicesVaults {
 }
 
 function Get-DeletedRecoveryServicesVaults {
-    $locations = @(Invoke-AzJson -Arguments @(
-        'account', 'list-locations',
-        '--query', '[].name'
-    ))
-
-    foreach ($location in $locations) {
+    foreach ($location in $Locations) {
         try {
             $deletedVaults = @(Invoke-AzJson -Arguments @(
                 'backup', 'deleted-vault', 'list',
