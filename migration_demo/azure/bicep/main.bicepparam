@@ -6,8 +6,6 @@ param windowsAdminUsername = 'arcdemo'
 
 param passwordLength = 16
 
-param windowsAdminPasswordSecretName = 'windowsAdminPassword'
-
 param location = 'centralus'
 
 param deployBastion = true

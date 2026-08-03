@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "8796288247757714966"
+      "templateHash": "8890322086138720424"
     }
   },
   "parameters": {
@@ -22,13 +22,6 @@
       "minValue": 12,
       "metadata": {
         "description": "Length for generated passwords that are stored in Key Vault"
-      }
-    },
-    "windowsAdminPasswordSecretName": {
-      "type": "string",
-      "defaultValue": "windowsAdminPassword",
-      "metadata": {
-        "description": "Secret name in Key Vault for the Windows admin password"
       }
     },
     "windowsAdminUsername": {
@@ -244,8 +237,14 @@
         "allowBlobPublicAccess": false,
         "allowSharedKeyAccess": true,
         "minimumTlsVersion": "TLS1_2",
-        "publicNetworkAccess": "Enabled",
-        "supportsHttpsTrafficOnly": true
+        "publicNetworkAccess": "Disabled",
+        "supportsHttpsTrafficOnly": true,
+        "networkAcls": {
+          "bypass": "AzureServices,Logging,Metrics",
+          "defaultAction": "Deny",
+          "ipRules": [],
+          "virtualNetworkRules": []
+        }
       }
     },
     {
@@ -867,25 +866,18 @@
           "namingPrefix": {
             "value": "[parameters('namingPrefix')]"
           },
-          "windowsAdminPassword": {
-            "value": "[variables('generatedWindowsAdminPassword')]"
-          },
-          "windowsAdminPasswordSecretName": {
-            "value": "[parameters('windowsAdminPasswordSecretName')]"
-          },
           "natGatewayName": {
             "value": "[parameters('natGatewayName')]"
           }
         },
         "template": {
           "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "languageVersion": "2.0",
           "contentVersion": "1.0.0.0",
           "metadata": {
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "10791960291940186154"
+              "templateHash": "10961813308198634665"
             }
           },
           "parameters": {
@@ -1008,22 +1000,6 @@
               "metadata": {
                 "description": "The naming prefix for the nested virtual machines. Example: MigDem-Win2k19"
               }
-            },
-            "windowsAdminPassword": {
-              "type": "securestring",
-              "nullable": true,
-              "minLength": 12,
-              "maxLength": 123,
-              "metadata": {
-                "description": "Password for Windows account. Password must have 3 of the following: 1 lower case character, 1 upper case character, 1 number, and 1 special character. The value must be between 12 and 123 characters long"
-              }
-            },
-            "windowsAdminPasswordSecretName": {
-              "type": "string",
-              "defaultValue": "windowsAdminPassword",
-              "metadata": {
-                "description": "Key Vault secret name for the generated Windows admin password"
-              }
             }
           },
           "variables": {
@@ -1084,8 +1060,8 @@
               }
             ]
           },
-          "resources": {
-            "arcVirtualNetwork": {
+          "resources": [
+            {
               "type": "Microsoft.Network/virtualNetworks",
               "apiVersion": "2024-07-01",
               "name": "[parameters('virtualNetworkName')]",
@@ -1102,12 +1078,12 @@
                 "subnets": "[if(and(equals(parameters('deployBastion'), false()), not(equals(parameters('flavor'), 'DataOps'))), variables('primarySubnet'), if(and(equals(parameters('deployBastion'), false()), equals(parameters('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('dataOpsSubnets')), if(and(equals(parameters('deployBastion'), true()), not(equals(parameters('flavor'), 'DataOps'))), union(variables('primarySubnet'), variables('bastionSubnet')), if(and(equals(parameters('deployBastion'), true()), equals(parameters('flavor'), 'DataOps')), union(variables('primarySubnet'), variables('bastionSubnet'), variables('dataOpsSubnets')), variables('primarySubnet')))))]"
               },
               "dependsOn": [
-                "bastionNetworkSecurityGroup",
-                "natGateway",
-                "networkSecurityGroup"
+                "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('bastionNetworkSecurityGroupName'))]",
+                "[resourceId('Microsoft.Network/natGateways', parameters('natGatewayName'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
               ]
             },
-            "drVirtualNetwork": {
+            {
               "condition": "[equals(parameters('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks",
               "apiVersion": "2024-07-01",
@@ -1137,11 +1113,11 @@
                 ]
               },
               "dependsOn": [
-                "natGatewayDR",
-                "networkSecurityGroup"
+                "[resourceId('Microsoft.Network/natGateways', parameters('drNatGatewayName'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
               ]
             },
-            "natGatewayPublicIp": {
+            {
               "condition": "[or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro')))]",
               "type": "Microsoft.Network/publicIPAddresses",
               "apiVersion": "2024-05-01",
@@ -1156,7 +1132,7 @@
                 "name": "Standard"
               }
             },
-            "natGatewayDRPublicIp": {
+            {
               "condition": "[or(parameters('deployBastion'), equals(parameters('flavor'), 'DataOps'))]",
               "type": "Microsoft.Network/publicIPAddresses",
               "apiVersion": "2024-05-01",
@@ -1171,7 +1147,7 @@
                 "name": "Standard"
               }
             },
-            "natGateway": {
+            {
               "condition": "[or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro')))]",
               "type": "Microsoft.Network/natGateways",
               "apiVersion": "2024-07-01",
@@ -1189,10 +1165,10 @@
                 "idleTimeoutInMinutes": 4
               },
               "dependsOn": [
-                "natGatewayPublicIp"
+                "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-PIP', parameters('natGatewayName')))]"
               ]
             },
-            "natGatewayDR": {
+            {
               "condition": "[or(parameters('deployBastion'), equals(parameters('flavor'), 'DataOps'))]",
               "type": "Microsoft.Network/natGateways",
               "apiVersion": "2024-07-01",
@@ -1210,10 +1186,10 @@
                 "idleTimeoutInMinutes": 4
               },
               "dependsOn": [
-                "natGatewayDRPublicIp"
+                "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-DR-PIP', parameters('natGatewayName')))]"
               ]
             },
-            "virtualNetworkName_peering_to_DR_vnet": {
+            {
               "condition": "[equals(parameters('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
               "apiVersion": "2024-07-01",
@@ -1228,11 +1204,11 @@
                 }
               },
               "dependsOn": [
-                "arcVirtualNetwork",
-                "drVirtualNetwork"
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('drVirtualNetworkName'))]"
               ]
             },
-            "drVirtualNetworkName_peering_to_primary_vnet": {
+            {
               "condition": "[equals(parameters('flavor'), 'DataOps')]",
               "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
               "apiVersion": "2024-07-01",
@@ -1247,11 +1223,11 @@
                 }
               },
               "dependsOn": [
-                "arcVirtualNetwork",
-                "drVirtualNetwork"
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('drVirtualNetworkName'))]"
               ]
             },
-            "networkSecurityGroup": {
+            {
               "type": "Microsoft.Network/networkSecurityGroups",
               "apiVersion": "2024-05-01",
               "name": "[parameters('networkSecurityGroupName')]",
@@ -1365,7 +1341,7 @@
                 ]
               }
             },
-            "bastionNetworkSecurityGroup": {
+            {
               "condition": "[equals(parameters('deployBastion'), true())]",
               "type": "Microsoft.Network/networkSecurityGroups",
               "apiVersion": "2024-05-01",
@@ -1492,7 +1468,7 @@
                 ]
               }
             },
-            "publicIpAddress": {
+            {
               "condition": "[equals(parameters('deployBastion'), true())]",
               "type": "Microsoft.Network/publicIPAddresses",
               "apiVersion": "2024-05-01",
@@ -1507,7 +1483,7 @@
                 "name": "Standard"
               }
             },
-            "bastionHost": {
+            {
               "condition": "[equals(parameters('deployBastion'), true())]",
               "type": "Microsoft.Network/bastionHosts",
               "apiVersion": "2024-05-01",
@@ -1521,11 +1497,11 @@
                 "ipConfigurations": "[if(not(equals(parameters('bastionSku'), 'Developer')), createArray(createObject('name', 'IpConf', 'properties', createObject('publicIPAddress', createObject('id', resourceId('Microsoft.Network/publicIPAddresses', variables('bastionPublicIpAddressName'))), 'subnet', createObject('id', variables('bastionSubnetRef'))))), null())]"
               },
               "dependsOn": [
-                "arcVirtualNetwork",
-                "publicIpAddress"
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName'))]",
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('bastionPublicIpAddressName'))]"
               ]
             },
-            "kv": {
+            {
               "type": "Microsoft.KeyVault/vaults",
               "apiVersion": "2024-04-01-preview",
               "name": "[variables('keyVaultName')]",
@@ -1539,28 +1515,23 @@
                 "enabledForDeployment": true,
                 "enabledForTemplateDeployment": true,
                 "enabledForDiskEncryption": true,
-                "enableRbacAuthorization": true
+                "enableRbacAuthorization": true,
+                "publicNetworkAccess": "Disabled",
+                "networkAcls": {
+                  "bypass": "AzureServices",
+                  "defaultAction": "Deny",
+                  "ipRules": [],
+                  "virtualNetworkRules": []
+                }
               }
             },
-            "windowsAdminPassword_kv_secret": {
-              "condition": "[not(empty(parameters('windowsAdminPassword')))]",
-              "type": "Microsoft.KeyVault/vaults/secrets",
-              "apiVersion": "2024-04-01-preview",
-              "name": "[format('{0}/{1}', variables('keyVaultName'), parameters('windowsAdminPasswordSecretName'))]",
-              "properties": {
-                "value": "[parameters('windowsAdminPassword')]"
-              },
-              "dependsOn": [
-                "kv"
-              ]
-            },
-            "kvPrivateDnsZone": {
+            {
               "type": "Microsoft.Network/privateDnsZones",
               "apiVersion": "2020-06-01",
               "name": "privatelink.vaultcore.azure.net",
               "location": "global"
             },
-            "kvPrivateDnsZoneVnetLink": {
+            {
               "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
               "apiVersion": "2020-06-01",
               "name": "[format('{0}/{1}', 'privatelink.vaultcore.azure.net', format('{0}-kv-link', parameters('virtualNetworkName')))]",
@@ -1572,18 +1543,18 @@
                 }
               },
               "dependsOn": [
-                "arcVirtualNetwork",
-                "kvPrivateDnsZone"
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName'))]",
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
               ]
             },
-            "kvPrivateEndpoint": {
+            {
               "type": "Microsoft.Network/privateEndpoints",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}-pe', variables('keyVaultName'))]",
               "location": "[parameters('location')]",
               "properties": {
                 "subnet": {
-                  "id": "[reference('arcVirtualNetwork').subnets[0].id]"
+                  "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName')), '2024-07-01').subnets[0].id]"
                 },
                 "privateLinkServiceConnections": [
                   {
@@ -1598,11 +1569,11 @@
                 ]
               },
               "dependsOn": [
-                "arcVirtualNetwork",
-                "kv"
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName'))]",
+                "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
               ]
             },
-            "kvPrivateEndpointDnsZoneGroup": {
+            {
               "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}/{1}', format('{0}-pe', variables('keyVaultName')), 'default')]",
@@ -1617,11 +1588,11 @@
                 ]
               },
               "dependsOn": [
-                "kvPrivateDnsZone",
-                "kvPrivateEndpoint"
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]",
+                "[resourceId('Microsoft.Network/privateEndpoints', format('{0}-pe', variables('keyVaultName')))]"
               ]
             }
-          },
+          ],
           "outputs": {
             "vnetId": {
               "type": "string",
@@ -1629,7 +1600,7 @@
             },
             "subnetId": {
               "type": "string",
-              "value": "[reference('arcVirtualNetwork').subnets[0].id]"
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName')), '2024-07-01').subnets[0].id]"
             },
             "keyVaultName": {
               "type": "string",
@@ -1752,6 +1723,9 @@
           "windowsAdminUsername": {
             "value": "[parameters('windowsAdminUsername')]"
           },
+          "windowsAdminPasswordBase64": {
+            "value": "[base64(variables('generatedWindowsAdminPassword'))]"
+          },
           "tenantId": {
             "value": "[parameters('tenantId')]"
           },
@@ -1793,7 +1767,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "3040457483023051871"
+              "templateHash": "11248829327853297161"
             }
           },
           "parameters": {
@@ -1807,6 +1781,12 @@
               "type": "string",
               "metadata": {
                 "description": "Username for the Virtual Machine"
+              }
+            },
+            "windowsAdminPasswordBase64": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Windows admin password as a base64-encoded string, decoded and stored in Key Vault by the bootstrap script over the private endpoint."
               }
             },
             "vmAutologon": {
@@ -1900,7 +1880,7 @@
                   "fileUris": [
                     "[uri(parameters('templateBaseUrl'), 'artifacts/Bootstrap.ps1')]"
                   ],
-                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -tenantId {1} -subscriptionId {2} -resourceGroup {3} -azureLocation {4} -templateBaseUrl {5} -flavor {6} -vmAutologon {7} -rdpPort {8} -namingPrefix {9} -debugEnabled {10} -sqlServerEdition {11} -autoShutdownEnabled {12} -autoShutdownTimezone \"{13}\"', parameters('windowsAdminUsername'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'), parameters('autoShutdownTimezone'))]"
+                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -windowsAdminPasswordBase64 {1} -tenantId {2} -subscriptionId {3} -resourceGroup {4} -azureLocation {5} -templateBaseUrl {6} -flavor {7} -vmAutologon {8} -rdpPort {9} -namingPrefix {10} -debugEnabled {11} -sqlServerEdition {12} -autoShutdownEnabled {13} -autoShutdownTimezone \"{14}\"', parameters('windowsAdminUsername'), parameters('windowsAdminPasswordBase64'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'), parameters('autoShutdownTimezone'))]"
                 }
               }
             }

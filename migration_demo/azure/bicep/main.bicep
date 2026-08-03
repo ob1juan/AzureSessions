@@ -5,9 +5,6 @@ param tenantId string = tenant().tenantId
 @minValue(12)
 param passwordLength int = 16
 
-@description('Secret name in Key Vault for the Windows admin password')
-param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
-
 @description('Username for Windows account')
 param windowsAdminUsername string
 
@@ -137,8 +134,14 @@ resource migrateUtilityStorageAccount 'Microsoft.Storage/storageAccounts@2023-05
     allowBlobPublicAccess: false
     allowSharedKeyAccess: true
     minimumTlsVersion: 'TLS1_2'
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: 'Disabled'
     supportsHttpsTrafficOnly: true
+    networkAcls: {
+      bypass: 'AzureServices,Logging,Metrics'
+      defaultAction: 'Deny'
+      ipRules: []
+      virtualNetworkRules: []
+    }
   }
 }
 
@@ -296,8 +299,6 @@ module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
     bastionSku: bastionSku
     location: location
     namingPrefix: namingPrefix
-    windowsAdminPassword: generatedWindowsAdminPassword
-    windowsAdminPasswordSecretName: windowsAdminPasswordSecretName
     natGatewayName: natGatewayName
   }
 }
@@ -326,6 +327,7 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
   params: {
     vmName: '${namingPrefix}-Host'
     windowsAdminUsername: windowsAdminUsername
+    windowsAdminPasswordBase64: base64(generatedWindowsAdminPassword)
     tenantId: tenantId
     templateBaseUrl: templateBaseUrl
     flavor: flavor

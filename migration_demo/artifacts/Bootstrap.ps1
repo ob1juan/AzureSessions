@@ -1,5 +1,6 @@
 param (
     [string]$adminUsername,
+    [string]$windowsAdminPasswordBase64,
     [string]$tenantId,
     [string]$subscriptionId,
     [string]$resourceGroup,
@@ -146,6 +147,11 @@ Import-Module Microsoft.PowerShell.SecretManagement
 if (-not (Get-SecretVault -Name $KeyVault.VaultName -ErrorAction Ignore)) {
     Register-SecretVault -Name $KeyVault.VaultName -ModuleName Az.KeyVault -VaultParameters @{ AZKVaultName = $KeyVault.VaultName } -DefaultVault
 }
+
+# Decode the password (passed as base64 to survive command-line quoting) and store it in Key
+# Vault from this VM, which reaches KV over the private endpoint now that public access is disabled.
+$windowsAdminPassword = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($windowsAdminPasswordBase64))
+Set-Secret -Name windowsAdminPassword -Secret (ConvertTo-SecureString $windowsAdminPassword -AsPlainText -Force)
 
 $adminPassword = Get-Secret -Name windowsAdminPassword -AsPlainText
 

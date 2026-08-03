@@ -55,15 +55,6 @@ param dnsServers array = []
 @description('The naming prefix for the nested virtual machines. Example: MigDem-Win2k19')
 param namingPrefix string = 'MigDem'
 
-@description('Password for Windows account. Password must have 3 of the following: 1 lower case character, 1 upper case character, 1 number, and 1 special character. The value must be between 12 and 123 characters long')
-@minLength(12)
-@maxLength(123)
-@secure()
-param windowsAdminPassword string?
-
-@description('Key Vault secret name for the generated Windows admin password')
-param windowsAdminPasswordSecretName string = 'windowsAdminPassword'
-
 var keyVaultName = toLower('${namingPrefix}${uniqueString(resourceGroup().id)}')
 
 var subnetAddressPrefix = '10.16.1.0/24'
@@ -577,17 +568,16 @@ resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
     enabledForTemplateDeployment: true
     enabledForDiskEncryption: true
     enableRbacAuthorization: true
+    publicNetworkAccess: 'Disabled'
+    networkAcls: {
+      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+      ipRules: []
+      virtualNetworkRules: []
+    }
     // enablePurgeProtection is intentionally omitted. The Key Vault API rejects an explicit
     // `false` ("cannot be set to false"), especially when recovering a soft-deleted vault of the
     // same name. Omitting it leaves purge protection disabled so demo vaults remain cleanable.
-  }
-}
-
-resource windowsAdminPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-04-01-preview' = if (!empty(windowsAdminPassword)) {
-  name: windowsAdminPasswordSecretName
-  parent: kv
-  properties: {
-    value: windowsAdminPassword
   }
 }
 
