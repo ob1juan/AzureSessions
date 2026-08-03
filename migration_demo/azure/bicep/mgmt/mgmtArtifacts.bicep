@@ -83,7 +83,7 @@ var primarySubnet = [
     name: subnetName
     properties: {
       addressPrefix: subnetAddressPrefix
-      privateEndpointNetworkPolicies: 'Enabled'
+      privateEndpointNetworkPolicies: 'Disabled'
       privateLinkServiceNetworkPolicies: 'Enabled'
       networkSecurityGroup: {
         id: networkSecurityGroup.id
@@ -113,7 +113,7 @@ var dataOpsSubnets = [
     name: aksSubnetName
     properties: {
       addressPrefix: aksSubnetPrefix
-      privateEndpointNetworkPolicies: 'Enabled'
+      privateEndpointNetworkPolicies: 'Disabled'
       privateLinkServiceNetworkPolicies: 'Enabled'
       networkSecurityGroup: {
         id: networkSecurityGroup.id
@@ -128,7 +128,7 @@ var dataOpsSubnets = [
     name: dcSubnetName
     properties: {
       addressPrefix: dcSubnetPrefix
-      privateEndpointNetworkPolicies: 'Enabled'
+      privateEndpointNetworkPolicies: 'Disabled'
       privateLinkServiceNetworkPolicies: 'Enabled'
       networkSecurityGroup: {
         id: networkSecurityGroup.id
@@ -588,6 +588,57 @@ resource windowsAdminPassword_kv_secret 'Microsoft.KeyVault/vaults/secrets@2024-
   parent: kv
   properties: {
     value: windowsAdminPassword
+  }
+}
+
+resource kvPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.vaultcore.azure.net'
+  location: 'global'
+}
+
+resource kvPrivateDnsZoneVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: kvPrivateDnsZone
+  name: '${virtualNetworkName}-kv-link'
+  location: 'global'
+  properties: {
+    registrationEnabled: false
+    virtualNetwork: {
+      id: arcVirtualNetwork.id
+    }
+  }
+}
+
+resource kvPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
+  name: '${keyVaultName}-pe'
+  location: location
+  properties: {
+    subnet: {
+      id: arcVirtualNetwork.properties.subnets[0].id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: '${keyVaultName}-plsc'
+        properties: {
+          privateLinkServiceId: kv.id
+          groupIds: ['vault']
+        }
+      }
+    ]
+  }
+}
+
+resource kvPrivateEndpointDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
+  parent: kvPrivateEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'privatelink-vaultcore-azure-net'
+        properties: {
+          privateDnsZoneId: kvPrivateDnsZone.id
+        }
+      }
+    ]
   }
 }
 

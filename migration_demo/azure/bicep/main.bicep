@@ -216,6 +216,57 @@ resource serverMigrationSolution 'Microsoft.Migrate/migrateProjects/solutions@20
   }
 }
 
+resource storagePrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.blob.${environment().suffixes.storage}'
+  location: 'global'
+}
+
+resource storagePrivateDnsZoneVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: storagePrivateDnsZone
+  name: '${namingPrefix}-storage-vnet-link'
+  location: 'global'
+  properties: {
+    registrationEnabled: false
+    virtualNetwork: {
+      id: mgmtArtifactsAndPolicyDeployment.outputs.vnetId
+    }
+  }
+}
+
+resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
+  name: '${migrateUtilityStorageAccountName}-blob-pe'
+  location: location
+  properties: {
+    subnet: {
+      id: mgmtArtifactsAndPolicyDeployment.outputs.subnetId
+    }
+    privateLinkServiceConnections: [
+      {
+        name: '${migrateUtilityStorageAccountName}-blob-plsc'
+        properties: {
+          privateLinkServiceId: migrateUtilityStorageAccount.id
+          groupIds: ['blob']
+        }
+      }
+    ]
+  }
+}
+
+resource storagePrivateEndpointDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
+  parent: storagePrivateEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'privatelink-blob-core-windows-net'
+        properties: {
+          privateDnsZoneId: storagePrivateDnsZone.id
+        }
+      }
+    ]
+  }
+}
+
 module clientVmDeployment 'clientVm/clientVm.bicep' = {
   name: 'clientVmDeployment'
   params: {

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "11485642544787228726"
+      "templateHash": "8796288247757714966"
     }
   },
   "parameters": {
@@ -333,6 +333,73 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2020-06-01",
+      "name": "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+      "location": "global"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2020-06-01",
+      "name": "[format('{0}/{1}', format('privatelink.blob.{0}', environment().suffixes.storage), format('{0}-storage-vnet-link', parameters('namingPrefix')))]",
+      "location": "global",
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.vnetId.value]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment')]",
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}-blob-pe', variables('migrateUtilityStorageAccountName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "subnet": {
+          "id": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.subnetId.value]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "[format('{0}-blob-plsc', variables('migrateUtilityStorageAccountName'))]",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]",
+              "groupIds": [
+                "blob"
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}/{1}', format('{0}-blob-pe', variables('migrateUtilityStorageAccountName')), 'default')]",
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "privatelink-blob-core-windows-net",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', format('{0}-blob-pe', variables('migrateUtilityStorageAccountName')))]"
       ]
     },
     {
@@ -818,7 +885,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "15341283704315736830"
+              "templateHash": "10791960291940186154"
             }
           },
           "parameters": {
@@ -977,7 +1044,7 @@
                 "name": "[parameters('subnetName')]",
                 "properties": {
                   "addressPrefix": "[variables('subnetAddressPrefix')]",
-                  "privateEndpointNetworkPolicies": "Enabled",
+                  "privateEndpointNetworkPolicies": "Disabled",
                   "privateLinkServiceNetworkPolicies": "Enabled",
                   "networkSecurityGroup": {
                     "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
@@ -993,7 +1060,7 @@
                 "name": "[parameters('aksSubnetName')]",
                 "properties": {
                   "addressPrefix": "[variables('aksSubnetPrefix')]",
-                  "privateEndpointNetworkPolicies": "Enabled",
+                  "privateEndpointNetworkPolicies": "Disabled",
                   "privateLinkServiceNetworkPolicies": "Enabled",
                   "networkSecurityGroup": {
                     "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
@@ -1006,7 +1073,7 @@
                 "name": "[parameters('dcSubnetName')]",
                 "properties": {
                   "addressPrefix": "[variables('dcSubnetPrefix')]",
-                  "privateEndpointNetworkPolicies": "Enabled",
+                  "privateEndpointNetworkPolicies": "Disabled",
                   "privateLinkServiceNetworkPolicies": "Enabled",
                   "networkSecurityGroup": {
                     "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
@@ -1485,6 +1552,73 @@
               },
               "dependsOn": [
                 "kv"
+              ]
+            },
+            "kvPrivateDnsZone": {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2020-06-01",
+              "name": "privatelink.vaultcore.azure.net",
+              "location": "global"
+            },
+            "kvPrivateDnsZoneVnetLink": {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2020-06-01",
+              "name": "[format('{0}/{1}', 'privatelink.vaultcore.azure.net', format('{0}-kv-link', parameters('virtualNetworkName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": false,
+                "virtualNetwork": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName'))]"
+                }
+              },
+              "dependsOn": [
+                "arcVirtualNetwork",
+                "kvPrivateDnsZone"
+              ]
+            },
+            "kvPrivateEndpoint": {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-pe', variables('keyVaultName'))]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "subnet": {
+                  "id": "[reference('arcVirtualNetwork').subnets[0].id]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[format('{0}-plsc', variables('keyVaultName'))]",
+                    "properties": {
+                      "privateLinkServiceId": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+                      "groupIds": [
+                        "vault"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "arcVirtualNetwork",
+                "kv"
+              ]
+            },
+            "kvPrivateEndpointDnsZoneGroup": {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('{0}-pe', variables('keyVaultName')), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "privatelink-vaultcore-azure-net",
+                    "properties": {
+                      "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "kvPrivateDnsZone",
+                "kvPrivateEndpoint"
               ]
             }
           },
