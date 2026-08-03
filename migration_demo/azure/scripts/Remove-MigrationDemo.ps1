@@ -472,14 +472,22 @@ function Restore-DeletedRecoveryServicesVaults {
     foreach ($vault in $Vaults) {
         Write-Host "Restoring soft-deleted Recovery Services vault '$($vault.Name)' before permanent deletion"
         if ($PSCmdlet.ShouldProcess($vault.Id, 'az backup deleted-vault undelete')) {
-            try {
-                Invoke-AzCommand -Arguments @(
-                    'backup', 'deleted-vault', 'undelete',
-                    '--ids', $vault.Id
-                )
-            }
-            catch {
-                throw "Unable to restore soft-deleted Recovery Services vault '$($vault.Name)' for permanent deletion: $($_.Exception.Message)"
+            for ($attempt = 1; $attempt -le 30; $attempt++) {
+                try {
+                    Invoke-AzCommand -Arguments @(
+                        'backup', 'deleted-vault', 'undelete',
+                        '--ids', $vault.Id
+                    )
+                    break
+                }
+                catch {
+                    if ($_.Exception.Message -notmatch 'UserErrorDeletedVaultUndeleteConflictingVaultPresent' -or $attempt -eq 30) {
+                        throw "Unable to restore soft-deleted Recovery Services vault '$($vault.Name)' for permanent deletion: $($_.Exception.Message)"
+                    }
+
+                    Write-Host "Waiting for the deleted active vault name to become available (attempt $attempt of 30)"
+                    Start-Sleep -Seconds 10
+                }
             }
         }
     }
@@ -685,6 +693,15 @@ if (-not (Confirm-DestructiveResourceAction -Description "Permanently remove eve
 }
 
 Remove-MigrationDemoLocks
+
+foreach ($vault in $recoveryServicesVaults) {
+    Disable-RecoveryServicesSoftDelete -Vault $vault
+    Disable-RecoveryServicesBackupItems -Vault $vault
+}
+
+Remove-AzureMigrateChildResources
+Remove-RecoveryServicesVaults -Vaults $recoveryServicesVaults
+
 Restore-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
 $recoveryServicesVaults = Get-RecoveryServicesVaults
 
