@@ -434,8 +434,9 @@ function Get-DeletedRecoveryServicesVaults {
             ))
         }
         catch {
-            if ($_.Exception.Message -match 'NoRegisteredProviderFound' -and
-                $_.Exception.Message -match 'locations/deletedVaults') {
+            if (($_.Exception.Message -match 'NoRegisteredProviderFound' -and
+                    $_.Exception.Message -match 'locations/deletedVaults') -or
+                $_.Exception.Message -match "invalid status 'Bad Request'") {
                 Write-Verbose "Skipping location '$location' because Recovery Services deleted vaults are not supported there."
                 continue
             }
