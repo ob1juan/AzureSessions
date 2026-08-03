@@ -6,10 +6,7 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'PurgeSubscription')]
     [switch] $PurgeOnly,
 
-    [string] $PimJustification = 'Activate Owner to remove migration demo resources',
-
-    # Defaults to US regions for the active cloud when not specified
-    [string[]] $Locations = @()
+    [string] $PimJustification = 'Activate Owner to remove migration demo resources'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -348,7 +345,7 @@ function Show-DestructiveResourceInventory {
                 Name         = $vault.Name
                 ResourceGroup = $ResourceGroupName
                 Location     = $vault.Location
-                Action       = if ($vault.State -eq 'SoftDeleted') { 'Permanently purge' } else { 'Permanently delete' }
+                Action       = 'Permanently delete'
             }
         }
     )
@@ -421,70 +418,6 @@ function Remove-DeletedKeyVaults {
 function Get-RecoveryServicesVaults {
     @(Get-MigrationDemoResources |
         Where-Object { $_.type -eq 'Microsoft.RecoveryServices/vaults' })
-}
-
-function Get-DeletedRecoveryServicesVaults {
-    foreach ($location in $Locations) {
-        try {
-            $deletedVaults = @(Invoke-AzJson -Arguments @(
-                'backup', 'deleted-vault', 'list',
-                '--location', $location
-            ))
-        }
-        catch {
-            if (($_.Exception.Message -match 'NoRegisteredProviderFound' -and
-                    $_.Exception.Message -match 'locations/deletedVaults') -or
-                $_.Exception.Message -match "invalid status 'Bad Request'") {
-                Write-Verbose "Skipping location '$location' because Recovery Services deleted vaults are not supported there."
-                continue
-            }
-
-            throw
-        }
-
-        foreach ($vault in $deletedVaults) {
-            $vaultId = @(
-                $vault.properties.vaultId
-                $vault.properties.originalResourceId
-                $vault.properties.resourceId
-            ) | Where-Object { $_ } | Select-Object -First 1
-            $originalResourceGroup = $vault.properties.resourceGroupName
-            if (-not $originalResourceGroup -and $vaultId -match '/resourceGroups/([^/]+)') {
-                $originalResourceGroup = $Matches[1]
-            }
-
-            if ($originalResourceGroup -eq $ResourceGroupName) {
-                [pscustomobject]@{
-                    Name       = if ($vault.properties.vaultName) { $vault.properties.vaultName } else { $vault.name }
-                    Location   = if ($vault.location) { $vault.location } else { $location }
-                    Id         = $vault.id
-                    VaultId    = $vaultId
-                    State      = 'SoftDeleted'
-                }
-            }
-        }
-    }
-}
-
-function Remove-DeletedRecoveryServicesVaults {
-    [CmdletBinding(SupportsShouldProcess)]
-    param([object[]] $Vaults)
-
-    foreach ($vault in $Vaults) {
-        Write-Host "Purging soft-deleted Recovery Services vault '$($vault.Name)'"
-        if ($PSCmdlet.ShouldProcess($vault.Id, 'az rest DELETE deletedVault')) {
-            try {
-                Invoke-AzCommand -Arguments @(
-                    'rest',
-                    '--method', 'delete',
-                    '--url', "$($vault.Id)?api-version=2024-10-01"
-                )
-            }
-            catch {
-                throw "Unable to purge soft-deleted Recovery Services vault '$($vault.Name)': $($_.Exception.Message)"
-            }
-        }
-    }
 }
 
 function Disable-RecoveryServicesSoftDelete {
@@ -630,15 +563,6 @@ if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
     throw 'Azure CLI is required but was not found in PATH.'
 }
 
-if ($Locations.Count -eq 0) {
-    $cloudName = & az cloud show --query name --output tsv --only-show-errors 2>&1
-    $Locations = if ($cloudName -eq 'AzureUSGovernment') {
-        @('usgovvirginia', 'usgovarizona', 'usgovtexas', 'usdodeast', 'usdodcentral')
-    } else {
-        @('eastus', 'eastus2', 'westus', 'westus2', 'westus3', 'centralus', 'northcentralus', 'southcentralus', 'westcentralus')
-    }
-}
-
 $account = Invoke-AzJson -Arguments @(
     'account', 'show',
     '--query', '{id:id,name:name,tenantId:tenantId,user:user}'
@@ -677,9 +601,7 @@ Write-Host "Preparing to delete resource group '$ResourceGroupName'"
 $keyVaultPurgeTargets = Get-KeyVaultPurgeTargets
 $storageAccounts = @(Get-MigrationDemoResources | Where-Object { $_.type -eq 'Microsoft.Storage/storageAccounts' })
 $recoveryServicesVaults = Get-RecoveryServicesVaults
-$deletedRecoveryServicesVaults = @(Get-DeletedRecoveryServicesVaults)
-$allRecoveryServicesVaults = @($recoveryServicesVaults) + @($deletedRecoveryServicesVaults)
-Show-DestructiveResourceInventory -KeyVaults $keyVaultPurgeTargets -StorageAccounts $storageAccounts -RecoveryServicesVaults $allRecoveryServicesVaults
+Show-DestructiveResourceInventory -KeyVaults $keyVaultPurgeTargets -StorageAccounts $storageAccounts -RecoveryServicesVaults $recoveryServicesVaults
 
 if (-not (Confirm-DestructiveResourceAction -Description "Permanently remove every listed Key Vault and Recovery Services vault before deleting resource group '$ResourceGroupName'?")) {
     Write-Host 'Deletion cancelled.'
@@ -687,7 +609,6 @@ if (-not (Confirm-DestructiveResourceAction -Description "Permanently remove eve
 }
 
 Remove-MigrationDemoLocks
-Remove-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
 $recoveryServicesVaults = Get-RecoveryServicesVaults
 
 foreach ($vault in $recoveryServicesVaults) {
