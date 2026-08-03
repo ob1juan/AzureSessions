@@ -348,7 +348,7 @@ function Show-DestructiveResourceInventory {
                 Name         = $vault.Name
                 ResourceGroup = $ResourceGroupName
                 Location     = $vault.Location
-                Action       = if ($vault.State -eq 'SoftDeleted') { 'Undelete and permanently delete' } else { 'Permanently delete' }
+                Action       = if ($vault.State -eq 'SoftDeleted') { 'Permanently purge' } else { 'Permanently delete' }
             }
         }
     )
@@ -466,26 +466,22 @@ function Get-DeletedRecoveryServicesVaults {
     }
 }
 
-function Restore-DeletedRecoveryServicesVaults {
+function Remove-DeletedRecoveryServicesVaults {
     [CmdletBinding(SupportsShouldProcess)]
     param([object[]] $Vaults)
 
     foreach ($vault in $Vaults) {
-        Write-Host "Undeleting Recovery Services vault '$($vault.Name)' for permanent deletion"
-        if ($PSCmdlet.ShouldProcess($vault.Id, 'az backup deleted-vault undelete')) {
-            Invoke-AzCommand -Arguments @(
-                'backup', 'deleted-vault', 'undelete',
-                '--ids', $vault.Id
-            )
-
-            if ($vault.VaultId) {
-                Write-Host "Waiting for Recovery Services vault '$($vault.Name)' to become available"
+        Write-Host "Purging soft-deleted Recovery Services vault '$($vault.Name)'"
+        if ($PSCmdlet.ShouldProcess($vault.Id, 'az rest DELETE deletedVault')) {
+            try {
                 Invoke-AzCommand -Arguments @(
-                    'resource', 'wait',
-                    '--exists',
-                    '--ids', $vault.VaultId,
-                    '--timeout', '600'
+                    'rest',
+                    '--method', 'delete',
+                    '--url', "$($vault.Id)?api-version=2024-10-01"
                 )
+            }
+            catch {
+                throw "Unable to purge soft-deleted Recovery Services vault '$($vault.Name)': $($_.Exception.Message)"
             }
         }
     }
@@ -691,7 +687,7 @@ if (-not (Confirm-DestructiveResourceAction -Description "Permanently remove eve
 }
 
 Remove-MigrationDemoLocks
-Restore-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
+Remove-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
 $recoveryServicesVaults = Get-RecoveryServicesVaults
 
 foreach ($vault in $recoveryServicesVaults) {
