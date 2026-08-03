@@ -199,7 +199,7 @@ function Assert-SubscriptionOwner {
                 startDateTime = [DateTimeOffset]::UtcNow.ToString('o')
                 expiration    = @{
                     type     = 'AfterDuration'
-                    duration = 'PT1H'
+                    duration = 'PT8H'
                 }
             }
         }
