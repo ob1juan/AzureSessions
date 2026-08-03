@@ -348,7 +348,7 @@ function Show-DestructiveResourceInventory {
                 Name         = $vault.Name
                 ResourceGroup = $ResourceGroupName
                 Location     = $vault.Location
-                Action       = if ($vault.State -eq 'SoftDeleted') { 'Permanently purge' } else { 'Permanently delete' }
+                Action       = if ($vault.State -eq 'SoftDeleted') { 'Restore and permanently delete' } else { 'Permanently delete' }
             }
         }
     )
@@ -465,22 +465,21 @@ function Get-DeletedRecoveryServicesVaults {
     }
 }
 
-function Remove-DeletedRecoveryServicesVaults {
+function Restore-DeletedRecoveryServicesVaults {
     [CmdletBinding(SupportsShouldProcess)]
     param([object[]] $Vaults)
 
     foreach ($vault in $Vaults) {
-        Write-Host "Purging soft-deleted Recovery Services vault '$($vault.Name)'"
-        if ($PSCmdlet.ShouldProcess($vault.Id, 'az rest DELETE deletedVault')) {
+        Write-Host "Restoring soft-deleted Recovery Services vault '$($vault.Name)' before permanent deletion"
+        if ($PSCmdlet.ShouldProcess($vault.Id, 'az backup deleted-vault undelete')) {
             try {
                 Invoke-AzCommand -Arguments @(
-                    'rest',
-                    '--method', 'delete',
-                    '--url', "$($vault.Id)?api-version=2024-10-01"
+                    'backup', 'deleted-vault', 'undelete',
+                    '--ids', $vault.Id
                 )
             }
             catch {
-                throw "Unable to purge soft-deleted Recovery Services vault '$($vault.Name)': $($_.Exception.Message)"
+                throw "Unable to restore soft-deleted Recovery Services vault '$($vault.Name)' for permanent deletion: $($_.Exception.Message)"
             }
         }
     }
@@ -686,7 +685,7 @@ if (-not (Confirm-DestructiveResourceAction -Description "Permanently remove eve
 }
 
 Remove-MigrationDemoLocks
-Remove-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
+Restore-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
 $recoveryServicesVaults = Get-RecoveryServicesVaults
 
 foreach ($vault in $recoveryServicesVaults) {
