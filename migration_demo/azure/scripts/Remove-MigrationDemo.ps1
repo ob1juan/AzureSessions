@@ -626,6 +626,11 @@ function Remove-RecoveryServicesVaults {
                 Invoke-AzCommand -Arguments @('resource', 'wait', '--deleted', '--ids', $vault.id)
             }
             catch {
+                if ($_.Exception.Message -match '\(ResourceNotFound\)') {
+                    Write-Host "Recovery Services vault '$($vault.name)' is already deleted."
+                    continue
+                }
+
                 throw "Unable to permanently delete Recovery Services vault '$($vault.name)': $($_.Exception.Message)"
             }
         }
