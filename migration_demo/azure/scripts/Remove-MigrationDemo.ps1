@@ -8,10 +8,8 @@ param(
 
     [string] $PimJustification = 'Activate Owner to remove migration demo resources',
 
-    [string[]] $Locations = @(
-        'eastus', 'eastus2', 'westus', 'westus2', 'westus3',
-        'centralus', 'northcentralus', 'southcentralus', 'westcentralus'
-    )
+    # Defaults to US regions for the active cloud when not specified
+    [string[]] $Locations = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -634,6 +632,15 @@ function Remove-RecoveryServicesVaults {
 
 if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
     throw 'Azure CLI is required but was not found in PATH.'
+}
+
+if ($Locations.Count -eq 0) {
+    $cloudName = & az cloud show --query name --output tsv --only-show-errors 2>&1
+    $Locations = if ($cloudName -eq 'AzureUSGovernment') {
+        @('usgovvirginia', 'usgovarizona', 'usgovtexas', 'usdodeast', 'usdodcentral')
+    } else {
+        @('eastus', 'eastus2', 'westus', 'westus2', 'westus3', 'centralus', 'northcentralus', 'southcentralus', 'westcentralus')
+    }
 }
 
 $account = Invoke-AzJson -Arguments @(
