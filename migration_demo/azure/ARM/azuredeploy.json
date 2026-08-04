@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "8890322086138720424"
+      "templateHash": "17746578804816837565"
     }
   },
   "parameters": {
@@ -487,7 +487,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "14744480207923496577"
+              "templateHash": "2830961425643663886"
             }
           },
           "parameters": {
@@ -740,6 +740,11 @@
                       "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]"
                     }
                   ]
+                },
+                "diagnosticsProfile": {
+                  "bootDiagnostics": {
+                    "enabled": true
+                  }
                 },
                 "osProfile": {
                   "computerName": "[parameters('vmName')]",

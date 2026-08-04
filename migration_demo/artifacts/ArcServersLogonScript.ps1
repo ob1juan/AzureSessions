@@ -1942,17 +1942,14 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
     }
 
     if (-not (Test-ComponentCompleted -Name 'Re-enable auto-shutdown')) {
-        Start-DeploymentComponent -Name 'Re-enable auto-shutdown' -Message 'Re-enabling the Azure VM auto-shutdown schedule disabled during automation.'
+        Start-DeploymentComponent -Name 'Re-enable auto-shutdown' -Message 'Ensuring the Azure VM auto-shutdown schedule is enabled.'
         try {
         if ($env:autoShutdownEnabled -eq 'true') {
-            Write-Header 'Re-enabling Azure VM Auto-shutdown'
+            Write-Header 'Ensuring Azure VM Auto-shutdown is enabled'
 
-            # Bootstrap.ps1 temporarily disabled the DevTest Labs auto-shutdown schedule so it would
-            # not stop the VM mid-deployment. Now that automation is complete, re-enable it so the
-            # schedule configured by the template takes effect.
             $shutdownSchedule = Get-AzResource -ResourceType 'Microsoft.DevTestLab/schedules' -ResourceGroupName $env:resourceGroup -ErrorAction Stop | Where-Object { $_.Name -like "shutdown-computevm-*" } | Select-Object -First 1
             if ($null -eq $shutdownSchedule) {
-                Write-Warning 'Auto-shutdown schedule resource was not found; nothing to re-enable.'
+                Write-Warning 'Auto-shutdown schedule resource was not found; nothing to enable.'
                 Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Status Skipped -Message 'Auto-shutdown schedule resource not found.'
             } else {
                 $apiVersion = '2018-09-15'
@@ -1963,13 +1960,13 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
                 $body = $ScheduleSettings | ConvertTo-Json -Depth 30
                 $putResponse = Invoke-AzRestMethod -Method PUT -Uri $Uri -Payload $body
                 if ($putResponse.StatusCode -ge 200 -and $putResponse.StatusCode -lt 300) {
-                    Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Message "Auto-shutdown schedule '$($shutdownSchedule.Name)' re-enabled."
+                    Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Message "Auto-shutdown schedule '$($shutdownSchedule.Name)' is enabled."
                 } else {
-                    throw "Failed to re-enable auto-shutdown schedule. Status code: $($putResponse.StatusCode). Body: $($putResponse.Content)"
+                    throw "Failed to enable auto-shutdown schedule. Status code: $($putResponse.StatusCode). Body: $($putResponse.Content)"
                 }
             }
         } else {
-            Write-Output 'Auto-shutdown is disabled by the template; nothing to re-enable.'
+            Write-Output 'Auto-shutdown is disabled by the template; nothing to enable.'
             Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Status Skipped -Message 'Auto-shutdown is disabled by the template.'
         }
         } catch {

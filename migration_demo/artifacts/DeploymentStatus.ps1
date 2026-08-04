@@ -165,7 +165,7 @@ $defaultComponents = @(
     }
     @{
         Name = 'Re-enable auto-shutdown'
-        Description = 'Re-enables the Azure DevTest Labs auto-shutdown schedule that was temporarily disabled during automation.'
+        Description = 'Verifies that the Azure DevTest Labs auto-shutdown schedule remains enabled after automation.'
         RunsOn = 'Client VM / Hyper-V host'
         ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
         Command = 'Invoke-AzRestMethod -Method PUT against the Microsoft.DevTestLab/schedules resource to set properties.status = Enabled.'
@@ -591,11 +591,11 @@ function Update-DeploymentProgressTag {
             return
         }
 
-        $resourceGroup = Get-AzResourceGroup -Name $ResourceGroup -ErrorAction Stop
+        $resourceGroupRecord = Get-AzResourceGroup -Name $ResourceGroup -ErrorAction Stop
         $tags = @{}
-        if ($null -ne $resourceGroup.Tags) {
-            foreach ($key in $resourceGroup.Tags.Keys) {
-                $tags[$key] = [string]$resourceGroup.Tags[$key]
+        if ($null -ne $resourceGroupRecord.Tags) {
+            foreach ($key in $resourceGroupRecord.Tags.Keys) {
+                $tags[$key] = [string]$resourceGroupRecord.Tags[$key]
             }
         }
 
@@ -608,7 +608,7 @@ function Update-DeploymentProgressTag {
         }
     }
     catch {
-        Write-Verbose "Unable to update DeploymentStatus/DeploymentProgress tags: $($_.Exception.Message)"
+        Write-Warning "Unable to update DeploymentStatus/DeploymentProgress tags: $($_.Exception.Message)"
     }
 }
 

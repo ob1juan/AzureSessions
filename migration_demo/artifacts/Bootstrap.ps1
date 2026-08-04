@@ -128,6 +128,7 @@ Import-Module Az.KeyVault -RequiredVersion 6.4.1 -Force
 Import-Module Az.Resources -RequiredVersion 9.0.0 -Force
 
 Connect-AzAccount -Identity
+Set-AzContext -SubscriptionId $subscriptionId
 
 if (Test-Path $DeploymentStatusScript) {
     & $DeploymentStatusScript -Action Start -Component $CurrentDeploymentComponent -Message 'Started bootstrap-script...' -ResourceGroup $resourceGroup -SubscriptionId $subscriptionId -TenantId $tenantId
@@ -167,21 +168,6 @@ if ($vmAutologon -eq "true") {
 } else {
 
     Write-Host "Not configuring VM Autologon"
-
-}
-
-# Temporarily disabling Azure VM Auto-shutdown while automation is in progress
-if ($autoShutdownEnabled -eq "true") {
-
-    $ScheduleResource = Get-AzResource -ResourceGroup $resourceGroup -ResourceType Microsoft.DevTestLab/schedules
-    $Uri = "https://management.azure.com$($ScheduleResource.ResourceId)?api-version=2018-09-15"
-
-    $Schedule = Invoke-AzRestMethod -Uri $Uri
-
-    $ScheduleSettings = $Schedule.Content | ConvertFrom-Json
-    $ScheduleSettings.properties.status = "Disabled"
-
-    Invoke-AzRestMethod -Uri $Uri -Method PUT -Payload ($ScheduleSettings | ConvertTo-Json)
 
 }
 
@@ -278,11 +264,12 @@ Write-Host "Registry keys and values for Diagnostic Data settings have been set 
 
 # Change RDP Port
 Write-Host "RDP port number from configuration is $rdpPort"
+$TSPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
+$RDPTCPpath = $TSPath + '\Winstations\RDP-Tcp'
+Set-ItemProperty -Path $TSPath -Name 'fDenyTSConnections' -Value 0
+
 if (($null -ne $rdpPort) -and ($rdpPort -ne "") -and ($rdpPort -ne "3389")) {
     Write-Host "Configuring RDP port number to $rdpPort"
-    $TSPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
-    $RDPTCPpath = $TSPath + '\Winstations\RDP-Tcp'
-    Set-ItemProperty -Path $TSPath -name 'fDenyTSConnections' -Value 0
 
     # RDP port
     $portNumber = (Get-ItemProperty -Path $RDPTCPpath -Name 'PortNumber').PortNumber
@@ -293,16 +280,12 @@ if (($null -ne $rdpPort) -and ($rdpPort -ne "") -and ($rdpPort -ne "3389")) {
         Restart-Service TermService -force
     }
 
-    #Setup firewall rules
-    if ($rdpPort -eq 3389) {
-        netsh advfirewall firewall set rule group="remote desktop" new Enable=Yes
-    }
-    else {
-        $systemroot = get-content env:systemroot
-        netsh advfirewall firewall add rule name="Remote Desktop - Custom Port" dir=in program=$systemroot\system32\svchost.exe service=termservice action=allow protocol=TCP localport=$RDPPort enable=yes
-    }
+    $systemroot = Get-Content env:systemroot
+    netsh advfirewall firewall add rule name="Remote Desktop - Custom Port" dir=in program=$systemroot\system32\svchost.exe service=termservice action=allow protocol=TCP localport=$rdpPort enable=yes
 
     Write-Host "RDP port configuration complete."
+} else {
+    netsh advfirewall firewall set rule group="remote desktop" new Enable=Yes
 }
 
 # Workaround for https://github.com/microsoft/azure_arc/issues/3035
@@ -354,11 +337,35 @@ $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
 $StartupTrigger = New-ScheduledTaskTrigger -AtStartup
 $StartupTrigger.Delay = 'PT2M'
 $Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Env:ArcBoxDir\WinGet.ps1`""
-Register-ScheduledTask -TaskName "WinGetLogonScript" -Trigger @($LogonTrigger, $StartupTrigger) -User "$env:COMPUTERNAME\$adminUsername" -Password $adminPassword -Action $Action -RunLevel "Highest" -Force
+
+function Register-ArcBoxScheduledTask {
+    param(
+        [string]$TaskName,
+        [Microsoft.Management.Infrastructure.CimInstance]$TaskAction,
+        [Microsoft.Management.Infrastructure.CimInstance[]]$Trigger
+    )
+
+    $attempt = 0
+    do {
+        $attempt++
+        try {
+            Register-ScheduledTask -TaskName $TaskName -Trigger $Trigger -User "$env:COMPUTERNAME\$adminUsername" -Password $adminPassword -Action $TaskAction -RunLevel 'Highest' -Force -ErrorAction Stop | Out-Null
+            return
+        } catch {
+            if ($attempt -ge 3) {
+                throw
+            }
+            Write-Warning "Scheduled task '$TaskName' registration attempt $attempt failed: $($_.Exception.Message)"
+            Start-Sleep -Seconds 10
+        }
+    } while ($attempt -lt 3)
+}
+
+Register-ArcBoxScheduledTask -TaskName 'WinGetLogonScript' -Trigger @($LogonTrigger, $StartupTrigger) -TaskAction $Action
 
 # Creating scheduled task for ArcServersLogonScript.ps1
 $Action = New-ScheduledTaskAction -Execute $ScheduledTaskExecutable -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Env:ArcBoxDir\ArcServersLogonScript.ps1`""
-Register-ScheduledTask -TaskName "ArcServersLogonScript" -User "$env:COMPUTERNAME\$adminUsername" -Password $adminPassword -Action $Action -RunLevel "Highest" -Force
+Register-ArcBoxScheduledTask -TaskName 'ArcServersLogonScript' -Trigger $LogonTrigger -TaskAction $Action
 
 # Disabling Windows Server Manager Scheduled Task
 Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask

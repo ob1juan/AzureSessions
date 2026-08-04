@@ -175,6 +175,11 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
         }
       ]
     }
+    diagnosticsProfile: {
+      bootDiagnostics: {
+        enabled: true
+      }
+    }
     osProfile: {
       computerName: vmName
       adminUsername: windowsAdminUsername
