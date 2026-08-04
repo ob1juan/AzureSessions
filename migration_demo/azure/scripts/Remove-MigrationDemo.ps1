@@ -424,6 +424,7 @@ function Get-RecoveryServicesVaults {
 }
 
 function Get-DeletedRecoveryServicesVaults {
+    $matchingVaults = [System.Collections.Generic.List[object]]::new()
     foreach ($location in $Locations) {
         try {
             $deletedVaults = @(Invoke-AzJson -Arguments @(
@@ -454,15 +455,21 @@ function Get-DeletedRecoveryServicesVaults {
             }
 
             if ($originalResourceGroup -eq $ResourceGroupName) {
-                [pscustomobject]@{
-                    Name     = if ($vault.properties.vaultName) { $vault.properties.vaultName } else { $vault.name }
-                    Location = if ($vault.location) { $vault.location } else { $location }
-                    Id       = $vault.id
-                    State    = 'SoftDeleted'
-                }
+                $matchingVaults.Add([pscustomobject]@{
+                    Name            = if ($vault.properties.vaultName) { $vault.properties.vaultName } else { $vault.name }
+                    Location        = if ($vault.location) { $vault.location } else { $location }
+                    Id              = $vault.id
+                    OriginalVaultId = $vaultId
+                    DeletionTime    = $vault.properties.vaultDeletionTime
+                    State           = 'SoftDeleted'
+                })
             }
         }
     }
+
+    @($matchingVaults |
+        Group-Object OriginalVaultId |
+        ForEach-Object { $_.Group | Sort-Object DeletionTime -Descending | Select-Object -First 1 })
 }
 
 function Restore-DeletedRecoveryServicesVaults {
@@ -707,16 +714,30 @@ foreach ($vault in $recoveryServicesVaults) {
 Remove-AzureMigrateChildResources
 Remove-RecoveryServicesVaults -Vaults $recoveryServicesVaults
 
-Restore-DeletedRecoveryServicesVaults -Vaults $deletedRecoveryServicesVaults
-$recoveryServicesVaults = Get-RecoveryServicesVaults
+$pendingDeletedRecoveryServicesVaults = @($deletedRecoveryServicesVaults)
+for ($cleanupPass = 1; $pendingDeletedRecoveryServicesVaults.Count -gt 0; $cleanupPass++) {
+    if ($cleanupPass -gt 10) {
+        throw "Recovery Services cleanup still found deleted vault records after 10 passes: $($pendingDeletedRecoveryServicesVaults.Name -join ', ')"
+    }
 
-foreach ($vault in $recoveryServicesVaults) {
-    Disable-RecoveryServicesSoftDelete -Vault $vault
-    Disable-RecoveryServicesBackupItems -Vault $vault
+    Write-Host "Recovery Services deleted-vault cleanup pass $cleanupPass"
+    Restore-DeletedRecoveryServicesVaults -Vaults $pendingDeletedRecoveryServicesVaults
+    $recoveryServicesVaults = Get-RecoveryServicesVaults
+
+    foreach ($vault in $recoveryServicesVaults) {
+        Disable-RecoveryServicesSoftDelete -Vault $vault
+        Disable-RecoveryServicesBackupItems -Vault $vault
+    }
+
+    Remove-AzureMigrateChildResources
+    Remove-RecoveryServicesVaults -Vaults $recoveryServicesVaults
+
+    if ($WhatIfPreference) {
+        break
+    }
+
+    $pendingDeletedRecoveryServicesVaults = @(Get-DeletedRecoveryServicesVaults)
 }
-
-Remove-AzureMigrateChildResources
-Remove-RecoveryServicesVaults -Vaults $recoveryServicesVaults
 Remove-MigrationDemoKeyVaults -KeyVaults $keyVaultPurgeTargets
 $keyVaultPurgeTargets = @(Get-KeyVaultPurgeTargets -DeletedOnly)
 Remove-DeletedKeyVaults -KeyVaults $keyVaultPurgeTargets
