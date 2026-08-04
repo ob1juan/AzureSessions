@@ -66,7 +66,8 @@ if ($null -ne $tags) {
 }
 
 $null = Set-AzResourceGroup -ResourceGroupName $env:resourceGroup -Tag $tags
-$null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $env:resourceGroup -ResourceType "microsoft.compute/virtualmachines" -Tag $tags -Force
+$vmResourceId = "/subscriptions/$env:subscriptionId/resourceGroups/$env:resourceGroup/providers/Microsoft.Compute/virtualMachines/$env:computername"
+$null = Update-AzTag -ResourceId $vmResourceId -Tag @{ DeploymentStatus = $DeploymentStatusString; DeploymentProgress = $DeploymentProgressString } -Operation Merge -ErrorAction SilentlyContinue
 
 # Setup scheduled task for running tests on each logon
 $TaskName = "ArcBox Pester tests"

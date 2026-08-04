@@ -1989,7 +1989,8 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
     }
 
     $null = Set-AzResourceGroup -ResourceGroupName $env:resourceGroup -Tag $tags
-    $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $env:resourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force
+    $vmResourceId = "/subscriptions/$env:subscriptionId/resourceGroups/$env:resourceGroup/providers/Microsoft.Compute/virtualMachines/$env:computername"
+    $null = Update-AzTag -ResourceId $vmResourceId -Tag @{ DeploymentStatus = $tags['DeploymentStatus']; DeploymentProgress = $tags['DeploymentProgress'] } -Operation Merge -ErrorAction SilentlyContinue
 
     if (Test-Path $DeploymentStatusScript) {
         & $DeploymentStatusScript -Action Report -Open

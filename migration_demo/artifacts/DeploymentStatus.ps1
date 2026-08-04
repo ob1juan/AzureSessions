@@ -603,8 +603,10 @@ function Update-DeploymentProgressTag {
         $tags['DeploymentProgress'] = $progressText
         $null = Set-AzResourceGroup -ResourceGroupName $ResourceGroup -Tag $tags -ErrorAction Stop
 
-        if (-not [string]::IsNullOrWhiteSpace($env:computername) -and (Get-Command Set-AzResource -ErrorAction SilentlyContinue)) {
-            $null = Set-AzResource -ResourceName $env:computername -ResourceGroupName $ResourceGroup -ResourceType 'microsoft.compute/virtualmachines' -Tag $tags -Force -ErrorAction SilentlyContinue
+        # Tags API only: a full VM PUT never completes while the VM's own extension is still running.
+        if (-not [string]::IsNullOrWhiteSpace($env:computername) -and -not [string]::IsNullOrWhiteSpace($SubscriptionId) -and (Get-Command Update-AzTag -ErrorAction SilentlyContinue)) {
+            $vmResourceId = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Compute/virtualMachines/$env:computername"
+            $null = Update-AzTag -ResourceId $vmResourceId -Tag @{ DeploymentStatus = $statusText; DeploymentProgress = $progressText } -Operation Merge -ErrorAction SilentlyContinue
         }
     }
     catch {
