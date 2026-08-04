@@ -348,7 +348,7 @@ function Show-DestructiveResourceInventory {
                 Name         = $vault.Name
                 ResourceGroup = $ResourceGroupName
                 Location     = $vault.Location
-                Action       = if ($vault.State -eq 'SoftDeleted') { 'Restore and permanently delete' } else { 'Permanently delete' }
+                Action       = if ($vault.State -eq 'SoftDeleted') { 'Auto-purges after retention' } else { 'Permanently delete' }
             }
         }
     )
@@ -424,7 +424,6 @@ function Get-RecoveryServicesVaults {
 }
 
 function Get-DeletedRecoveryServicesVaults {
-    $matchingVaults = [System.Collections.Generic.List[object]]::new()
     foreach ($location in $Locations) {
         try {
             $deletedVaults = @(Invoke-AzJson -Arguments @(
@@ -455,45 +454,12 @@ function Get-DeletedRecoveryServicesVaults {
             }
 
             if ($originalResourceGroup -eq $ResourceGroupName) {
-                $matchingVaults.Add([pscustomobject]@{
-                    Name            = if ($vault.properties.vaultName) { $vault.properties.vaultName } else { $vault.name }
-                    Location        = if ($vault.location) { $vault.location } else { $location }
-                    Id              = $vault.id
-                    OriginalVaultId = $vaultId
-                    DeletionTime    = $vault.properties.vaultDeletionTime
-                    State           = 'SoftDeleted'
-                })
-            }
-        }
-    }
-
-    @($matchingVaults |
-        Group-Object OriginalVaultId |
-        ForEach-Object { $_.Group | Sort-Object DeletionTime -Descending | Select-Object -First 1 })
-}
-
-function Restore-DeletedRecoveryServicesVaults {
-    [CmdletBinding(SupportsShouldProcess)]
-    param([object[]] $Vaults)
-
-    foreach ($vault in $Vaults) {
-        Write-Host "Restoring soft-deleted Recovery Services vault '$($vault.Name)' before permanent deletion"
-        if ($PSCmdlet.ShouldProcess($vault.Id, 'az backup deleted-vault undelete')) {
-            for ($attempt = 1; $attempt -le 30; $attempt++) {
-                try {
-                    Invoke-AzCommand -Arguments @(
-                        'backup', 'deleted-vault', 'undelete',
-                        '--ids', $vault.Id
-                    )
-                    break
-                }
-                catch {
-                    if ($_.Exception.Message -notmatch 'UserErrorDeletedVaultUndeleteConflictingVaultPresent' -or $attempt -eq 30) {
-                        throw "Unable to restore soft-deleted Recovery Services vault '$($vault.Name)' for permanent deletion: $($_.Exception.Message)"
-                    }
-
-                    Write-Host "Waiting for the deleted active vault name to become available (attempt $attempt of 30)"
-                    Start-Sleep -Seconds 10
+                [pscustomobject]@{
+                    Name     = if ($vault.properties.vaultName) { $vault.properties.vaultName } else { $vault.name }
+                    Location = if ($vault.location) { $vault.location } else { $location }
+                    Id       = $vault.id
+                    PurgeAt  = $vault.properties.purgeAt
+                    State    = 'SoftDeleted'
                 }
             }
         }
@@ -714,30 +680,11 @@ foreach ($vault in $recoveryServicesVaults) {
 Remove-AzureMigrateChildResources
 Remove-RecoveryServicesVaults -Vaults $recoveryServicesVaults
 
-$pendingDeletedRecoveryServicesVaults = @($deletedRecoveryServicesVaults)
-for ($cleanupPass = 1; $pendingDeletedRecoveryServicesVaults.Count -gt 0; $cleanupPass++) {
-    if ($cleanupPass -gt 10) {
-        throw "Recovery Services cleanup still found deleted vault records after 10 passes: $($pendingDeletedRecoveryServicesVaults.Name -join ', ')"
-    }
-
-    Write-Host "Recovery Services deleted-vault cleanup pass $cleanupPass"
-    Restore-DeletedRecoveryServicesVaults -Vaults $pendingDeletedRecoveryServicesVaults
-    $recoveryServicesVaults = Get-RecoveryServicesVaults
-
-    foreach ($vault in $recoveryServicesVaults) {
-        Disable-RecoveryServicesSoftDelete -Vault $vault
-        Disable-RecoveryServicesBackupItems -Vault $vault
-    }
-
-    Remove-AzureMigrateChildResources
-    Remove-RecoveryServicesVaults -Vaults $recoveryServicesVaults
-
-    if ($WhatIfPreference) {
-        break
-    }
-
-    $pendingDeletedRecoveryServicesVaults = @(Get-DeletedRecoveryServicesVaults)
+# Soft-deleted Recovery Services vaults cannot be purged on demand and do not block group deletion.
+foreach ($vault in $deletedRecoveryServicesVaults) {
+    Write-Host "Leaving soft-deleted Recovery Services vault '$($vault.Name)' to auto-purge at $($vault.PurgeAt)"
 }
+
 Remove-MigrationDemoKeyVaults -KeyVaults $keyVaultPurgeTargets
 $keyVaultPurgeTargets = @(Get-KeyVaultPurgeTargets -DeletedOnly)
 Remove-DeletedKeyVaults -KeyVaults $keyVaultPurgeTargets
