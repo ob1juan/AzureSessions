@@ -125,6 +125,29 @@ function Complete-DeploymentComponent {
     }
 }
 
+# Retries transient Azure failures a bounded number of times so a run can finish without being
+# re-run, while still giving up rather than blocking the remaining components forever.
+function Invoke-ArcBoxWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][scriptblock]$ScriptBlock,
+        [string]$Operation = 'Azure operation',
+        [int]$MaxAttempts = 5,
+        [int]$DelaySeconds = 15
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            return & $ScriptBlock
+        } catch {
+            if ($attempt -eq $MaxAttempts) {
+                throw
+            }
+            Write-Warning "$Operation failed (attempt $attempt of $MaxAttempts): $($_.Exception.Message)"
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+}
+
 function ConvertTo-ArcBoxDhcpClientId {
     param(
         [Parameter(Mandatory = $true)][string]$MacAddress,
@@ -858,7 +881,7 @@ trap {
         & $DeploymentStatusScript -Action Report -Open
     }
     try { Stop-Transcript } catch { }
-    throw
+    throw $_
 }
 
 # Remove registry keys that are used to automatically logon the user (only used for first-time setup)
@@ -1019,8 +1042,12 @@ if ($Env:flavor -ne 'DevOps') {
 
         # Required for CLI commands
         Write-Header 'Az CLI Login'
-        az login --identity
-        az account set -s $subscriptionId
+        Invoke-ArcBoxWithRetry -Operation 'Azure CLI managed identity login' -ScriptBlock {
+            az login --identity --only-show-errors | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "az login --identity exited with code $LASTEXITCODE." }
+            az account set -s $subscriptionId --only-show-errors
+            if ($LASTEXITCODE -ne 0) { throw "az account set exited with code $LASTEXITCODE." }
+        }
 
         Write-Header 'Register Arc and Azure Migrate resource providers'
         $requiredResourceProviders = @(
@@ -1029,19 +1056,31 @@ if ($Env:flavor -ne 'DevOps') {
             'Microsoft.Migrate'
         )
 
+        $unregisteredProviders = @()
         foreach ($providerNamespace in $requiredResourceProviders) {
-            $registrationState = (az provider show --namespace $providerNamespace --query registrationState -o tsv --only-show-errors)
-            if ($registrationState -ne 'Registered') {
-                Write-Host "Registering provider $providerNamespace"
-                az provider register --namespace $providerNamespace --wait --only-show-errors
-                $registrationState = (az provider show --namespace $providerNamespace --query registrationState -o tsv --only-show-errors)
-            }
+            try {
+                Invoke-ArcBoxWithRetry -Operation "Registering resource provider $providerNamespace" -ScriptBlock {
+                    $registrationState = (az provider show --namespace $providerNamespace --query registrationState -o tsv --only-show-errors)
+                    if ($registrationState -ne 'Registered') {
+                        Write-Host "Registering provider $providerNamespace"
+                        az provider register --namespace $providerNamespace --wait --only-show-errors
+                        $registrationState = (az provider show --namespace $providerNamespace --query registrationState -o tsv --only-show-errors)
+                    }
 
-            if ($registrationState -ne 'Registered') {
-                throw "Provider $providerNamespace is in state '$registrationState'. Expected 'Registered'."
-            }
+                    if ($registrationState -ne 'Registered') {
+                        throw "Provider $providerNamespace is in state '$registrationState'. Expected 'Registered'."
+                    }
+                }
 
-            Write-Host "Provider $providerNamespace is Registered"
+                Write-Host "Provider $providerNamespace is Registered"
+            } catch {
+                Write-Warning "Provider $providerNamespace could not be registered: $($_.Exception.Message)"
+                $unregisteredProviders += $providerNamespace
+            }
+        }
+
+        if ($unregisteredProviders.Count -gt 0) {
+            throw "Resource providers not registered: $($unregisteredProviders -join ', ')."
         }
 
         Complete-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Required Arc and Azure Migrate resource providers are registered.'
@@ -1051,8 +1090,15 @@ if ($Env:flavor -ne 'DevOps') {
         }
     }
 
+    # Components below depend on this context, so a failure here is reported but must not abort the run.
     Write-Header 'Az PowerShell Login'
-    Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId
+    try {
+        Invoke-ArcBoxWithRetry -Operation 'Az PowerShell managed identity login' -ScriptBlock {
+            Connect-AzAccount -Identity -Tenant $tenantId -Subscription $subscriptionId -ErrorAction Stop | Out-Null
+        }
+    } catch {
+        Write-Warning "Az PowerShell login failed; components that require an Azure context will fail: $($_.Exception.Message)"
+    }
 
     if (-not (Test-ComponentCompleted -Name 'Azure Migrate Appliance VM')) {
         Start-DeploymentComponent -Name 'Azure Migrate Appliance VM' -Message "Downloading the Azure Migrate appliance ZIP, extracting the VHD, and creating Hyper-V VM $azureMigrateApplianceVmName."
