@@ -148,6 +148,43 @@ function Invoke-ArcBoxWithRetry {
     }
 }
 
+# Task Scheduler hands this task a cached environment block, so the PATH entry added by the Azure
+# CLI install earlier in the same boot is not visible yet. Refresh it and fall back to the
+# default install directory before any az command runs.
+function Initialize-ArcBoxAzureCli {
+    if (Get-Command az -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    $registryPath = @(
+        [Environment]::GetEnvironmentVariable('Path', 'Machine')
+        [Environment]::GetEnvironmentVariable('Path', 'User')
+    ) | Where-Object { $_ }
+    if ($registryPath) {
+        $env:PATH = $registryPath -join ';'
+    }
+
+    if (Get-Command az -ErrorAction SilentlyContinue) {
+        Write-Host 'Azure CLI resolved after refreshing PATH from the registry.'
+        return
+    }
+
+    $cliDirectories = @(
+        (Join-Path $env:ProgramFiles 'Microsoft SDKs\Azure\CLI2\wbin')
+        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft SDKs\Azure\CLI2\wbin')
+    ) | Where-Object { $_ }
+
+    foreach ($cliDirectory in $cliDirectories) {
+        if (Test-Path (Join-Path $cliDirectory 'az.cmd')) {
+            $env:PATH = "$env:PATH;$cliDirectory"
+            Write-Host "Azure CLI resolved from '$cliDirectory'."
+            return
+        }
+    }
+
+    throw 'Azure CLI (az) is not available yet; the WinGet host configuration may still be installing it.'
+}
+
 function ConvertTo-ArcBoxDhcpClientId {
     param(
         [Parameter(Mandatory = $true)][string]$MacAddress,
@@ -1042,7 +1079,9 @@ if ($Env:flavor -ne 'DevOps') {
 
         # Required for CLI commands
         Write-Header 'Az CLI Login'
-        Invoke-ArcBoxWithRetry -Operation 'Azure CLI managed identity login' -ScriptBlock {
+        # Allows up to ~5 minutes for the WinGet host configuration to finish installing the CLI.
+        Invoke-ArcBoxWithRetry -Operation 'Azure CLI managed identity login' -MaxAttempts 10 -DelaySeconds 30 -ScriptBlock {
+            Initialize-ArcBoxAzureCli
             az login --identity --only-show-errors | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "az login --identity exited with code $LASTEXITCODE." }
             az account set -s $subscriptionId --only-show-errors
