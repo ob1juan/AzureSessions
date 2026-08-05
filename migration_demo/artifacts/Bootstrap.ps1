@@ -91,7 +91,7 @@ trap {
         & $DeploymentStatusScript -Action Report -Open
     }
     try { Stop-Transcript } catch { }
-    throw
+    throw $_
 }
 
 Invoke-WebRequest ($templateBaseUrl + "artifacts/DeploymentStatus.ps1") -OutFile $DeploymentStatusScript
@@ -345,20 +345,9 @@ function Register-ArcBoxScheduledTask {
         [Microsoft.Management.Infrastructure.CimInstance[]]$Trigger
     )
 
-    $attempt = 0
-    do {
-        $attempt++
-        try {
-            Register-ScheduledTask -TaskName $TaskName -Trigger $Trigger -User "$env:COMPUTERNAME\$adminUsername" -Password $adminPassword -Action $TaskAction -RunLevel 'Highest' -Force -ErrorAction Stop | Out-Null
-            return
-        } catch {
-            if ($attempt -ge 3) {
-                throw
-            }
-            Write-Warning "Scheduled task '$TaskName' registration attempt $attempt failed: $($_.Exception.Message)"
-            Start-Sleep -Seconds 10
-        }
-    } while ($attempt -lt 3)
+    # Interactive logon needs no password; LSA can reject the correct one shortly after provisioning.
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\$adminUsername" -LogonType Interactive -RunLevel Highest
+    Register-ScheduledTask -TaskName $TaskName -Trigger $Trigger -Principal $principal -Action $TaskAction -Force -ErrorAction Stop | Out-Null
 }
 
 Register-ArcBoxScheduledTask -TaskName 'WinGetLogonScript' -Trigger @($LogonTrigger, $StartupTrigger) -TaskAction $Action
