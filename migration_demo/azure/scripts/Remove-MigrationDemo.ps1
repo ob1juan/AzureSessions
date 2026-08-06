@@ -6,6 +6,9 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'PurgeSubscription')]
     [switch] $PurgeOnly,
 
+    # Subscription id or name to target. Defaults to the logged-in account's active subscription when empty.
+    [string] $Subscription,
+
     [string] $PimJustification = 'Activate Owner to remove migration demo resources',
 
     # Defaults to US regions for the active cloud when not specified
@@ -612,6 +615,11 @@ function Remove-RecoveryServicesVaults {
 
 if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
     throw 'Azure CLI is required but was not found in PATH.'
+}
+
+if (-not [string]::IsNullOrWhiteSpace($Subscription)) {
+    Write-Host "Setting active subscription to '$Subscription'"
+    Invoke-AzCommand -Arguments @('account', 'set', '--subscription', $Subscription)
 }
 
 if ($Locations.Count -eq 0) {
