@@ -10,7 +10,7 @@ Use this guide to validate an Azure subscription you can use for the migration d
 
 ## Prerequisites
 
-- The dedicated Microsoft Entra tenant and Azure trial subscription created with the `ob1juan` account; see the prerequisite guide
+- A dedicated Microsoft Entra tenant and Azure trial subscription; see the prerequisite guide
 - A phone number for verification
 - A valid payment method for identity validation (usage beyond trial limits can incur charges)
 
