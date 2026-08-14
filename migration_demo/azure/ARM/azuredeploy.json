@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.45.15.27210",
-      "templateHash": "17746578804816837565"
+      "version": "0.46.1.21595",
+      "templateHash": "1886917895617456644"
     }
   },
   "parameters": {
@@ -418,8 +418,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "17355326158826856095"
+              "version": "0.46.1.21595",
+              "templateHash": "8769887696776652404"
             }
           },
           "resources": [
@@ -486,8 +486,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "2830961425643663886"
+              "version": "0.46.1.21595",
+              "templateHash": "6275246158239535646"
             }
           },
           "parameters": {
@@ -881,8 +881,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "10961813308198634665"
+              "version": "0.46.1.21595",
+              "templateHash": "6168846106578895161"
             }
           },
           "parameters": {
@@ -1521,10 +1521,10 @@
                 "enabledForTemplateDeployment": true,
                 "enabledForDiskEncryption": true,
                 "enableRbacAuthorization": true,
-                "publicNetworkAccess": "Disabled",
+                "publicNetworkAccess": "Enabled",
                 "networkAcls": {
                   "bypass": "AzureServices",
-                  "defaultAction": "Deny",
+                  "defaultAction": "Allow",
                   "ipRules": [],
                   "virtualNetworkRules": []
                 }
@@ -1638,8 +1638,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "1922514959203083700"
+              "version": "0.46.1.21595",
+              "templateHash": "9483363439713304492"
             }
           },
           "resources": []
@@ -1668,8 +1668,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "16068515035843221997"
+              "version": "0.46.1.21595",
+              "templateHash": "9741050693750411488"
             }
           },
           "parameters": {
@@ -1771,8 +1771,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "11248829327853297161"
+              "version": "0.46.1.21595",
+              "templateHash": "5106396424511349725"
             }
           },
           "parameters": {

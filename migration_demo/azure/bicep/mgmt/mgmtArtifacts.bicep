@@ -568,10 +568,10 @@ resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
     enabledForTemplateDeployment: true
     enabledForDiskEncryption: true
     enableRbacAuthorization: true
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: 'Enabled'
     networkAcls: {
       bypass: 'AzureServices'
-      defaultAction: 'Deny'
+      defaultAction: 'Allow'
       ipRules: []
       virtualNetworkRules: []
     }
