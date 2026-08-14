@@ -6,7 +6,7 @@ This repository contains working assets used for SLED Azure Enablement Sessions,
 
 Use the guided lab sequence below to run the full demo from a new subscription through migration and modernization outcomes:
 
-1. [Prerequisites - Trial Entra Tenant and Azure Subscription](migration_demo/lab_guides/00-prerequisites-entra-and-azure-trial.md)
+1. [Prerequisites - Trial Entra Tenant and Azure Subscription](migration_demo/lab_guides/00-prerequisites-azure-trial-setup.md)
 2. [Lab 01 - Azure Trial Subscription](migration_demo/lab_guides/01-azure-trial-subscription.md)
 3. [Lab 02 - Environment Setup](migration_demo/lab_guides/02-environment-setup.md)
 4. [Lab 03 - Azure Migrate Assessment (VMs and Databases)](migration_demo/lab_guides/03-azure-migrate-assessment.md)
