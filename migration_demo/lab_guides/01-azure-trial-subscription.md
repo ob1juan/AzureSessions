@@ -1,6 +1,6 @@
 # Lab 01: Sign Up for an Azure Trial Subscription
 
-Use this guide to create an Azure subscription you can use for the migration demo labs.
+Use this guide to validate an Azure subscription you can use for the migration demo labs. If you still need the tenant and trial subscription, complete [Prerequisites - Trial Entra Tenant and Azure Subscription](00-prerequisites-entra-and-azure-trial.md) first.
 
 ## Outcomes
 
@@ -10,7 +10,7 @@ Use this guide to create an Azure subscription you can use for the migration dem
 
 ## Prerequisites
 
-- A Microsoft account (or create one during sign-up)
+- The dedicated Microsoft Entra tenant and Azure trial subscription created with the `ob1juan` account; see the prerequisite guide
 - A phone number for verification
 - A valid payment method for identity validation (usage beyond trial limits can incur charges)
 
