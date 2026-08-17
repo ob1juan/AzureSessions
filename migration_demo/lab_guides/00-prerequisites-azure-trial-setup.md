@@ -1,6 +1,6 @@
 # Prerequisites: Create a Trial Microsoft Entra Tenant and Azure Subscription
 
-Complete this guide before starting [Lab 01 - Azure Trial Subscription](01-azure-trial-subscription.md). The supported trial flow creates a dedicated Microsoft Entra tenant together with an Azure trial subscription for the labs.
+Complete this guide before starting [Lab 01 - Azure Deployment](01-azure-deployment.md). The supported trial flow creates a dedicated Microsoft Entra tenant together with an Azure trial subscription for the labs.
 
 > **Important:** Microsoft currently does not allow a free tenant or a trial subscription to create an additional Workforce tenant from the Microsoft Entra admin center. For a trial environment, start with the Azure free-account sign-up. The sign-up creates the initial Microsoft Entra tenant, and the Azure trial subscription is created in that tenant. The separate **Manage tenants > Create** flow is included for reference only and requires an eligible paid billing arrangement.
 
@@ -24,7 +24,7 @@ Complete this guide before starting [Lab 01 - Azure Trial Subscription](01-azure
 1. Open [Azure Free Account](https://azure.microsoft.com/free/).
 2. Select **Start free** under **Azure free account**.
 
-   ![Azure free account offer showing the $200 credit and Try Azure for free button.](images/azure-free-account.png)
+   ![Azure free account offer showing the $200 credit and Try Azure for free button.](images/03-azure-free-account.png)
 
 3. Sign in with the account dedicated to this lab.
 4. If this account has no directory yet, continue through the account-creation flow. Azure creates an initial Microsoft Entra tenant with an initial domain in the form `<name>.onmicrosoft.com`.
@@ -109,7 +109,7 @@ The returned `tenantId` must match the tenant ID recorded in Part 2.
 
 ## Continue
 
-After the tenant and subscription checks pass, continue with [Lab 01 - Azure Trial Subscription](01-azure-trial-subscription.md), then [Lab 02 - Environment Setup](02-environment-setup.md).
+After the tenant and subscription checks pass, continue with [Lab 01 - Azure Deployment](01-azure-deployment.md), then [Lab 02 - Login to Host VM](02-login-to-host-vm.md), and finally [Lab 03 - Azure Migrate Setup](03-azure-migrate-setup.md).
 
 ## References
 
