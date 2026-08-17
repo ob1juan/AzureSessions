@@ -5,6 +5,14 @@ BeforeDiscovery {
     $null = Connect-AzAccount -Identity -Tenant $env:tenantId -Subscription $env:subscriptionId
 }
 
+Describe "Hyper-V host Azure Arc connection" {
+    It "Azure Arc Connected Machine exists and is connected" {
+        $connectedMachine = Get-AzConnectedMachine -Name $env:COMPUTERNAME -ResourceGroupName $env:resourceGroup -SubscriptionId $env:subscriptionId
+        $connectedMachine | Should -Not -BeNullOrEmpty
+        $connectedMachine.Status | Should -Be "Connected"
+    }
+}
+
 # Assert that the Hyper-V virtual machines in $VMs exists, are running and connected as Azure Arc-enabled servers
 
 Describe "<vm>" -ForEach $VMs {

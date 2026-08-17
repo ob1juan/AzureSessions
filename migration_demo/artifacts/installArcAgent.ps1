@@ -27,4 +27,8 @@
  --cloud "AzureCloud" `
  --correlation-id "d009f5dd-dba8-4ac7-bac9-b54ef3a6671a" # Do no change!
 
- if($LastExitCode -eq 0){Write-Host -ForegroundColor yellow "To view your onboarded server(s), navigate to https://ms.portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.HybridCompute%2Fmachines"}
+ if ($LastExitCode -ne 0) {
+     throw "Azure Connected Machine agent failed to connect. azcmagent exited with code $LastExitCode."
+ }
+
+ Write-Host -ForegroundColor yellow "To view your onboarded server(s), navigate to https://ms.portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.HybridCompute%2Fmachines"
