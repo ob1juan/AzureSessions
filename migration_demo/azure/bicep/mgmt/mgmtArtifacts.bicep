@@ -31,6 +31,14 @@ param flavor string
 @description('Azure Region to deploy the Log Analytics Workspace')
 param location string = resourceGroup().location
 
+@description('Name of the Log Analytics workspace used by VM Insights and Arc-enabled servers')
+param logAnalyticsWorkspaceName string = '${namingPrefix}-LogAnalytics'
+
+@description('Log retention in days for the Log Analytics workspace')
+@minValue(30)
+@maxValue(730)
+param logAnalyticsRetentionInDays int = 30
+
 @description('Choice to deploy Bastion to connect to the client VM')
 param deployBastion bool = false
 
@@ -68,6 +76,10 @@ var bastionSubnetRef = '${arcVirtualNetwork.id}/subnets/${bastionSubnetName}'
 var bastionName = '${namingPrefix}-Bastion'
 var bastionSubnetIpPrefix = '10.16.3.64/26'
 var bastionPublicIpAddressName = '${bastionName}-PIP'
+var vmInsightsDataCollectionRuleName = '${namingPrefix}-VMInsights-DCR'
+var windowsMonitorInitiativeId = subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', '9575b8b7-78ab-4281-b53b-d3c1ace2260b')
+var linuxMonitorInitiativeId = subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', '118f04da-0375-44d1-84e3-0fd9e1849403')
+var contributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
 
 var primarySubnet = [
   {
@@ -632,7 +644,151 @@ resource kvPrivateEndpointDnsZoneGroup 'Microsoft.Network/privateEndpoints/priva
   }
 }
 
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: logAnalyticsWorkspaceName
+  location: location
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: logAnalyticsRetentionInDays
+    features: {
+      enableLogAccessUsingOnlyResourcePermissions: true
+    }
+    publicNetworkAccessForIngestion: 'Enabled'
+    publicNetworkAccessForQuery: 'Enabled'
+  }
+}
+
+resource vmInsightsDataCollectionRule 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
+  name: vmInsightsDataCollectionRuleName
+  location: location
+  properties: {
+    description: 'Collects VM Insights performance data from Azure and Arc-enabled machines.'
+    dataSources: {
+      performanceCounters: [
+        {
+          name: 'VMInsightsPerfCounters'
+          streams: [
+            'Microsoft-InsightsMetrics'
+          ]
+          samplingFrequencyInSeconds: 60
+          counterSpecifiers: [
+            '\\VmInsights\\DetailedMetrics'
+          ]
+        }
+      ]
+      extensions: [
+        {
+          name: 'DependencyAgentDataSource'
+          extensionName: 'DependencyAgent'
+          extensionSettings: {}
+          streams: [
+            'Microsoft-ServiceMap'
+          ]
+        }
+      ]
+    }
+    destinations: {
+      logAnalytics: [
+        {
+          name: 'VMInsightsLogAnalytics'
+          workspaceResourceId: logAnalyticsWorkspace.id
+        }
+      ]
+    }
+    dataFlows: [
+      {
+        streams: [
+          'Microsoft-InsightsMetrics'
+        ]
+        destinations: [
+          'VMInsightsLogAnalytics'
+        ]
+      }
+      {
+        streams: [
+          'Microsoft-ServiceMap'
+        ]
+        destinations: [
+          'VMInsightsLogAnalytics'
+        ]
+      }
+    ]
+  }
+}
+
+resource windowsMonitorPolicyAssignment 'Microsoft.Authorization/policyAssignments@2024-04-01' = {
+  name: 'windows-ama-vminsights'
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    displayName: 'Configure Windows machines for VM Insights'
+    description: 'Deploys Azure Monitor Agent and associates Azure VMs, VM scale sets, and Arc-enabled Windows servers with the VM Insights DCR.'
+    policyDefinitionId: windowsMonitorInitiativeId
+    enforcementMode: 'Default'
+    parameters: {
+      effect: {
+        value: 'DeployIfNotExists'
+      }
+      scopeToSupportedImages: {
+        value: true
+      }
+      DcrResourceId: {
+        value: vmInsightsDataCollectionRule.id
+      }
+    }
+  }
+}
+
+resource linuxMonitorPolicyAssignment 'Microsoft.Authorization/policyAssignments@2024-04-01' = {
+  name: 'linux-ama-vminsights'
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    displayName: 'Configure Linux machines for VM Insights'
+    description: 'Deploys Azure Monitor Agent and associates Azure VMs, VM scale sets, and Arc-enabled Linux servers with the VM Insights DCR.'
+    policyDefinitionId: linuxMonitorInitiativeId
+    enforcementMode: 'Default'
+    parameters: {
+      effect: {
+        value: 'DeployIfNotExists'
+      }
+      scopeToSupportedImages: {
+        value: true
+      }
+      dcrResourceId: {
+        value: vmInsightsDataCollectionRule.id
+      }
+    }
+  }
+}
+
+resource windowsMonitorPolicyRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, windowsMonitorPolicyAssignment.id, contributorRoleDefinitionId)
+  properties: {
+    principalId: windowsMonitorPolicyAssignment.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: contributorRoleDefinitionId
+  }
+}
+
+resource linuxMonitorPolicyRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, linuxMonitorPolicyAssignment.id, contributorRoleDefinitionId)
+  properties: {
+    principalId: linuxMonitorPolicyAssignment.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: contributorRoleDefinitionId
+  }
+}
+
 output vnetId string = arcVirtualNetwork.id
 output subnetId string = arcVirtualNetwork.properties.subnets[0].id
 output keyVaultName string = keyVaultName
 output keyVaultId string = kv.id
+output logAnalyticsWorkspaceId string = logAnalyticsWorkspace.id
+output vmInsightsDataCollectionRuleId string = vmInsightsDataCollectionRule.id

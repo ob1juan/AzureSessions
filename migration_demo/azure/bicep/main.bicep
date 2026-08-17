@@ -347,3 +347,5 @@ output centralKeyVaultId string = mgmtArtifactsAndPolicyDeployment.outputs.keyVa
 output centralKeyVaultName string = mgmtArtifactsAndPolicyDeployment.outputs.keyVaultName
 output azureMigrateProjectId string = migrateProject.id
 output azureMigrateProjectName string = migrateProject.name
+output logAnalyticsWorkspaceId string = mgmtArtifactsAndPolicyDeployment.outputs.logAnalyticsWorkspaceId
+output vmInsightsDataCollectionRuleId string = mgmtArtifactsAndPolicyDeployment.outputs.vmInsightsDataCollectionRuleId
