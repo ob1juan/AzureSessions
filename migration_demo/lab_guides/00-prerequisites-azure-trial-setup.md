@@ -85,8 +85,6 @@ The Azure Free Account offer is subject to Microsoft's current eligibility, offe
 - **The subscription is not visible:** Confirm that you are signed in with the account used for sign-up and refresh the Subscriptions page.
 - **You do not want to enter credit-card information:** Do not create the trial. Follow along with the step-by-step demonstration during the session instead.
 
-After the subscription shows **Enabled**, continue with [Lab 01 - Azure Deployment](01-azure-deployment.md).
-
 ## Reference
 
 - [Azure Free Account](https://azure.microsoft.com/free/)
