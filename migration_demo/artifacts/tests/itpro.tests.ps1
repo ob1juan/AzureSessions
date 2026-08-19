@@ -52,3 +52,23 @@ Describe "ArcBox demo websites" {
         $response.Content | Should -Match 'PostgreSQL AdventureWorks storefront'
     }
 }
+
+Describe "Hyper-V host guest command-line access" {
+    BeforeAll {
+        $connectScript = 'C:\ArcBox\Connect-ArcBoxVm.ps1'
+    }
+
+    It "deploys the guest connection command" {
+        $connectScript | Should -Exist
+    }
+
+    It "authenticates to the Windows SQL VM with PowerShell Direct" {
+        $result = & $connectScript -Target Windows -Command '$env:COMPUTERNAME'
+        $result | Should -Contain "$($env:namingPrefix)-SQL"
+    }
+
+    It "authenticates to the Linux PostgreSQL VM with SSH" {
+        $result = & $connectScript -Target Linux -Command 'hostname'
+        $result | Should -Contain "$($env:namingPrefix)-pgsql"
+    }
+}

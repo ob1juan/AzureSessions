@@ -58,6 +58,11 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
    - **Application Configuration:**
      - Connects to the **SQL VM** via PowerShell Direct, deploying the AdventureWorks database and the IIS-hosted ASP.NET Framework Web Forms storefront.
      - Connects to the **Ubuntu VM** via SSH, transferring `Configure-Postgres.sh` to install PostgreSQL plus a Java/Tomcat storefront fronted by Apache HTTPD.
+    - **Command-line Access:** Bootstrap deploys `C:\ArcBox\Connect-ArcBoxVm.ps1` on the Hyper-V host. It uses the provisioned PowerShell Direct credential for Windows and the host SSH key for Linux:
+       - Interactive Windows session: `C:\ArcBox\Connect-ArcBoxVm.ps1 -Target Windows`
+       - Interactive Linux session: `C:\ArcBox\Connect-ArcBoxVm.ps1 -Target Linux`
+       - Copilot/automation command: `C:\ArcBox\Connect-ArcBoxVm.ps1 -Target Windows -Command 'Get-Website'`
+       - Copilot/automation command: `C:\ArcBox\Connect-ArcBoxVm.ps1 -Target Linux -Command 'sudo systemctl status apache2'`
 
 ### Step 4: Azure Arc Hybrid Onboarding
 1. **Execution Context:** Nested Hyper-V VMs.
