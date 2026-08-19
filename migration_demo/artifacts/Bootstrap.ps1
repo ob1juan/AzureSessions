@@ -1,6 +1,12 @@
 param (
     [string]$adminUsername,
     [string]$windowsAdminPasswordBase64,
+    [string]$managedDatabaseAdminUsername,
+    [string]$managedDatabaseAdminPasswordBase64,
+    [string]$azureSqlServerFqdn,
+    [string]$azureSqlDatabaseName,
+    [string]$azurePostgresqlServerFqdn,
+    [string]$azurePostgresqlDatabaseName,
     [string]$tenantId,
     [string]$subscriptionId,
     [string]$resourceGroup,
@@ -28,6 +34,10 @@ param (
 [System.Environment]::SetEnvironmentVariable('sqlServerEdition', $sqlServerEdition, [System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('autoShutdownEnabled', $autoShutdownEnabled, [System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('autoShutdownTimezone', $autoShutdownTimezone, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('azureSqlServerFqdn', $azureSqlServerFqdn, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('azureSqlDatabaseName', $azureSqlDatabaseName, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('azurePostgresqlServerFqdn', $azurePostgresqlServerFqdn, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('azurePostgresqlDatabaseName', $azurePostgresqlDatabaseName, [System.EnvironmentVariableTarget]::Machine)
 
 # Set the Hyper-V host time zone to match the time zone supplied by the ARM/Bicep template
 # (the same Windows time zone ID used for the Azure auto-shutdown schedule). The nested VMs are
@@ -153,6 +163,10 @@ if (-not (Get-SecretVault -Name $KeyVault.VaultName -ErrorAction Ignore)) {
 # Vault from this VM, which reaches KV over the private endpoint now that public access is disabled.
 $windowsAdminPassword = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($windowsAdminPasswordBase64))
 Set-Secret -Name windowsAdminPassword -Secret (ConvertTo-SecureString $windowsAdminPassword -AsPlainText -Force)
+
+$managedDatabaseAdminPassword = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($managedDatabaseAdminPasswordBase64))
+Set-Secret -Name managedDatabaseAdminUsername -Secret $managedDatabaseAdminUsername
+Set-Secret -Name managedDatabaseAdminPassword -Secret (ConvertTo-SecureString $managedDatabaseAdminPassword -AsPlainText -Force)
 
 $adminPassword = Get-Secret -Name windowsAdminPassword -AsPlainText
 

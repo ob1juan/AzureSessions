@@ -72,3 +72,26 @@ Describe "Hyper-V host guest command-line access" {
         $result | Should -Contain "$($env:namingPrefix)-pgsql"
     }
 }
+
+Describe "Azure managed modernization databases" {
+    It "deploys an Azure SQL logical server and database" {
+        $servers = @(Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.Sql/servers')
+        $databases = @(Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.Sql/servers/databases')
+        $servers.Count | Should -BeGreaterThan 0
+        $databases.Name | Should -Match '/AdventureWorks$'
+    }
+
+    It "deploys an Azure Database for PostgreSQL flexible server and database" {
+        $servers = @(Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.DBforPostgreSQL/flexibleServers')
+        $databases = @(Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.DBforPostgreSQL/flexibleServers/databases')
+        $servers.Count | Should -BeGreaterThan 0
+        $databases.Name | Should -Match '/adventureworks$'
+    }
+
+    It "publishes endpoints and stores the shared administrator credential" {
+        $env:azureSqlServerFqdn | Should -Not -BeNullOrEmpty
+        $env:azurePostgresqlServerFqdn | Should -Not -BeNullOrEmpty
+        Get-Secret -Name managedDatabaseAdminUsername | Should -Not -BeNullOrEmpty
+        Get-Secret -Name managedDatabaseAdminPassword | Should -Not -BeNullOrEmpty
+    }
+}

@@ -8,6 +8,25 @@ param windowsAdminUsername string
 @secure()
 param windowsAdminPasswordBase64 string
 
+@description('Managed database administrator username stored in Key Vault by Bootstrap.')
+param managedDatabaseAdminUsername string
+
+@description('Managed database administrator password as base64, decoded and stored in Key Vault by Bootstrap.')
+@secure()
+param managedDatabaseAdminPasswordBase64 string
+
+@description('Azure SQL logical server fully qualified domain name.')
+param azureSqlServerFqdn string
+
+@description('Azure SQL database name.')
+param azureSqlDatabaseName string
+
+@description('Azure Database for PostgreSQL server fully qualified domain name.')
+param azurePostgresqlServerFqdn string
+
+@description('Azure Database for PostgreSQL database name.')
+param azurePostgresqlDatabaseName string
+
 @description('Enable automatic logon into ArcBox Virtual Machine')
 param vmAutologon bool
 
@@ -68,7 +87,7 @@ resource vmBootstrap 'Microsoft.Compute/virtualMachines/extensions@2024-07-01' =
       fileUris: [
         uri(templateBaseUrl, 'artifacts/Bootstrap.ps1')
       ]
-      commandToExecute: 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername ${windowsAdminUsername} -windowsAdminPasswordBase64 ${windowsAdminPasswordBase64} -tenantId ${tenantId} -subscriptionId ${subscription().subscriptionId} -resourceGroup ${resourceGroup().name} -azureLocation ${location} -templateBaseUrl ${templateBaseUrl} -flavor ${flavor} -vmAutologon ${vmAutologon} -rdpPort ${rdpPort} -namingPrefix ${namingPrefix} -debugEnabled ${debugEnabled} -sqlServerEdition ${sqlServerEdition} -autoShutdownEnabled ${autoShutdownEnabled} -autoShutdownTimezone "${autoShutdownTimezone}"'
+      commandToExecute: 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername ${windowsAdminUsername} -windowsAdminPasswordBase64 ${windowsAdminPasswordBase64} -managedDatabaseAdminUsername ${managedDatabaseAdminUsername} -managedDatabaseAdminPasswordBase64 ${managedDatabaseAdminPasswordBase64} -azureSqlServerFqdn ${azureSqlServerFqdn} -azureSqlDatabaseName ${azureSqlDatabaseName} -azurePostgresqlServerFqdn ${azurePostgresqlServerFqdn} -azurePostgresqlDatabaseName ${azurePostgresqlDatabaseName} -tenantId ${tenantId} -subscriptionId ${subscription().subscriptionId} -resourceGroup ${resourceGroup().name} -azureLocation ${location} -templateBaseUrl ${templateBaseUrl} -flavor ${flavor} -vmAutologon ${vmAutologon} -rdpPort ${rdpPort} -namingPrefix ${namingPrefix} -debugEnabled ${debugEnabled} -sqlServerEdition ${sqlServerEdition} -autoShutdownEnabled ${autoShutdownEnabled} -autoShutdownTimezone "${autoShutdownTimezone}"'
     }
   }
 }

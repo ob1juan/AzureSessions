@@ -63,6 +63,11 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
        - Interactive Linux session: `C:\ArcBox\Connect-ArcBoxVm.ps1 -Target Linux`
        - Copilot/automation command: `C:\ArcBox\Connect-ArcBoxVm.ps1 -Target Windows -Command 'Get-Website'`
        - Copilot/automation command: `C:\ArcBox\Connect-ArcBoxVm.ps1 -Target Linux -Command 'sudo systemctl status apache2'`
+    - **Managed Modernization Targets:** The deployment creates an `AdventureWorks` Azure SQL database and an `adventureworks` Azure Database for PostgreSQL Flexible Server database.
+       - Azure SQL defaults to the serverless free offer with auto-pause. Set `useAzureSqlFreeLimit = false` when the subscription already uses its free database; this selects the low-cost Basic DTU tier instead.
+       - PostgreSQL uses the burstable `Standard_B1ms` SKU, 32 GB local storage, seven-day local backup retention, and no high availability.
+       - On the Hyper-V host, endpoints are available in `$env:azureSqlServerFqdn` and `$env:azurePostgresqlServerFqdn`; database names use the matching `*DatabaseName` variables.
+       - Retrieve the shared administrator login with `Get-Secret managedDatabaseAdminUsername -AsPlainText` and its password with `Get-Secret managedDatabaseAdminPassword -AsPlainText`.
 
 ### Step 4: Azure Arc Hybrid Onboarding
 1. **Execution Context:** Nested Hyper-V VMs.

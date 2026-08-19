@@ -5,6 +5,12 @@ param tenantId string = tenant().tenantId
 @minValue(12)
 param passwordLength int = 16
 
+@description('Administrator login for the managed Azure SQL and PostgreSQL demo databases.')
+param managedDatabaseAdminUsername string = 'arcboxadmin'
+
+@description('Use the Azure SQL Database serverless free offer. Disable this when the subscription free database is already allocated.')
+param useAzureSqlFreeLimit bool = true
+
 @description('Username for Windows account')
 param windowsAdminUsername string
 
@@ -113,6 +119,7 @@ param zones string = '1'
 var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/${githubRepo}/${githubBranch}/${githubRepoPath}'
 var randomSeed = uniqueString(resourceGroup().id, guid)
 var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windows'), 0, passwordLength - 4)}'
+var generatedManagedDatabasePassword = 'Aa1!${substring(base64('${randomSeed}-managed-databases'), 0, passwordLength - 4)}'
 var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = 'c4a26bed-72cb-415d-91a3-e2577c7c92f5'
 var migrateUtilityStorageAccountName = 'mig${uniqueString(resourceGroup().id, migrateProjectName)}'
@@ -303,6 +310,16 @@ module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
   }
 }
 
+module managedDatabases 'data/managedDatabases.bicep' = {
+  params: {
+    location: location
+    namingPrefix: namingPrefix
+    administratorLogin: managedDatabaseAdminUsername
+    administratorLoginPassword: generatedManagedDatabasePassword
+    useAzureSqlFreeLimit: useAzureSqlFreeLimit
+  }
+}
+
 module customerUsageAttribution 'mgmt/customerUsageAttribution.bicep' = {
   name: 'pid-${customerUsageAttributionDeploymentName}'
   params: {
@@ -328,6 +345,12 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
     vmName: '${namingPrefix}-Host'
     windowsAdminUsername: windowsAdminUsername
     windowsAdminPasswordBase64: base64(generatedWindowsAdminPassword)
+    managedDatabaseAdminUsername: managedDatabaseAdminUsername
+    managedDatabaseAdminPasswordBase64: base64(generatedManagedDatabasePassword)
+    azureSqlServerFqdn: managedDatabases.outputs.sqlServerFqdn
+    azureSqlDatabaseName: managedDatabases.outputs.sqlDatabaseName
+    azurePostgresqlServerFqdn: managedDatabases.outputs.postgresqlServerFqdn
+    azurePostgresqlDatabaseName: managedDatabases.outputs.postgresqlDatabaseName
     tenantId: tenantId
     templateBaseUrl: templateBaseUrl
     flavor: flavor
@@ -349,3 +372,7 @@ output azureMigrateProjectId string = migrateProject.id
 output azureMigrateProjectName string = migrateProject.name
 output logAnalyticsWorkspaceId string = mgmtArtifactsAndPolicyDeployment.outputs.logAnalyticsWorkspaceId
 output vmInsightsDataCollectionRuleId string = mgmtArtifactsAndPolicyDeployment.outputs.vmInsightsDataCollectionRuleId
+output azureSqlServerFqdn string = managedDatabases.outputs.sqlServerFqdn
+output azureSqlDatabaseName string = managedDatabases.outputs.sqlDatabaseName
+output azurePostgresqlServerFqdn string = managedDatabases.outputs.postgresqlServerFqdn
+output azurePostgresqlDatabaseName string = managedDatabases.outputs.postgresqlDatabaseName

@@ -1,11 +1,12 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
   "contentVersion": "1.0.0.0",
   "metadata": {
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "17545522237325358268"
+      "templateHash": "16610959870867728750"
     }
   },
   "parameters": {
@@ -22,6 +23,20 @@
       "minValue": 12,
       "metadata": {
         "description": "Length for generated passwords that are stored in Key Vault"
+      }
+    },
+    "managedDatabaseAdminUsername": {
+      "type": "string",
+      "defaultValue": "arcboxadmin",
+      "metadata": {
+        "description": "Administrator login for the managed Azure SQL and PostgreSQL demo databases."
+      }
+    },
+    "useAzureSqlFreeLimit": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Use the Azure SQL Database serverless free offer. Disable this when the subscription free database is already allocated."
       }
     },
     "windowsAdminUsername": {
@@ -218,12 +233,13 @@
     "templateBaseUrl": "[format('https://raw.githubusercontent.com/{0}/{1}/{2}/{3}', parameters('githubAccount'), parameters('githubRepo'), parameters('githubBranch'), parameters('githubRepoPath'))]",
     "randomSeed": "[uniqueString(resourceGroup().id, parameters('guid'))]",
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
+    "generatedManagedDatabasePassword": "[format('Aa1!{0}', substring(base64(format('{0}-managed-databases', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "flavor": "ITPro",
     "customerUsageAttributionDeploymentName": "c4a26bed-72cb-415d-91a3-e2577c7c92f5",
     "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]"
   },
-  "resources": [
-    {
+  "resources": {
+    "migrateUtilityStorageAccount": {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2023-05-01",
       "name": "[variables('migrateUtilityStorageAccountName')]",
@@ -247,7 +263,7 @@
         }
       }
     },
-    {
+    "migrateUtilityBlobService": {
       "type": "Microsoft.Storage/storageAccounts/blobServices",
       "apiVersion": "2023-05-01",
       "name": "[format('{0}/{1}', variables('migrateUtilityStorageAccountName'), 'default')]",
@@ -263,10 +279,10 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+        "migrateUtilityStorageAccount"
       ]
     },
-    {
+    "migrateUtilityFileService": {
       "type": "Microsoft.Storage/storageAccounts/fileServices",
       "apiVersion": "2023-05-01",
       "name": "[format('{0}/{1}', variables('migrateUtilityStorageAccountName'), 'default')]",
@@ -276,10 +292,10 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+        "migrateUtilityStorageAccount"
       ]
     },
-    {
+    "migrateProject": {
       "type": "Microsoft.Migrate/migrateProjects",
       "apiVersion": "2020-05-01",
       "name": "[parameters('migrateProjectName')]",
@@ -289,10 +305,10 @@
         "utilityStorageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+        "migrateUtilityStorageAccount"
       ]
     },
-    {
+    "serverDiscoverySolution": {
       "type": "Microsoft.Migrate/migrateProjects/solutions",
       "apiVersion": "2018-09-01-preview",
       "name": "[format('{0}/{1}', parameters('migrateProjectName'), 'Servers-Discovery-ServerDiscovery')]",
@@ -303,10 +319,10 @@
         "status": "Active"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+        "migrateProject"
       ]
     },
-    {
+    "serverAssessmentSolution": {
       "type": "Microsoft.Migrate/migrateProjects/solutions",
       "apiVersion": "2018-09-01-preview",
       "name": "[format('{0}/{1}', parameters('migrateProjectName'), 'Servers-Assessment-ServerAssessment')]",
@@ -317,10 +333,10 @@
         "status": "Active"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+        "migrateProject"
       ]
     },
-    {
+    "serverMigrationSolution": {
       "type": "Microsoft.Migrate/migrateProjects/solutions",
       "apiVersion": "2018-09-01-preview",
       "name": "[format('{0}/{1}', parameters('migrateProjectName'), 'Servers-Migration-ServerMigration')]",
@@ -331,16 +347,16 @@
         "status": "Active"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Migrate/migrateProjects', parameters('migrateProjectName'))]"
+        "migrateProject"
       ]
     },
-    {
+    "storagePrivateDnsZone": {
       "type": "Microsoft.Network/privateDnsZones",
       "apiVersion": "2020-06-01",
       "name": "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
       "location": "global"
     },
-    {
+    "storagePrivateDnsZoneVnetLink": {
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "[format('{0}/{1}', format('privatelink.blob.{0}', environment().suffixes.storage), format('{0}-storage-vnet-link', parameters('namingPrefix')))]",
@@ -348,22 +364,22 @@
       "properties": {
         "registrationEnabled": false,
         "virtualNetwork": {
-          "id": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.vnetId.value]"
+          "id": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.vnetId.value]"
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment')]",
-        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+        "mgmtArtifactsAndPolicyDeployment",
+        "storagePrivateDnsZone"
       ]
     },
-    {
+    "storagePrivateEndpoint": {
       "type": "Microsoft.Network/privateEndpoints",
       "apiVersion": "2024-05-01",
       "name": "[format('{0}-blob-pe', variables('migrateUtilityStorageAccountName'))]",
       "location": "[parameters('location')]",
       "properties": {
         "subnet": {
-          "id": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.subnetId.value]"
+          "id": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.subnetId.value]"
         },
         "privateLinkServiceConnections": [
           {
@@ -378,11 +394,11 @@
         ]
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment')]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('migrateUtilityStorageAccountName'))]"
+        "mgmtArtifactsAndPolicyDeployment",
+        "migrateUtilityStorageAccount"
       ]
     },
-    {
+    "storagePrivateEndpointDnsZoneGroup": {
       "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
       "apiVersion": "2024-05-01",
       "name": "[format('{0}/{1}', format('{0}-blob-pe', variables('migrateUtilityStorageAccountName')), 'default')]",
@@ -397,11 +413,11 @@
         ]
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
-        "[resourceId('Microsoft.Network/privateEndpoints', format('{0}-blob-pe', variables('migrateUtilityStorageAccountName')))]"
+        "storagePrivateDnsZone",
+        "storagePrivateEndpoint"
       ]
     },
-    {
+    "deploymentPrerequisites": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "deploymentPrerequisites",
@@ -435,7 +451,7 @@
         }
       }
     },
-    {
+    "clientVmDeployment": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "clientVmDeployment",
@@ -452,7 +468,7 @@
             "value": "[variables('generatedWindowsAdminPassword')]"
           },
           "subnetId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.subnetId.value]"
+            "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.subnetId.value]"
           },
           "deployBastion": {
             "value": "[parameters('deployBastion')]"
@@ -843,10 +859,10 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment')]"
+        "mgmtArtifactsAndPolicyDeployment"
       ]
     },
-    {
+    "mgmtArtifactsAndPolicyDeployment": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "mgmtArtifactsAndPolicyDeployment",
@@ -1810,10 +1826,210 @@
         }
       },
       "dependsOn": [
-        "[subscriptionResourceId('Microsoft.Resources/deployments', 'deploymentPrerequisites')]"
+        "deploymentPrerequisites"
       ]
     },
-    {
+    "managedDatabases": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('managedDatabases-{0}', uniqueString('managedDatabases', deployment().name))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namingPrefix": {
+            "value": "[parameters('namingPrefix')]"
+          },
+          "administratorLogin": {
+            "value": "[parameters('managedDatabaseAdminUsername')]"
+          },
+          "administratorLoginPassword": {
+            "value": "[variables('generatedManagedDatabasePassword')]"
+          },
+          "useAzureSqlFreeLimit": {
+            "value": "[parameters('useAzureSqlFreeLimit')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "17664930083425229940"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region for the managed database services."
+              }
+            },
+            "namingPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Short prefix used to name the managed database resources."
+              }
+            },
+            "administratorLogin": {
+              "type": "string",
+              "metadata": {
+                "description": "Administrator login shared by the demo Azure SQL and PostgreSQL servers."
+              }
+            },
+            "administratorLoginPassword": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Administrator password shared by the demo Azure SQL and PostgreSQL servers."
+              }
+            },
+            "useAzureSqlFreeLimit": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Use the Azure SQL Database serverless free offer. A subscription can have one free database."
+              }
+            }
+          },
+          "variables": {
+            "uniqueSuffix": "[uniqueString(resourceGroup().id, parameters('namingPrefix'))]",
+            "sqlServerName": "[toLower(format('sql-{0}-{1}', parameters('namingPrefix'), variables('uniqueSuffix')))]",
+            "postgresqlServerName": "[toLower(format('pg-{0}-{1}', parameters('namingPrefix'), variables('uniqueSuffix')))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Sql/servers",
+              "apiVersion": "2023-08-01",
+              "name": "[variables('sqlServerName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "administratorLogin": "[parameters('administratorLogin')]",
+                "administratorLoginPassword": "[parameters('administratorLoginPassword')]",
+                "minimalTlsVersion": "1.2",
+                "publicNetworkAccess": "Enabled",
+                "restrictOutboundNetworkAccess": "Disabled"
+              }
+            },
+            {
+              "type": "Microsoft.Sql/servers/databases",
+              "apiVersion": "2023-08-01",
+              "name": "[format('{0}/{1}', variables('sqlServerName'), 'AdventureWorks')]",
+              "location": "[parameters('location')]",
+              "sku": "[if(parameters('useAzureSqlFreeLimit'), createObject('name', 'GP_S_Gen5_1', 'tier', 'GeneralPurpose', 'family', 'Gen5', 'capacity', 1), createObject('name', 'Basic', 'tier', 'Basic', 'capacity', 5))]",
+              "properties": "[if(parameters('useAzureSqlFreeLimit'), createObject('autoPauseDelay', 60, 'minCapacity', json('0.5'), 'maxSizeBytes', json('34359738368'), 'requestedBackupStorageRedundancy', 'Local', 'useFreeLimit', true(), 'freeLimitExhaustionBehavior', 'AutoPause', 'zoneRedundant', false()), createObject('maxSizeBytes', json('2147483648'), 'requestedBackupStorageRedundancy', 'Local', 'zoneRedundant', false()))]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('sqlServerName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Sql/servers/firewallRules",
+              "apiVersion": "2023-08-01",
+              "name": "[format('{0}/{1}', variables('sqlServerName'), 'AllowAzureServices')]",
+              "properties": {
+                "startIpAddress": "0.0.0.0",
+                "endIpAddress": "0.0.0.0"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('sqlServerName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+              "apiVersion": "2024-08-01",
+              "name": "[variables('postgresqlServerName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Standard_B1ms",
+                "tier": "Burstable"
+              },
+              "properties": {
+                "administratorLogin": "[parameters('administratorLogin')]",
+                "administratorLoginPassword": "[parameters('administratorLoginPassword')]",
+                "version": "16",
+                "authConfig": {
+                  "activeDirectoryAuth": "Disabled",
+                  "passwordAuth": "Enabled"
+                },
+                "backup": {
+                  "backupRetentionDays": 7,
+                  "geoRedundantBackup": "Disabled"
+                },
+                "highAvailability": {
+                  "mode": "Disabled"
+                },
+                "network": {
+                  "publicNetworkAccess": "Enabled"
+                },
+                "storage": {
+                  "autoGrow": "Disabled",
+                  "storageSizeGB": 32,
+                  "type": "Premium_LRS"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
+              "apiVersion": "2022-12-01",
+              "name": "[format('{0}/{1}', variables('postgresqlServerName'), 'adventureworks')]",
+              "properties": {
+                "charset": "UTF8",
+                "collation": "en_US.utf8"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresqlServerName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
+              "apiVersion": "2022-12-01",
+              "name": "[format('{0}/{1}', variables('postgresqlServerName'), 'AllowAzureServices')]",
+              "properties": {
+                "startIpAddress": "0.0.0.0",
+                "endIpAddress": "0.0.0.0"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresqlServerName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "sqlServerName": {
+              "type": "string",
+              "value": "[variables('sqlServerName')]"
+            },
+            "sqlDatabaseName": {
+              "type": "string",
+              "value": "AdventureWorks"
+            },
+            "sqlServerFqdn": {
+              "type": "string",
+              "value": "[format('{0}{1}', variables('sqlServerName'), environment().suffixes.sqlServerHostname)]"
+            },
+            "postgresqlServerName": {
+              "type": "string",
+              "value": "[variables('postgresqlServerName')]"
+            },
+            "postgresqlDatabaseName": {
+              "type": "string",
+              "value": "adventureworks"
+            },
+            "postgresqlServerFqdn": {
+              "type": "string",
+              "value": "[format('{0}.postgres.database.azure.com', variables('postgresqlServerName'))]"
+            }
+          }
+        }
+      }
+    },
+    "customerUsageAttribution": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "[format('pid-{0}', variables('customerUsageAttributionDeploymentName'))]",
@@ -1837,7 +2053,7 @@
         }
       }
     },
-    {
+    "arcOnboardingSubRoleAssignment": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "arcOnboardingSubRoleAssignment",
@@ -1850,7 +2066,7 @@
         "mode": "Incremental",
         "parameters": {
           "principalId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'clientVmDeployment'), '2025-04-01').outputs.vmPrincipalId.value]"
+            "value": "[reference('clientVmDeployment').outputs.vmPrincipalId.value]"
           }
         },
         "template": {
@@ -1900,10 +2116,10 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'clientVmDeployment')]"
+        "clientVmDeployment"
       ]
     },
-    {
+    "clientVmBootstrapDeployment": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "clientVmBootstrapDeployment",
@@ -1921,6 +2137,24 @@
           },
           "windowsAdminPasswordBase64": {
             "value": "[base64(variables('generatedWindowsAdminPassword'))]"
+          },
+          "managedDatabaseAdminUsername": {
+            "value": "[parameters('managedDatabaseAdminUsername')]"
+          },
+          "managedDatabaseAdminPasswordBase64": {
+            "value": "[base64(variables('generatedManagedDatabasePassword'))]"
+          },
+          "azureSqlServerFqdn": {
+            "value": "[reference('managedDatabases').outputs.sqlServerFqdn.value]"
+          },
+          "azureSqlDatabaseName": {
+            "value": "[reference('managedDatabases').outputs.sqlDatabaseName.value]"
+          },
+          "azurePostgresqlServerFqdn": {
+            "value": "[reference('managedDatabases').outputs.postgresqlServerFqdn.value]"
+          },
+          "azurePostgresqlDatabaseName": {
+            "value": "[reference('managedDatabases').outputs.postgresqlDatabaseName.value]"
           },
           "tenantId": {
             "value": "[parameters('tenantId')]"
@@ -1963,7 +2197,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "5106396424511349725"
+              "templateHash": "4925928383885336297"
             }
           },
           "parameters": {
@@ -1983,6 +2217,42 @@
               "type": "securestring",
               "metadata": {
                 "description": "Windows admin password as a base64-encoded string, decoded and stored in Key Vault by the bootstrap script over the private endpoint."
+              }
+            },
+            "managedDatabaseAdminUsername": {
+              "type": "string",
+              "metadata": {
+                "description": "Managed database administrator username stored in Key Vault by Bootstrap."
+              }
+            },
+            "managedDatabaseAdminPasswordBase64": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Managed database administrator password as base64, decoded and stored in Key Vault by Bootstrap."
+              }
+            },
+            "azureSqlServerFqdn": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure SQL logical server fully qualified domain name."
+              }
+            },
+            "azureSqlDatabaseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure SQL database name."
+              }
+            },
+            "azurePostgresqlServerFqdn": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure Database for PostgreSQL server fully qualified domain name."
+              }
+            },
+            "azurePostgresqlDatabaseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure Database for PostgreSQL database name."
               }
             },
             "vmAutologon": {
@@ -2076,7 +2346,7 @@
                   "fileUris": [
                     "[uri(parameters('templateBaseUrl'), 'artifacts/Bootstrap.ps1')]"
                   ],
-                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -windowsAdminPasswordBase64 {1} -tenantId {2} -subscriptionId {3} -resourceGroup {4} -azureLocation {5} -templateBaseUrl {6} -flavor {7} -vmAutologon {8} -rdpPort {9} -namingPrefix {10} -debugEnabled {11} -sqlServerEdition {12} -autoShutdownEnabled {13} -autoShutdownTimezone \"{14}\"', parameters('windowsAdminUsername'), parameters('windowsAdminPasswordBase64'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'), parameters('autoShutdownTimezone'))]"
+                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -windowsAdminPasswordBase64 {1} -managedDatabaseAdminUsername {2} -managedDatabaseAdminPasswordBase64 {3} -azureSqlServerFqdn {4} -azureSqlDatabaseName {5} -azurePostgresqlServerFqdn {6} -azurePostgresqlDatabaseName {7} -tenantId {8} -subscriptionId {9} -resourceGroup {10} -azureLocation {11} -templateBaseUrl {12} -flavor {13} -vmAutologon {14} -rdpPort {15} -namingPrefix {16} -debugEnabled {17} -sqlServerEdition {18} -autoShutdownEnabled {19} -autoShutdownTimezone \"{20}\"', parameters('windowsAdminUsername'), parameters('windowsAdminPasswordBase64'), parameters('managedDatabaseAdminUsername'), parameters('managedDatabaseAdminPasswordBase64'), parameters('azureSqlServerFqdn'), parameters('azureSqlDatabaseName'), parameters('azurePostgresqlServerFqdn'), parameters('azurePostgresqlDatabaseName'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'), parameters('autoShutdownTimezone'))]"
                 }
               }
             }
@@ -2084,11 +2354,12 @@
         }
       },
       "dependsOn": [
-        "[subscriptionResourceId('Microsoft.Resources/deployments', 'arcOnboardingSubRoleAssignment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'clientVmDeployment')]"
+        "arcOnboardingSubRoleAssignment",
+        "clientVmDeployment",
+        "managedDatabases"
       ]
     }
-  ],
+  },
   "outputs": {
     "clientVmLogonUserName": {
       "type": "string",
@@ -2096,11 +2367,11 @@
     },
     "centralKeyVaultId": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.keyVaultId.value]"
+      "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.keyVaultId.value]"
     },
     "centralKeyVaultName": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.keyVaultName.value]"
+      "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.keyVaultName.value]"
     },
     "azureMigrateProjectId": {
       "type": "string",
@@ -2112,11 +2383,27 @@
     },
     "logAnalyticsWorkspaceId": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.logAnalyticsWorkspaceId.value]"
+      "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.logAnalyticsWorkspaceId.value]"
     },
     "vmInsightsDataCollectionRuleId": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mgmtArtifactsAndPolicyDeployment'), '2025-04-01').outputs.vmInsightsDataCollectionRuleId.value]"
+      "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.vmInsightsDataCollectionRuleId.value]"
+    },
+    "azureSqlServerFqdn": {
+      "type": "string",
+      "value": "[reference('managedDatabases').outputs.sqlServerFqdn.value]"
+    },
+    "azureSqlDatabaseName": {
+      "type": "string",
+      "value": "[reference('managedDatabases').outputs.sqlDatabaseName.value]"
+    },
+    "azurePostgresqlServerFqdn": {
+      "type": "string",
+      "value": "[reference('managedDatabases').outputs.postgresqlServerFqdn.value]"
+    },
+    "azurePostgresqlDatabaseName": {
+      "type": "string",
+      "value": "[reference('managedDatabases').outputs.postgresqlDatabaseName.value]"
     }
   }
 }
