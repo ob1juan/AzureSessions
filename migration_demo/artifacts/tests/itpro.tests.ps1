@@ -13,6 +13,12 @@ Describe "Hyper-V host Azure Arc connection" {
     }
 }
 
+Describe "Azure resource providers" {
+    It "Microsoft.DataMigration is registered" {
+        (Get-AzResourceProvider -ProviderNamespace 'Microsoft.DataMigration').RegistrationState | Should -Be 'Registered'
+    }
+}
+
 # Assert that the Hyper-V virtual machines in $VMs exists, are running and connected as Azure Arc-enabled servers
 
 Describe "<vm>" -ForEach $VMs {

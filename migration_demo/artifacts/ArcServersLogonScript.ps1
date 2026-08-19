@@ -1074,7 +1074,7 @@ if ($Env:flavor -ne 'DevOps') {
     }
 
     if (-not (Test-ComponentCompleted -Name 'Azure resource provider registration')) {
-        Start-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Logging in with managed identity and registering required Arc and Azure Migrate providers.'
+        Start-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Logging in with managed identity and registering required Arc, Azure Migrate, and Data Migration providers.'
         try {
 
         # Required for CLI commands
@@ -1088,11 +1088,12 @@ if ($Env:flavor -ne 'DevOps') {
             if ($LASTEXITCODE -ne 0) { throw "az account set exited with code $LASTEXITCODE." }
         }
 
-        Write-Header 'Register Arc and Azure Migrate resource providers'
+        Write-Header 'Register Arc, Azure Migrate, and Data Migration resource providers'
         $requiredResourceProviders = @(
             'Microsoft.HybridCompute'
             'Microsoft.GuestConfiguration'
             'Microsoft.Migrate'
+            'Microsoft.DataMigration'
         )
 
         $unregisteredProviders = @()
@@ -1122,7 +1123,7 @@ if ($Env:flavor -ne 'DevOps') {
             throw "Resource providers not registered: $($unregisteredProviders -join ', ')."
         }
 
-        Complete-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Required Arc and Azure Migrate resource providers are registered.'
+        Complete-DeploymentComponent -Name 'Azure resource provider registration' -Message 'Required Arc, Azure Migrate, and Data Migration resource providers are registered.'
         } catch {
             Write-Warning "Component 'Azure resource provider registration' failed: $($_.Exception.Message)"
             Complete-DeploymentComponent -Name 'Azure resource provider registration' -Status Failed -Message $_.Exception.Message
