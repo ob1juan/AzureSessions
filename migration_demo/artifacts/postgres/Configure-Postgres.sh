@@ -836,6 +836,26 @@ int asInt(String raw, int fallback) {
     }
 }
 
+String required(String raw, String label) {
+    String value = raw == null ? "" : raw.trim();
+    if (value.isEmpty()) {
+        throw new IllegalArgumentException(label + " is required.");
+    }
+    return value;
+}
+
+BigDecimal asDecimal(String raw, String label) {
+    try {
+        return new BigDecimal(required(raw, label));
+    } catch (NumberFormatException ex) {
+        throw new IllegalArgumentException(label + " must be numeric.");
+    }
+}
+
+BigDecimal optionalDecimal(String raw, String label) {
+    return raw == null || raw.trim().isEmpty() ? null : asDecimal(raw, label);
+}
+
 void bind(PreparedStatement statement, Object... values) throws SQLException {
     for (int i = 0; i < values.length; i++) {
         statement.setObject(i + 1, values[i]);
@@ -881,6 +901,19 @@ void execute(Connection connection, String sql, Object... values) throws SQLExce
     }
 }
 
+int ensureProductModel(Connection connection, String modelName, String description) throws SQLException {
+    int modelId = scalarInt(connection, "SELECT product_model_id FROM saleslt.product_model WHERE name = ?", modelName);
+    if (modelId == 0) {
+        modelId = scalarInt(connection, "INSERT INTO saleslt.product_model (name, catalog_description) VALUES (?, ?) RETURNING product_model_id", modelName, description);
+    }
+    int descriptionId = scalarInt(connection, "SELECT product_description_id FROM saleslt.product_description WHERE description = ?", description);
+    if (descriptionId == 0) {
+        descriptionId = scalarInt(connection, "INSERT INTO saleslt.product_description (description) VALUES (?) RETURNING product_description_id", description);
+    }
+    execute(connection, "INSERT INTO saleslt.product_model_product_description (product_model_id, product_description_id, culture) VALUES (?, ?, 'en') ON CONFLICT DO NOTHING", modelId, descriptionId);
+    return modelId;
+}
+
 String statusName(Object value) {
     int status = value instanceof Number ? ((Number)value).intValue() : asInt(String.valueOf(value), 0);
     switch (status) {
@@ -901,7 +934,7 @@ String nav(String currentView, String targetView, String label) {
 <%
 request.setCharacterEncoding("UTF-8");
 
-Set<String> validViews = new HashSet<String>(Arrays.asList("catalog", "orders", "customers", "reports"));
+Set<String> validViews = new HashSet<String>(Arrays.asList("catalog", "products", "orders", "customers", "reports"));
 String view = request.getParameter("view") == null ? "catalog" : request.getParameter("view").toLowerCase(Locale.ROOT);
 if (!validViews.contains(view)) {
     view = "catalog";
@@ -916,6 +949,9 @@ Map<String,Object> stats = new HashMap<String,Object>();
 List<Map<String,Object>> categories = Collections.emptyList();
 List<Map<String,Object>> customers = Collections.emptyList();
 List<Map<String,Object>> catalog = Collections.emptyList();
+List<Map<String,Object>> productRows = Collections.emptyList();
+List<Map<String,Object>> customerRows = Collections.emptyList();
+List<Map<String,Object>> addressRows = Collections.emptyList();
 List<Map<String,Object>> orders = Collections.emptyList();
 List<Map<String,Object>> details = Collections.emptyList();
 List<Map<String,Object>> categoryRevenue = Collections.emptyList();
@@ -938,7 +974,69 @@ try {
     try (Connection connection = DriverManager.getConnection("jdbc:postgresql://localhost:5432/" + dbName, dbUser, dbPassword)) {
         if ("POST".equalsIgnoreCase(request.getMethod())) {
             String action = request.getParameter("action") == null ? "" : request.getParameter("action");
-            if ("createOrder".equals(action)) {
+            if ("saveProduct".equals(action)) {
+                int productId = asInt(request.getParameter("product_id"), 0);
+                String name = required(request.getParameter("name"), "Product name");
+                String productNumber = required(request.getParameter("product_number"), "Product number");
+                String modelName = required(request.getParameter("model_name"), "Product model");
+                String description = required(request.getParameter("description"), "Description");
+                int productCategoryId = asInt(request.getParameter("product_category_id"), 0);
+                BigDecimal listPrice = asDecimal(request.getParameter("list_price"), "List price");
+                if (productCategoryId == 0 || listPrice.signum() < 0) {
+                    throw new IllegalArgumentException("Choose a category and a non-negative list price.");
+                }
+                BigDecimal standardCost = listPrice.multiply(new BigDecimal("0.55")).setScale(2, java.math.RoundingMode.HALF_UP);
+                int modelId = ensureProductModel(connection, modelName, description);
+                BigDecimal weight = optionalDecimal(request.getParameter("weight"), "Weight");
+                if (weight != null && weight.signum() < 0) {
+                    throw new IllegalArgumentException("Weight must not be negative.");
+                }
+                if (productId > 0) {
+                    execute(connection, "UPDATE saleslt.product SET name = ?, product_number = ?, color = ?, standard_cost = ?, list_price = ?, size = ?, weight = ?, product_category_id = ?, product_model_id = ?, sell_end_date = NULL, modified_date = now() WHERE product_id = ?", name, productNumber, request.getParameter("color"), standardCost, listPrice, request.getParameter("size"), weight, productCategoryId, modelId, productId);
+                } else {
+                    execute(connection, "INSERT INTO saleslt.product (name, product_number, color, standard_cost, list_price, size, weight, product_category_id, product_model_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", name, productNumber, request.getParameter("color"), standardCost, listPrice, request.getParameter("size"), weight, productCategoryId, modelId);
+                }
+                view = "products";
+                message = "Product saved.";
+            } else if ("retireProduct".equals(action)) {
+                int productId = asInt(request.getParameter("product_id"), 0);
+                if (productId == 0) {
+                    throw new IllegalArgumentException("Choose a product.");
+                }
+                execute(connection, "UPDATE saleslt.product SET sell_end_date = now(), modified_date = now() WHERE product_id = ?", productId);
+                view = "products";
+                message = "Product retired from the catalog.";
+            } else if ("saveCustomer".equals(action)) {
+                int customerId = asInt(request.getParameter("customer_id"), 0);
+                String firstName = required(request.getParameter("first_name"), "First name");
+                String lastName = required(request.getParameter("last_name"), "Last name");
+                String email = required(request.getParameter("email_address"), "Email address");
+                if (customerId > 0) {
+                    execute(connection, "UPDATE saleslt.customer SET first_name = ?, last_name = ?, company_name = ?, email_address = ?, phone = ?, modified_date = now() WHERE customer_id = ?", firstName, lastName, request.getParameter("company_name"), email, request.getParameter("phone"), customerId);
+                } else {
+                    execute(connection, "INSERT INTO saleslt.customer (first_name, last_name, company_name, email_address, phone) VALUES (?, ?, ?, ?, ?)", firstName, lastName, request.getParameter("company_name"), email, request.getParameter("phone"));
+                }
+                view = "customers";
+                message = "Customer saved.";
+            } else if ("saveAddress".equals(action)) {
+                int customerId = asInt(request.getParameter("customer_id"), 0);
+                if (customerId == 0) {
+                    throw new IllegalArgumentException("Choose a customer.");
+                }
+                connection.setAutoCommit(false);
+                try {
+                    int addressId = scalarInt(connection, "INSERT INTO saleslt.address (address_line1, address_line2, city, state_province, country_region, postal_code) VALUES (?, ?, ?, ?, ?, ?) RETURNING address_id", required(request.getParameter("address_line1"), "Address line 1"), request.getParameter("address_line2"), required(request.getParameter("city"), "City"), required(request.getParameter("state_province"), "State or province"), required(request.getParameter("country_region"), "Country or region"), required(request.getParameter("postal_code"), "Postal code"));
+                    execute(connection, "INSERT INTO saleslt.customer_address (customer_id, address_id, address_type) VALUES (?, ?, ?)", customerId, addressId, required(request.getParameter("address_type"), "Address type"));
+                    connection.commit();
+                } catch (Exception ex) {
+                    connection.rollback();
+                    throw ex;
+                } finally {
+                    connection.setAutoCommit(true);
+                }
+                view = "customers";
+                message = "Customer address saved.";
+            } else if ("createOrder".equals(action)) {
                 int customerId = asInt(request.getParameter("customer_id"), 0);
                 int productId = asInt(request.getParameter("product_id"), 0);
                 int quantity = asInt(request.getParameter("quantity"), 1);
@@ -950,8 +1048,20 @@ try {
                     throw new IllegalStateException("The selected customer needs an address before an order can be created.");
                 }
                 Object unitPrice = scalar(connection, "SELECT list_price FROM saleslt.product WHERE product_id = ?", productId);
-                int orderId = scalarInt(connection, "INSERT INTO saleslt.sales_order_header (customer_id, ship_to_address_id, bill_to_address_id, purchase_order_number, account_number, status, comment) VALUES (?, ?, ?, ?, '10-4020-JAVA', 1, 'Created from Java Tomcat storefront') RETURNING sales_order_id", customerId, addressId, addressId, "JAVA-" + Long.toString(System.currentTimeMillis()));
-                execute(connection, "INSERT INTO saleslt.sales_order_detail (sales_order_id, product_id, order_qty, unit_price) VALUES (?, ?, ?, ?)", orderId, productId, quantity, unitPrice);
+                if (unitPrice == null) {
+                    throw new IllegalArgumentException("Choose an active product.");
+                }
+                connection.setAutoCommit(false);
+                try {
+                    int orderId = scalarInt(connection, "INSERT INTO saleslt.sales_order_header (customer_id, ship_to_address_id, bill_to_address_id, purchase_order_number, account_number, status, comment) VALUES (?, ?, ?, ?, '10-4020-JAVA', 1, 'Created from Java Tomcat storefront') RETURNING sales_order_id", customerId, addressId, addressId, "JAVA-" + Long.toString(System.currentTimeMillis()));
+                    execute(connection, "INSERT INTO saleslt.sales_order_detail (sales_order_id, product_id, order_qty, unit_price) VALUES (?, ?, ?, ?)", orderId, productId, quantity, unitPrice);
+                    connection.commit();
+                } catch (Exception ex) {
+                    connection.rollback();
+                    throw ex;
+                } finally {
+                    connection.setAutoCommit(true);
+                }
                 view = "orders";
                 message = "Order created.";
             } else if ("updateOrderStatus".equals(action)) {
@@ -972,6 +1082,9 @@ try {
         customers = rows(connection, "SELECT customer_id, last_name || ', ' || first_name || COALESCE(' - ' || company_name, '') AS label FROM saleslt.customer ORDER BY last_name, first_name");
 
         catalog = rows(connection, "SELECT p.product_id, p.name, p.product_number, COALESCE(p.color, 'Any') AS color, COALESCE(p.size, '') AS size, p.list_price, COALESCE(p.category_name, 'Uncategorized') AS category_name, COALESCE(p.product_model, 'Legacy model') AS product_model, COALESCE(p.description, 'AdventureWorks catalog item') AS description FROM saleslt.v_storefront_catalog p JOIN saleslt.product source ON source.product_id = p.product_id WHERE source.sell_end_date IS NULL AND (? = 0 OR source.product_category_id = ?) AND (? = '' OR p.name ILIKE '%' || ? || '%' OR p.product_number ILIKE '%' || ? || '%' OR p.description ILIKE '%' || ? || '%') ORDER BY p.category_name, p.name", categoryId, categoryId, search, search, search, search);
+        productRows = rows(connection, "SELECT p.product_id, p.name, p.product_number, p.color, p.size, p.weight, p.list_price, p.product_category_id, p.sell_end_date, COALESCE(pm.name, 'Legacy model') AS model_name, COALESCE(d.description, '') AS description FROM saleslt.product p LEFT JOIN saleslt.product_model pm ON pm.product_model_id = p.product_model_id LEFT JOIN LATERAL (SELECT pd.description FROM saleslt.product_model_product_description x JOIN saleslt.product_description pd ON pd.product_description_id = x.product_description_id WHERE x.product_model_id = p.product_model_id LIMIT 1) d ON true ORDER BY p.sell_end_date NULLS FIRST, p.name");
+        customerRows = rows(connection, "SELECT customer_id, first_name, last_name, company_name, email_address, phone FROM saleslt.customer ORDER BY last_name, first_name");
+        addressRows = rows(connection, "SELECT c.first_name, c.last_name, ca.address_type, a.address_line1, a.address_line2, a.city, a.state_province, a.country_region, a.postal_code FROM saleslt.customer c JOIN saleslt.customer_address ca ON ca.customer_id = c.customer_id JOIN saleslt.address a ON a.address_id = ca.address_id ORDER BY c.last_name, c.first_name, ca.address_type");
         orders = rows(connection, "SELECT h.sales_order_id, h.sales_order_number, h.purchase_order_number, h.order_date, h.status, h.total_due, c.first_name, c.last_name, c.company_name FROM saleslt.sales_order_header h JOIN saleslt.customer c ON c.customer_id = h.customer_id ORDER BY h.sales_order_id DESC");
         details = rows(connection, "SELECT d.sales_order_id, p.name, d.order_qty, d.unit_price, d.line_total FROM saleslt.sales_order_detail d JOIN saleslt.product p ON p.product_id = d.product_id ORDER BY d.sales_order_id DESC, d.sales_order_detail_id");
         categoryRevenue = rows(connection, "SELECT COALESCE(c.name, 'Uncategorized') AS category_name, SUM(d.order_qty) AS units, SUM(d.line_total) AS revenue FROM saleslt.sales_order_detail d JOIN saleslt.product p ON p.product_id = d.product_id LEFT JOIN saleslt.product_category c ON c.product_category_id = p.product_category_id GROUP BY c.name ORDER BY revenue DESC");
@@ -1000,18 +1113,23 @@ try {
         nav a, button { border:1px solid var(--brand); border-radius:7px; padding:10px 14px; background:#fff; color:var(--brand); text-decoration:none; font:bold .86rem Verdana,sans-serif; cursor:pointer; }
         nav a.active, button { background:var(--brand); color:#fff; }
         .metrics { display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:12px; margin-bottom:18px; }
-        .metric, .panel, .card, .order-card { background:rgba(255,255,255,.92); border:1px solid var(--line); border-radius:8px; box-shadow:0 12px 30px rgba(24,33,31,.08); }
+        .metric, .panel, .card, .edit-card, .order-card { background:rgba(255,255,255,.92); border:1px solid var(--line); border-radius:8px; box-shadow:0 12px 30px rgba(24,33,31,.08); }
         .metric { padding:16px; }
         .metric span, label, .pill, .small { color:var(--muted); font:.78rem Verdana,sans-serif; }
         .metric strong { display:block; font-size:1.8rem; margin-top:8px; }
         .panel { padding:20px; margin-bottom:16px; }
         .hero { display:grid; grid-template-columns:1fr auto; gap:18px; background:linear-gradient(120deg,#fff,var(--soft)); }
         .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
-        .card, .order-card { padding:16px; }
+        .card, .edit-card, .order-card { padding:16px; }
+        .edit-card.retired { opacity:.68; }
         .pill { display:inline-block; background:var(--soft); color:var(--brand); padding:5px 9px; border-radius:999px; margin-bottom:10px; }
         dl { display:grid; grid-template-columns:75px 1fr; gap:5px 10px; margin:0; font:.86rem Verdana,sans-serif; }
         dt { color:var(--muted); } dd { margin:0; }
         form.filters, form.quick, form.status { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+        .admin { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; align-items:end; }
+        .span { grid-column:1/-1; }
+        .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+        button.secondary { background:#fff; color:var(--accent); border-color:var(--accent); }
         input, select { width:100%; border:1px solid #c6d1ca; border-radius:6px; padding:9px; background:#fff; color:var(--ink); }
         label { display:grid; gap:4px; min-width:160px; }
         table { width:100%; border-collapse:collapse; background:#fff; }
@@ -1028,7 +1146,7 @@ try {
 </head>
 <body>
 <header><div><p class="small">AdventureWorksLT on PostgreSQL</p><h1>Java commerce operations</h1></div><p class="small">Apache + Tomcat + JDBC</p></header>
-<nav><%= nav(view, "catalog", "Catalog") %><%= nav(view, "orders", "Orders") %><%= nav(view, "customers", "Customers") %><%= nav(view, "reports", "Reports") %></nav>
+<nav><%= nav(view, "catalog", "Catalog") %><%= nav(view, "products", "Products") %><%= nav(view, "customers", "Customers") %><%= nav(view, "orders", "Orders") %><%= nav(view, "reports", "Reports") %></nav>
 <main>
 <% if (!message.isEmpty()) { %><div class="notice ok"><%= h(message) %></div><% } %>
 <% if (!error.isEmpty()) { %><div class="notice err">PostgreSQL error: <%= h(error) %></div><% } %>
@@ -1040,12 +1158,21 @@ try {
 <section class="grid">
 <% for (Map<String,Object> product : catalog) { %><article class="card"><span class="pill"><%= h(product.get("category_name")) %></span><h3><%= h(product.get("name")) %></h3><p><%= h(product.get("description")) %></p><dl><dt>Model</dt><dd><%= h(product.get("product_model")) %></dd><dt>Number</dt><dd><%= h(product.get("product_number")) %></dd><dt>Color</dt><dd><%= h(product.get("color")) %></dd></dl><form class="quick" method="post"><input type="hidden" name="action" value="createOrder" /><input type="hidden" name="product_id" value="<%= h(product.get("product_id")) %>" /><strong><%= money(product.get("list_price")) %></strong><select name="customer_id"><% for (Map<String,Object> customer : customers) { %><option value="<%= h(customer.get("customer_id")) %>"><%= h(customer.get("label")) %></option><% } %></select><input name="quantity" type="number" min="1" value="1" /><button type="submit">Create order</button></form></article><% } %>
 </section>
+<% } else if ("products".equals(view)) { %>
+<section class="panel"><h2>Product administration</h2><form class="admin" method="post"><input type="hidden" name="action" value="saveProduct" /><label>Name<input name="name" required maxlength="50" /></label><label>Product number<input name="product_number" required maxlength="25" /></label><label>Model<input name="model_name" required maxlength="50" /></label><label>Category<select name="product_category_id"><% for (Map<String,Object> category : categories) { %><option value="<%= h(category.get("product_category_id")) %>"><%= h(category.get("label")) %></option><% } %></select></label><label>Color<input name="color" maxlength="15" /></label><label>Size<input name="size" maxlength="5" /></label><label>Weight<input name="weight" type="number" step="0.01" min="0" /></label><label>List price<input name="list_price" type="number" step="0.01" min="0" required /></label><label class="span">Description<input name="description" required maxlength="400" /></label><button type="submit">Add product</button></form></section>
+<section class="stack">
+<% for (Map<String,Object> product : productRows) { boolean retired = product.get("sell_end_date") != null; %><article class="edit-card<%= retired ? " retired" : "" %>"><form method="post"><input type="hidden" name="action" value="saveProduct" /><input type="hidden" name="product_id" value="<%= h(product.get("product_id")) %>" /><div class="heading"><strong><%= h(product.get("name")) %></strong><span class="small"><%= h(product.get("product_number")) %></span></div><div class="admin"><label>Name<input name="name" maxlength="50" required value="<%= h(product.get("name")) %>" /></label><label>Product number<input name="product_number" maxlength="25" required value="<%= h(product.get("product_number")) %>" /></label><label>Model<input name="model_name" maxlength="50" required value="<%= h(product.get("model_name")) %>" /></label><label>Category<select name="product_category_id"><% for (Map<String,Object> category : categories) { %><option value="<%= h(category.get("product_category_id")) %>" <%= String.valueOf(category.get("product_category_id")).equals(String.valueOf(product.get("product_category_id"))) ? "selected" : "" %>><%= h(category.get("label")) %></option><% } %></select></label><label>Color<input name="color" maxlength="15" value="<%= h(product.get("color")) %>" /></label><label>Size<input name="size" maxlength="5" value="<%= h(product.get("size")) %>" /></label><label>Weight<input name="weight" type="number" step="0.01" min="0" value="<%= h(product.get("weight")) %>" /></label><label>List price<input name="list_price" type="number" step="0.01" min="0" required value="<%= h(product.get("list_price")) %>" /></label><label class="span">Description<input name="description" maxlength="400" required value="<%= h(product.get("description")) %>" /></label></div><div class="actions"><button type="submit">Save product</button></div></form><% if (!retired) { %><form class="actions" method="post"><input type="hidden" name="action" value="retireProduct" /><input type="hidden" name="product_id" value="<%= h(product.get("product_id")) %>" /><button class="secondary" type="submit">Retire</button></form><% } %></article><% } %>
+</section>
 <% } else if ("orders".equals(view)) { %>
+<section class="panel"><h2>Create order</h2><form class="admin" method="post"><input type="hidden" name="action" value="createOrder" /><label>Customer<select name="customer_id"><% for (Map<String,Object> customer : customers) { %><option value="<%= h(customer.get("customer_id")) %>"><%= h(customer.get("label")) %></option><% } %></select></label><label>Product<select name="product_id"><% for (Map<String,Object> product : productRows) { if (product.get("sell_end_date") == null) { %><option value="<%= h(product.get("product_id")) %>"><%= h(product.get("name")) %> - <%= money(product.get("list_price")) %></option><% }} %></select></label><label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label><button type="submit">Create order</button></form></section>
 <section class="stack">
 <% for (Map<String,Object> order : orders) { %><article class="order-card"><div class="heading"><strong><%= h(order.get("sales_order_number")) %></strong><span><%= h(order.get("last_name")) %>, <%= h(order.get("first_name")) %> - <%= money(order.get("total_due")) %></span></div><form class="status" method="post"><input type="hidden" name="action" value="updateOrderStatus" /><input type="hidden" name="sales_order_id" value="<%= h(order.get("sales_order_id")) %>" /><select name="status"><% for (int status = 1; status <= 6; status++) { %><option value="<%= status %>" <%= statusName(order.get("status")).equals(statusName(status)) ? "selected" : "" %>><%= h(statusName(status)) %></option><% } %></select><button type="submit">Update</button></form><table><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Total</th></tr><% for (Map<String,Object> detail : details) { if (String.valueOf(detail.get("sales_order_id")).equals(String.valueOf(order.get("sales_order_id")))) { %><tr><td><%= h(detail.get("name")) %></td><td><%= h(detail.get("order_qty")) %></td><td><%= money(detail.get("unit_price")) %></td><td><%= money(detail.get("line_total")) %></td></tr><% }} %></table></article><% } %>
 </section>
 <% } else if ("customers".equals(view)) { %>
-<section class="panel"><h2>Customers</h2><table><tr><th>Name</th><th>Customer ID</th></tr><% for (Map<String,Object> customer : customers) { %><tr><td><%= h(customer.get("label")) %></td><td><%= h(customer.get("customer_id")) %></td></tr><% } %></table></section>
+<section class="panel"><h2>Customer management</h2><form class="admin" method="post"><input type="hidden" name="action" value="saveCustomer" /><label>First name<input name="first_name" maxlength="50" required /></label><label>Last name<input name="last_name" maxlength="50" required /></label><label>Company<input name="company_name" maxlength="128" /></label><label>Email<input name="email_address" type="email" maxlength="50" required /></label><label>Phone<input name="phone" maxlength="25" /></label><button type="submit">Add customer</button></form></section>
+<section class="stack"><% for (Map<String,Object> customer : customerRows) { %><article class="edit-card"><form method="post"><input type="hidden" name="action" value="saveCustomer" /><input type="hidden" name="customer_id" value="<%= h(customer.get("customer_id")) %>" /><div class="heading"><strong><%= h(customer.get("last_name")) %>, <%= h(customer.get("first_name")) %></strong><span class="small"><%= h(customer.get("email_address")) %></span></div><div class="admin"><label>First name<input name="first_name" maxlength="50" required value="<%= h(customer.get("first_name")) %>" /></label><label>Last name<input name="last_name" maxlength="50" required value="<%= h(customer.get("last_name")) %>" /></label><label>Company<input name="company_name" maxlength="128" value="<%= h(customer.get("company_name")) %>" /></label><label>Email<input name="email_address" type="email" maxlength="50" required value="<%= h(customer.get("email_address")) %>" /></label><label>Phone<input name="phone" maxlength="25" value="<%= h(customer.get("phone")) %>" /></label><button type="submit">Save customer</button></div></form></article><% } %></section>
+<section class="panel"><h2>Add customer address</h2><form class="admin" method="post"><input type="hidden" name="action" value="saveAddress" /><label>Customer<select name="customer_id"><% for (Map<String,Object> customer : customers) { %><option value="<%= h(customer.get("customer_id")) %>"><%= h(customer.get("label")) %></option><% } %></select></label><label>Address type<input name="address_type" value="Shipping" maxlength="50" required /></label><label>Address line 1<input name="address_line1" maxlength="60" required /></label><label>Address line 2<input name="address_line2" maxlength="60" /></label><label>City<input name="city" maxlength="30" required /></label><label>State/province<input name="state_province" maxlength="50" required /></label><label>Postal code<input name="postal_code" maxlength="15" required /></label><label>Country/region<input name="country_region" value="United States" maxlength="50" required /></label><button type="submit">Add address</button></form></section>
+<section class="panel"><h2>Address book</h2><table><tr><th>Customer</th><th>Type</th><th>Address</th><th>City</th><th>Region</th></tr><% for (Map<String,Object> address : addressRows) { %><tr><td><%= h(address.get("last_name")) %>, <%= h(address.get("first_name")) %></td><td><%= h(address.get("address_type")) %></td><td><%= h(address.get("address_line1")) %> <%= h(address.get("address_line2")) %></td><td><%= h(address.get("city")) %></td><td><%= h(address.get("state_province")) %> <%= h(address.get("postal_code")) %></td></tr><% } %></table></section>
 <% } else { %>
 <section class="grid"><article class="panel"><h2>Revenue by category</h2><table><tr><th>Category</th><th>Units</th><th>Revenue</th></tr><% for (Map<String,Object> row : categoryRevenue) { %><tr><td><%= h(row.get("category_name")) %></td><td><%= h(row.get("units")) %></td><td><%= money(row.get("revenue")) %></td></tr><% } %></table></article><article class="panel"><h2>Customer revenue</h2><table><tr><th>Customer</th><th>Orders</th><th>Revenue</th></tr><% for (Map<String,Object> row : customerRevenue) { %><tr><td><%= h(row.get("last_name")) %>, <%= h(row.get("first_name")) %></td><td><%= h(row.get("orders")) %></td><td><%= money(row.get("revenue")) %></td></tr><% } %></table></article></section>
 <% } %>
