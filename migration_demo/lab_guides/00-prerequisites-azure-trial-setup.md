@@ -82,10 +82,23 @@ The Azure Free Account offer is subject to Microsoft's current eligibility, offe
 ## Create a GitHub account
 
 1. Open [Join GitHub](https://github.com/signup) in a private browser window.
-2. Follow the prompts to enter your email address, create a password and username, and complete the account verification. Use a unique password and do not share it with presenters or other attendees.
-3. When GitHub confirms that the account was created, sign in with the new account.
+2. Enter your email address, create a unique password, and choose an available username. Do not share your password with presenters or other attendees.
+3. Select your country or region.
+4. Review the **GitHub Copilot** and **Email preferences** options and select or clear them according to your preference.
+5. Review GitHub's Terms of Service and Privacy Statement, then select **Create account**.
+
+   ![Complete the GitHub account sign-up form.](images/00-A-ghsignup.png)
+
+6. GitHub sends a confirmation code to the email address you entered. Retrieve the code from your email and enter it on the **Confirm your email address** page. Do not share the code.
+7. Select **Continue**. If the email does not arrive, select **Resend the code** or **update your email address**.
+
+   ![Enter the GitHub email confirmation code.](images/00-B-ghsignup.png)
+
+8. When GitHub confirms that the account was created, enter your username or email address and password, then select **Sign in**.
 
    ![Sign in after successfully creating the GitHub account.](images/00-C-GHlogin.png)
+
+9. Confirm that your GitHub home page opens and displays your signed-in account.
 
 ## Troubleshooting
 
