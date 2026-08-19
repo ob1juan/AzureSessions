@@ -79,47 +79,13 @@ The Azure Free Account offer is subject to Microsoft's current eligibility, offe
 4. Confirm that the new trial subscription is listed and its state is **Enabled**.
 5. Record the subscription name and ID for use during the lab. Do not share personal account, payment, or verification information with presenters or in lab notes.
 
-## Create and connect a GitHub account
+## Create a GitHub account
 
 1. Open [Join GitHub](https://github.com/signup) in a private browser window.
 2. Follow the prompts to enter your email address, create a password and username, and complete the account verification. Use a unique password and do not share it with presenters or other attendees.
 3. When GitHub confirms that the account was created, sign in with the new account.
 
    ![Sign in after successfully creating the GitHub account.](images/00-C-GHlogin.png)
-
-4. After the Hyper-V host is deployed and you are connected through Azure Bastion, open **Visual Studio Code** from the Windows Start menu.
-
-   ![Open Visual Studio Code on the Hyper-V host.](images/00-D-hyperv-vscode.png)
-
-5. In Visual Studio Code, select **Sign In**.
-
-   ![Select Sign In in Visual Studio Code.](images/00-E-hyperv-vscodeghlogin.png)
-
-6. In the GitHub Copilot sign-in dialog, select **Continue with GitHub**. Your browser opens the GitHub sign-in page.
-
-   ![Continue to GitHub from the GitHub Copilot sign-in dialog.](images/00-F-hyperv-vscodeghlogin.png)
-
-7. To transfer text between your local computer and the Hyper-V host, select the Azure Bastion clipboard button on the session toolbar.
-
-   ![Open the Azure Bastion clipboard.](images/00-G-hyperv-ghpassclipboard.png)
-
-8. Enter the text in the **Clipboard** dialog, select **OK**, and then paste it into the appropriate field in the remote browser. Do not expose your actual password to presenters or other attendees.
-
-   ![Transfer text with the Azure Bastion clipboard.](images/00-H-hyperv-ghpassclipboard2.png)
-
-9. If GitHub requests device verification, retrieve the code from your email, enter it on the GitHub page, and select **Verify**. Never share the code.
-
-   ![Complete GitHub device verification.](images/00-I-hyperv-ghpasscode.png)
-
-10. Review the requested permissions and select **Authorize Visual-Studio-Code**.
-
-    ![Authorize Visual Studio Code to access the GitHub account.](images/00-J-hyperv-ghpassauth.png)
-
-11. When the browser asks to open Visual Studio Code, select **Open**.
-
-    ![Return to Visual Studio Code after GitHub authorization.](images/00-K-hyperv-ghvscodeopen.png)
-
-12. Confirm that Visual Studio Code shows the GitHub account as signed in.
 
 ## Troubleshooting
 
@@ -128,7 +94,6 @@ The Azure Free Account offer is subject to Microsoft's current eligibility, offe
 - **The subscription is not visible:** Confirm that you are signed in with the account used for sign-up and refresh the Subscriptions page.
 - **You do not want to enter credit-card information:** Do not create the trial. Follow along with the step-by-step demonstration during the session instead.
 - **GitHub verification email does not arrive:** Check the spam or junk folder, confirm the email address, and request another verification message from GitHub.
-- **Visual Studio Code does not reopen:** Return to Visual Studio Code, select **Sign In** again, and repeat the GitHub authorization flow.
 
 ## Reference
 
