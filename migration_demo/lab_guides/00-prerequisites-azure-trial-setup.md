@@ -25,11 +25,11 @@ The Azure Free Account offer is subject to Microsoft's current eligibility, offe
 
    ![Choose an account for Azure sign-up.](images/01-PickAccount.png)
 
-4. If you already have a Microsoft account, select **Sign in**. Otherwise, select **Create one** and follow the account creation prompts.
+4. If you already have a Microsoft account, select **Sign in**. Otherwise, select **Create one** and follow the account creation prompts. You will need to use and account that has not previously had an Azure trial subscription.
 
    ![Start creating or signing in to a Microsoft account.](images/02-CreateAccount.png)
 
-5. Enter the email address to use for the trial.
+5. Enter an email address to use for the trial. (sample user. pick your own new email address.)
 
    ![Enter the Microsoft account email address.](images/04-new-email.png)
 
