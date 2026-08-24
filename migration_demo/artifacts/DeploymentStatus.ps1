@@ -360,8 +360,10 @@ function Set-ComponentStatus {
     $component = Get-Component -State $state -Name $Name -Description $description
     $now = Get-UtcIsoTime
 
-    if ($NewStatus -eq 'InProgress' -and [string]::IsNullOrWhiteSpace([string]$component.StartTime)) {
+    if ($NewStatus -eq 'InProgress') {
         $component.StartTime = $now
+        $component.StopTime = $null
+        $component.TotalSeconds = $null
     }
 
     if ($NewStatus -in @('Completed', 'Failed', 'Skipped')) {
@@ -369,7 +371,9 @@ function Set-ComponentStatus {
             $component.StartTime = $now
         }
         $component.StopTime = $now
-        $component.TotalSeconds = [math]::Round((New-TimeSpan -Start ([datetime]$component.StartTime) -End ([datetime]$component.StopTime)).TotalSeconds, 1)
+        $componentStartTime = [datetimeoffset]::Parse([string]$component.StartTime, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        $componentStopTime = [datetimeoffset]::Parse([string]$component.StopTime, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        $component.TotalSeconds = [math]::Round(($componentStopTime - $componentStartTime).TotalSeconds, 1)
     }
 
     $component.Status = $NewStatus
@@ -547,16 +551,18 @@ function Update-OverallStatus {
         $State.OverallStatus = 'Completed'
     }
 
-    $started = @($components | Where-Object { $_.StartTime } | ForEach-Object { [datetime]$_.StartTime } | Sort-Object)
-    $stopped = @($components | Where-Object { $_.StopTime } | ForEach-Object { [datetime]$_.StopTime } | Sort-Object)
+    $started = @($components | Where-Object { $_.StartTime } | ForEach-Object { [datetimeoffset]::Parse([string]$_.StartTime, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } | Sort-Object)
+    $stopped = @($components | Where-Object { $_.StopTime } | ForEach-Object { [datetimeoffset]::Parse([string]$_.StopTime, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } | Sort-Object)
     if ($started.Count -gt 0) {
-        $State.OverallStartTime = $started[0].ToUniversalTime().ToString('o')
+        $State.OverallStartTime = $started[0].UtcDateTime.ToString('o')
     }
     if ($stopped.Count -gt 0) {
-        $State.OverallStopTime = $stopped[-1].ToUniversalTime().ToString('o')
+        $State.OverallStopTime = $stopped[-1].UtcDateTime.ToString('o')
     }
     if ($State.OverallStartTime -and $State.OverallStopTime) {
-        $State.OverallSeconds = [math]::Round((New-TimeSpan -Start ([datetime]$State.OverallStartTime) -End ([datetime]$State.OverallStopTime)).TotalSeconds, 1)
+        $overallStartTime = [datetimeoffset]::Parse([string]$State.OverallStartTime, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        $overallStopTime = [datetimeoffset]::Parse([string]$State.OverallStopTime, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        $State.OverallSeconds = [math]::Round(($overallStopTime - $overallStartTime).TotalSeconds, 1)
     }
 }
 

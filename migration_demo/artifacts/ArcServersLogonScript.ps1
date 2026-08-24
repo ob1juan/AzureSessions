@@ -1142,7 +1142,17 @@ if ($Env:flavor -ne 'DevOps') {
 
     if (-not (Test-ComponentCompleted -Name 'ArcBox Hyper-V host Arc onboarding')) {
         Start-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the Hyper-V host.'
+        $azureVmMetadata = $null
         try {
+            $azureVmMetadata = Invoke-RestMethod -Uri 'http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01' -Headers @{ Metadata = 'true' } -TimeoutSec 5 -ErrorAction Stop
+        } catch { }
+
+        if ($null -ne $azureVmMetadata) {
+            $azureVmName = if ([string]::IsNullOrWhiteSpace([string]$azureVmMetadata.name)) { $env:COMPUTERNAME } else { $azureVmMetadata.name }
+            Write-Host "Skipping Azure Arc onboarding for Hyper-V host '$azureVmName' because it is already an Azure VM."
+            Complete-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Status Skipped -Message "Hyper-V host '$azureVmName' is an Azure VM and cannot be onboarded as an Azure Arc-enabled server."
+        } else {
+            try {
             Write-Header 'Onboarding Hyper-V host as an Arc-enabled server'
 
             $hyperVHostName = $env:COMPUTERNAME
@@ -1185,9 +1195,10 @@ if ($Env:flavor -ne 'DevOps') {
             }
 
             Complete-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Message "Hyper-V host '$hyperVHostName' is connected to Azure Arc."
-        } catch {
-            Write-Warning "Component 'ArcBox Hyper-V host Arc onboarding' failed: $($_.Exception.Message)"
-            Complete-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Status Failed -Message $_.Exception.Message
+            } catch {
+                Write-Warning "Component 'ArcBox Hyper-V host Arc onboarding' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Status Failed -Message $_.Exception.Message
+            }
         }
     }
 
