@@ -76,17 +76,6 @@ $defaultComponents = @(
         RecoveryInstructions = 'Confirm the client VM managed identity has subscription Owner access, then rerun ArcServersLogonScript.'
     }
     @{
-        Name = 'ArcBox Hyper-V host Arc onboarding'
-        Description = 'Azure Connected Machine agent installation and onboarding for the Hyper-V host.'
-        RunsOn = 'Client VM / Hyper-V host'
-        ScriptPath = 'C:\ArcBox\agentScript\installArcAgent.ps1'
-        Command = 'Runs installArcAgent.ps1 locally with a fresh managed-identity access token, then waits for the host to report Connected in Azure Arc.'
-        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1" -ForceComponents "ArcBox Hyper-V host Arc onboarding"'
-        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
-        WorkingDirectory = 'C:\ArcBox'
-        RecoveryInstructions = 'Confirm the Hyper-V host can reach Azure Arc endpoints and the managed identity can onboard machines, then force this component to rerun.'
-    }
-    @{
         Name = 'ArcBox-SQL VM'
         Description = 'SQL nested VM VHD download, Hyper-V VM creation, rename, and firewall preparation.'
         RunsOn = 'Client VM / Hyper-V host'
@@ -314,7 +303,7 @@ function Get-Component {
     if (-not ($component.PSObject.Properties.Name -contains 'SectionNumber')) {
         $component | Add-Member -MemberType NoteProperty -Name SectionNumber -Value $sectionNumber
     }
-    elseif ($null -ne $sectionNumber -and ($null -eq $component.SectionNumber -or [int]$component.SectionNumber -le 0)) {
+    elseif ($null -ne $sectionNumber -and $component.SectionNumber -ne $sectionNumber) {
         $component.SectionNumber = $sectionNumber
     }
 
@@ -341,6 +330,7 @@ function Get-Component {
 
 function Initialize-StatusState {
     $state = Get-StatusState
+    $state.Components = @(Convert-ToArray -Value $state.Components | Where-Object { $_.Name -ne 'ArcBox Hyper-V host Arc onboarding' })
     foreach ($componentDefinition in $defaultComponents) {
         $null = Get-Component -State $state -Name $componentDefinition.Name -Description $componentDefinition.Description
     }

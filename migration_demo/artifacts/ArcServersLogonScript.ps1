@@ -1140,68 +1140,6 @@ if ($Env:flavor -ne 'DevOps') {
         Write-Warning "Az PowerShell login failed; components that require an Azure context will fail: $($_.Exception.Message)"
     }
 
-    if (-not (Test-ComponentCompleted -Name 'ArcBox Hyper-V host Arc onboarding')) {
-        Start-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Message 'Installing the Azure Connected Machine agent on the Hyper-V host.'
-        $azureVmMetadata = $null
-        try {
-            $azureVmMetadata = Invoke-RestMethod -Uri 'http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01' -Headers @{ Metadata = 'true' } -TimeoutSec 5 -ErrorAction Stop
-        } catch { }
-
-        if ($null -ne $azureVmMetadata) {
-            $azureVmName = if ([string]::IsNullOrWhiteSpace([string]$azureVmMetadata.name)) { $env:COMPUTERNAME } else { $azureVmMetadata.name }
-            Write-Host "Skipping Azure Arc onboarding for Hyper-V host '$azureVmName' because it is already an Azure VM."
-            Complete-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Status Skipped -Message "Hyper-V host '$azureVmName' is an Azure VM and cannot be onboarded as an Azure Arc-enabled server."
-        } else {
-            try {
-            Write-Header 'Onboarding Hyper-V host as an Arc-enabled server'
-
-            $hyperVHostName = $env:COMPUTERNAME
-            if (-not (Get-Module -ListAvailable -Name Az.ConnectedMachine)) {
-                Write-Host 'Installing Az.ConnectedMachine module for Hyper-V host Arc verification.'
-                try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue | Out-Null } catch { }
-                if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
-                    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-                }
-                Install-Module -Name Az.ConnectedMachine -Scope AllUsers -Force -AllowClobber -ErrorAction Stop
-            }
-            Import-Module Az.ConnectedMachine -ErrorAction Stop
-
-            $hyperVHostArcMachine = Get-AzConnectedMachine -ResourceGroupName $resourceGroup -Name $hyperVHostName -ErrorAction SilentlyContinue
-            if ($null -eq $hyperVHostArcMachine -or $hyperVHostArcMachine.Status -ne 'Connected') {
-                $accessToken = ConvertFrom-SecureString ((Get-AzAccessToken -AsSecureString).Token) -AsPlainText
-                & (Join-Path -Path $agentScript -ChildPath 'installArcAgent.ps1') `
-                    -accessToken $accessToken `
-                    -tenantId $tenantId `
-                    -subscriptionId $subscriptionId `
-                    -resourceGroup $resourceGroup `
-                    -Azurelocation $azureLocation
-            } else {
-                Write-Host "Hyper-V host '$hyperVHostName' is already connected to Azure Arc."
-            }
-
-            $hyperVHostArcDeadline = (Get-Date).AddSeconds(600)
-            do {
-                $hyperVHostArcMachine = Get-AzConnectedMachine -ResourceGroupName $resourceGroup -Name $hyperVHostName -ErrorAction SilentlyContinue
-                if ($null -ne $hyperVHostArcMachine -and $hyperVHostArcMachine.Status -eq 'Connected') {
-                    break
-                }
-
-                Write-Host "Waiting for Hyper-V host '$hyperVHostName' to report Connected in Azure Arc."
-                Start-Sleep -Seconds 15
-            } while ((Get-Date) -lt $hyperVHostArcDeadline)
-
-            if ($null -eq $hyperVHostArcMachine -or $hyperVHostArcMachine.Status -ne 'Connected') {
-                throw "Hyper-V host '$hyperVHostName' did not report Connected in Azure Arc within 10 minutes."
-            }
-
-            Complete-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Message "Hyper-V host '$hyperVHostName' is connected to Azure Arc."
-            } catch {
-                Write-Warning "Component 'ArcBox Hyper-V host Arc onboarding' failed: $($_.Exception.Message)"
-                Complete-DeploymentComponent -Name 'ArcBox Hyper-V host Arc onboarding' -Status Failed -Message $_.Exception.Message
-            }
-        }
-    }
-
     if (-not (Test-ComponentCompleted -Name 'Azure Migrate Appliance VM')) {
         Start-DeploymentComponent -Name 'Azure Migrate Appliance VM' -Message "Downloading the Azure Migrate appliance ZIP, extracting the VHD, and creating Hyper-V VM $azureMigrateApplianceVmName."
         try {
