@@ -77,8 +77,8 @@ var bastionName = '${namingPrefix}-Bastion'
 var bastionSubnetIpPrefix = '10.16.3.64/26'
 var bastionPublicIpAddressName = '${bastionName}-PIP'
 var vmInsightsDataCollectionRuleName = '${namingPrefix}-VMInsights-DCR'
-var windowsMonitorInitiativeId = subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', '9575b8b7-78ab-4281-b53b-d3c1ace2260b')
-var linuxMonitorInitiativeId = subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', '118f04da-0375-44d1-84e3-0fd9e1849403')
+var windowsMonitorInitiativeId = tenantResourceId('Microsoft.Authorization/policySetDefinitions', '9575b8b7-78ab-4281-b53b-d3c1ace2260b')
+var linuxMonitorInitiativeId = tenantResourceId('Microsoft.Authorization/policySetDefinitions', '118f04da-0375-44d1-84e3-0fd9e1849403')
 var contributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
 
 var primarySubnet = [

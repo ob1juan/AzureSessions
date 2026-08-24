@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "16610959870867728750"
+      "templateHash": "17596717090832661294"
     }
   },
   "parameters": {
@@ -898,7 +898,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "8828645057285153653"
+              "templateHash": "12097200725683026269"
             }
           },
           "parameters": {
@@ -1053,8 +1053,8 @@
             "bastionSubnetIpPrefix": "10.16.3.64/26",
             "bastionPublicIpAddressName": "[format('{0}-PIP', variables('bastionName'))]",
             "vmInsightsDataCollectionRuleName": "[format('{0}-VMInsights-DCR', parameters('namingPrefix'))]",
-            "windowsMonitorInitiativeId": "[subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', '9575b8b7-78ab-4281-b53b-d3c1ace2260b')]",
-            "linuxMonitorInitiativeId": "[subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', '118f04da-0375-44d1-84e3-0fd9e1849403')]",
+            "windowsMonitorInitiativeId": "[tenantResourceId('Microsoft.Authorization/policySetDefinitions', '9575b8b7-78ab-4281-b53b-d3c1ace2260b')]",
+            "linuxMonitorInitiativeId": "[tenantResourceId('Microsoft.Authorization/policySetDefinitions', '118f04da-0375-44d1-84e3-0fd9e1849403')]",
             "contributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
             "primarySubnet": [
               {
