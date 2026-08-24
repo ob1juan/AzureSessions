@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "17596717090832661294"
+      "templateHash": "4107096743312305534"
     }
   },
   "parameters": {
@@ -898,7 +898,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "12097200725683026269"
+              "templateHash": "9529128311186136996"
             }
           },
           "parameters": {
@@ -1651,6 +1651,24 @@
               }
             },
             {
+              "type": "Microsoft.OperationsManagement/solutions",
+              "apiVersion": "2015-11-01-preview",
+              "name": "[format('VMInsights({0})', parameters('logAnalyticsWorkspaceName'))]",
+              "location": "[parameters('location')]",
+              "plan": {
+                "name": "[format('VMInsights({0})', parameters('logAnalyticsWorkspaceName'))]",
+                "product": "OMSGallery/VMInsights",
+                "publisher": "Microsoft",
+                "promotionCode": ""
+              },
+              "properties": {
+                "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]"
+              ]
+            },
+            {
               "type": "Microsoft.Insights/dataCollectionRules",
               "apiVersion": "2023-03-11",
               "name": "[variables('vmInsightsDataCollectionRuleName')]",
@@ -1709,7 +1727,8 @@
                 ]
               },
               "dependsOn": [
-                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]"
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]",
+                "[resourceId('Microsoft.OperationsManagement/solutions', format('VMInsights({0})', parameters('logAnalyticsWorkspaceName')))]"
               ]
             },
             {

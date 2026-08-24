@@ -660,6 +660,20 @@ resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09
   }
 }
 
+resource vmInsightsSolution 'Microsoft.OperationsManagement/solutions@2015-11-01-preview' = {
+  name: 'VMInsights(${logAnalyticsWorkspace.name})'
+  location: location
+  plan: {
+    name: 'VMInsights(${logAnalyticsWorkspace.name})'
+    product: 'OMSGallery/VMInsights'
+    publisher: 'Microsoft'
+    promotionCode: ''
+  }
+  properties: {
+    workspaceResourceId: logAnalyticsWorkspace.id
+  }
+}
+
 resource vmInsightsDataCollectionRule 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
   name: vmInsightsDataCollectionRuleName
   location: location
@@ -716,6 +730,9 @@ resource vmInsightsDataCollectionRule 'Microsoft.Insights/dataCollectionRules@20
       }
     ]
   }
+  dependsOn: [
+    vmInsightsSolution
+  ]
 }
 
 resource windowsMonitorPolicyAssignment 'Microsoft.Authorization/policyAssignments@2024-04-01' = {
