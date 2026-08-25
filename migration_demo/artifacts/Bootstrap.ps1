@@ -220,6 +220,17 @@ Invoke-WebRequest ($templateBaseUrl + "artifacts/DeploymentStatus.ps1") -OutFile
 Write-Host "Fetching Artifacts for ITPro Flavor"
 Invoke-WebRequest ($templateBaseUrl + "artifacts/ArcServersLogonScript.ps1") -OutFile $Env:ArcBoxDir\ArcServersLogonScript.ps1
 Invoke-WebRequest ($templateBaseUrl + "artifacts/Connect-ArcBoxVm.ps1") -OutFile $Env:ArcBoxDir\Connect-ArcBoxVm.ps1
+$requiredHostScripts = @(
+    (Join-Path -Path $Env:ArcBoxDir -ChildPath 'ArcServersLogonScript.ps1')
+    (Join-Path -Path $Env:ArcBoxDir -ChildPath 'Connect-ArcBoxVm.ps1')
+)
+foreach ($requiredHostScript in $requiredHostScripts) {
+    $hostScriptFile = Get-Item -Path $requiredHostScript -ErrorAction SilentlyContinue
+    if ($null -eq $hostScriptFile -or $hostScriptFile.Length -eq 0) {
+        throw "Required Hyper-V host script was not copied to C:\ArcBox: $requiredHostScript"
+    }
+    Write-Host "Verified Hyper-V host script: $requiredHostScript"
+}
 Invoke-WebRequest ($templateBaseUrl + "artifacts/installArcAgent.ps1") -OutFile $Env:ArcBoxDir\agentScript\installArcAgent.ps1
 Invoke-WebRequest ($templateBaseUrl + "artifacts/installArcAgentUbuntu.sh") -OutFile $Env:ArcBoxDir\agentScript\installArcAgentUbuntu.sh
 Invoke-WebRequest ($templateBaseUrl + "artifacts/dsc/itpro.dsc.yml") -OutFile $Env:ArcBoxDscDir\itpro.dsc.yml
