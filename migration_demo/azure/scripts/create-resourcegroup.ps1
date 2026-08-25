@@ -1,13 +1,12 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory = $true)]
-    [string] $ResourceGroupName = "MigrationDemo",
+    [string] $ResourceGroupName = 'MigrationDemo',
 
     [Parameter(Mandatory = $true)]
     [string] $Subscription,
 
-    [Parameter(Mandatory = $true)]
-    [string] $Location = "CentralUS",
+    [string] $Location = 'CentralUS',
 
     [string] $PimJustification = 'Activate Owner to create an Azure resource group'
 )
