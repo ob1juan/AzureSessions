@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "3491952475102538527"
+      "templateHash": "11802616490170974019"
     }
   },
   "parameters": {
@@ -1943,7 +1943,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "17664930083425229940"
+              "templateHash": "12254929245959384271"
             }
           },
           "parameters": {
@@ -2002,7 +2002,7 @@
             {
               "type": "Microsoft.Sql/servers/databases",
               "apiVersion": "2023-08-01",
-              "name": "[format('{0}/{1}', variables('sqlServerName'), 'AdventureWorks')]",
+              "name": "[format('{0}/{1}', variables('sqlServerName'), 'AdventureWorksLT2022')]",
               "location": "[parameters('location')]",
               "sku": "[if(parameters('useAzureSqlFreeLimit'), createObject('name', 'GP_S_Gen5_1', 'tier', 'GeneralPurpose', 'family', 'Gen5', 'capacity', 1), createObject('name', 'Basic', 'tier', 'Basic', 'capacity', 5))]",
               "properties": "[if(parameters('useAzureSqlFreeLimit'), createObject('autoPauseDelay', 60, 'minCapacity', json('0.5'), 'maxSizeBytes', json('34359738368'), 'requestedBackupStorageRedundancy', 'Local', 'useFreeLimit', true(), 'freeLimitExhaustionBehavior', 'AutoPause', 'zoneRedundant', false()), createObject('maxSizeBytes', json('2147483648'), 'requestedBackupStorageRedundancy', 'Local', 'zoneRedundant', false()))]",
@@ -2088,7 +2088,7 @@
             },
             "sqlDatabaseName": {
               "type": "string",
-              "value": "AdventureWorks"
+              "value": "AdventureWorksLT2022"
             },
             "sqlServerFqdn": {
               "type": "string",

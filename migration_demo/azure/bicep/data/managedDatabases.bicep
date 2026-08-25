@@ -32,7 +32,7 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
 
 resource sqlDatabase 'Microsoft.Sql/servers/databases@2023-08-01' = {
   parent: sqlServer
-  name: 'AdventureWorks'
+  name: 'AdventureWorksLT2022'
   location: location
   sku: useAzureSqlFreeLimit
     ? {

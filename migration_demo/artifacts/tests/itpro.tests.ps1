@@ -84,7 +84,7 @@ Describe "Azure managed modernization databases" {
         $servers = @(Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.Sql/servers')
         $databases = @(Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.Sql/servers/databases')
         $servers.Count | Should -BeGreaterThan 0
-        $databases.Name | Should -Match '/AdventureWorks$'
+        $databases.Name | Should -Match '/AdventureWorksLT2022$'
     }
 
     It "deploys an Azure Database for PostgreSQL flexible server and database" {
