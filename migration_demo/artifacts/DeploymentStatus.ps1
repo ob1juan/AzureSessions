@@ -175,6 +175,17 @@ $defaultComponents = @(
         RecoveryInstructions = 'Confirm the client VM managed identity can write to the schedule resource, then rerun ArcServersLogonScript or enable auto-shutdown from the Azure portal.'
     }
     @{
+        Name = 'SQL Server Integration Runtime'
+        Description = 'Downloads and silently installs Microsoft Integration Runtime 5.62.9520.4 on the Hyper-V host.'
+        RunsOn = 'Client VM / Hyper-V host'
+        ScriptPath = 'C:\ArcBox\ArcServersLogonScript.ps1'
+        Command = 'msiexec.exe /i C:\ArcBox\IntegrationRuntime_5.62.9520.4.msi /qn /norestart /L*v C:\ArcBox\Logs\IntegrationRuntime-install.log'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1" -ForceComponents "SQL Server Integration Runtime"'
+        LogPath = 'C:\ArcBox\Logs\IntegrationRuntime-install.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Review the MSI log, confirm outbound access to download.microsoft.com, then force-rerun this component. Exit codes 1641 and 3010 indicate a successful install requiring restart.'
+    }
+    @{
         Name = 'Deployment report'
         Description = 'Final HTML status report generation and browser launch.'
         RunsOn = 'Client VM / Hyper-V host'

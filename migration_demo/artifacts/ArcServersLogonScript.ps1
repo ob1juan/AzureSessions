@@ -35,6 +35,11 @@ $defaultAzureMigrateApplianceVhdUrl = 'https://go.microsoft.com/fwlink/?linkid=2
 # Default Microsoft short link for the Azure Site Recovery Provider installer.
 $defaultAzureSiteRecoveryProviderUrl = 'https://aka.ms/downloaddra_cus'
 
+$integrationRuntimeVersion = [version]'5.62.9520.4'
+$integrationRuntimeUrl = 'https://download.microsoft.com/download/e/4/7/e4771905-1079-445b-8bf9-8a1a075d8a10/IntegrationRuntime_5.62.9520.4.msi'
+$integrationRuntimeInstallerPath = Join-Path -Path $Env:ArcBoxDir -ChildPath 'IntegrationRuntime_5.62.9520.4.msi'
+$integrationRuntimeInstallLogPath = Join-Path -Path $Env:ArcBoxLogsDir -ChildPath 'IntegrationRuntime-install.log'
+
 function Write-Header {
     param(
         [string]$Title
@@ -146,6 +151,33 @@ function Invoke-ArcBoxWithRetry {
             Start-Sleep -Seconds $DelaySeconds
         }
     }
+}
+
+function Get-ArcBoxInstalledIntegrationRuntime {
+    param(
+        [Parameter(Mandatory = $true)][version]$MinimumVersion
+    )
+
+    $uninstallPaths = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+
+    $matchingInstallations = foreach ($uninstallPath in $uninstallPaths) {
+        Get-ItemProperty -Path $uninstallPath -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like 'Microsoft Integration Runtime*' } |
+            ForEach-Object {
+                try {
+                    if ([version]$_.DisplayVersion -ge $MinimumVersion) {
+                        $_
+                    }
+                } catch { }
+            }
+    }
+
+    return $matchingInstallations |
+        Sort-Object -Property { [version]$_.DisplayVersion } -Descending |
+        Select-Object -First 1
 }
 
 # Task Scheduler hands this task a cached environment block, so the PATH entry added by the Azure
@@ -2058,6 +2090,70 @@ sudo ufw allow 'Apache Full' >/dev/null 2>&1 || true
         } catch {
             Write-Warning "Component 'Re-enable auto-shutdown' failed: $($_.Exception.Message)"
             Complete-DeploymentComponent -Name 'Re-enable auto-shutdown' -Status Failed -Message $_.Exception.Message
+        }
+    }
+
+    if (-not (Test-ComponentCompleted -Name 'SQL Server Integration Runtime')) {
+        Start-DeploymentComponent -Name 'SQL Server Integration Runtime' -Message "Downloading and installing Microsoft Integration Runtime $integrationRuntimeVersion on the Hyper-V host."
+        try {
+        Write-Header "Installing Microsoft Integration Runtime $integrationRuntimeVersion"
+
+        $installedIntegrationRuntime = Get-ArcBoxInstalledIntegrationRuntime -MinimumVersion $integrationRuntimeVersion
+        if ($null -eq $installedIntegrationRuntime) {
+            $existingIntegrationRuntimeInstaller = Get-Item -Path $integrationRuntimeInstallerPath -ErrorAction SilentlyContinue
+            if ($null -eq $existingIntegrationRuntimeInstaller -or $existingIntegrationRuntimeInstaller.Length -eq 0) {
+                Remove-Item -Path $integrationRuntimeInstallerPath -Force -ErrorAction SilentlyContinue
+                if (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue) {
+                    Write-Host "Downloading Microsoft Integration Runtime via BITS: $integrationRuntimeUrl"
+                    Start-BitsTransfer -Source $integrationRuntimeUrl -Destination $integrationRuntimeInstallerPath -ErrorAction Stop
+                } else {
+                    Write-Host "Downloading Microsoft Integration Runtime via WebRequest: $integrationRuntimeUrl"
+                    $progressPreference = $ProgressPreference
+                    $ProgressPreference = 'SilentlyContinue'
+                    try {
+                        Invoke-WebRequest -Uri $integrationRuntimeUrl -OutFile $integrationRuntimeInstallerPath -UseBasicParsing -ErrorAction Stop
+                    } finally {
+                        $ProgressPreference = $progressPreference
+                    }
+                }
+            } else {
+                Write-Host "Microsoft Integration Runtime installer already exists: $integrationRuntimeInstallerPath"
+            }
+
+            if (-not (Test-Path $integrationRuntimeInstallerPath) -or (Get-Item $integrationRuntimeInstallerPath).Length -eq 0) {
+                throw "Microsoft Integration Runtime download failed - file not found or empty: $integrationRuntimeInstallerPath"
+            }
+
+            $installerSignature = Get-AuthenticodeSignature -FilePath $integrationRuntimeInstallerPath
+            if ($installerSignature.Status -ne 'Valid' -or $installerSignature.SignerCertificate.Subject -notmatch 'Microsoft') {
+                throw "Microsoft Integration Runtime installer signature validation failed. Status: $($installerSignature.Status); signer: $($installerSignature.SignerCertificate.Subject)"
+            }
+
+            $installProcess = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" -ArgumentList @(
+                '/i'
+                $integrationRuntimeInstallerPath
+                '/qn'
+                '/norestart'
+                '/L*v'
+                $integrationRuntimeInstallLogPath
+            ) -Wait -PassThru
+
+            if ($installProcess.ExitCode -notin @(0, 1641, 3010)) {
+                throw "Microsoft Integration Runtime installation failed with exit code $($installProcess.ExitCode). See $integrationRuntimeInstallLogPath."
+            }
+
+            $installedIntegrationRuntime = Get-ArcBoxInstalledIntegrationRuntime -MinimumVersion $integrationRuntimeVersion
+            if ($null -eq $installedIntegrationRuntime) {
+                throw "Microsoft Integration Runtime $integrationRuntimeVersion was not found in the installed-program registry after msiexec completed. See $integrationRuntimeInstallLogPath."
+            }
+        } else {
+            Write-Host "Microsoft Integration Runtime $($installedIntegrationRuntime.DisplayVersion) is already installed."
+        }
+
+        Complete-DeploymentComponent -Name 'SQL Server Integration Runtime' -Message "Microsoft Integration Runtime $($installedIntegrationRuntime.DisplayVersion) is installed on the Hyper-V host."
+        } catch {
+            Write-Warning "Component 'SQL Server Integration Runtime' failed: $($_.Exception.Message)"
+            Complete-DeploymentComponent -Name 'SQL Server Integration Runtime' -Status Failed -Message $_.Exception.Message
         }
     }
 
