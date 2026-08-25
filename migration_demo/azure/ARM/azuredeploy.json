@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "4107096743312305534"
+      "templateHash": "3491952475102538527"
     }
   },
   "parameters": {
@@ -898,7 +898,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "9529128311186136996"
+              "templateHash": "4463161556570094185"
             }
           },
           "parameters": {
@@ -981,6 +981,13 @@
                 "description": "Name of the Log Analytics workspace used by VM Insights and Arc-enabled servers"
               }
             },
+            "vmInsightsTableWaitForceUpdateTag": {
+              "type": "string",
+              "defaultValue": "[utcNow()]",
+              "metadata": {
+                "description": "Forces the VM Insights table readiness check to run on every deployment"
+              }
+            },
             "logAnalyticsRetentionInDays": {
               "type": "int",
               "defaultValue": 30,
@@ -1056,6 +1063,7 @@
             "windowsMonitorInitiativeId": "[tenantResourceId('Microsoft.Authorization/policySetDefinitions', '9575b8b7-78ab-4281-b53b-d3c1ace2260b')]",
             "linuxMonitorInitiativeId": "[tenantResourceId('Microsoft.Authorization/policySetDefinitions', '118f04da-0375-44d1-84e3-0fd9e1849403')]",
             "contributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+            "readerRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
             "primarySubnet": [
               {
                 "name": "[parameters('subnetName')]",
@@ -1669,6 +1677,60 @@
               ]
             },
             {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2023-01-31",
+              "name": "[format('{0}-VMInsights-TableWait', parameters('namingPrefix'))]",
+              "location": "[parameters('location')]"
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]",
+              "name": "[guid(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-VMInsights-TableWait', parameters('namingPrefix'))), variables('readerRoleDefinitionId'))]",
+              "properties": {
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-VMInsights-TableWait', parameters('namingPrefix'))), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal",
+                "roleDefinitionId": "[variables('readerRoleDefinitionId')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-VMInsights-TableWait', parameters('namingPrefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Resources/deploymentScripts",
+              "apiVersion": "2023-08-01",
+              "name": "[format('{0}-WaitFor-VMInsightsTable', parameters('namingPrefix'))]",
+              "location": "[parameters('location')]",
+              "kind": "AzureCLI",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-VMInsights-TableWait', parameters('namingPrefix'))))]": {}
+                }
+              },
+              "properties": {
+                "azCliVersion": "2.67.0",
+                "cleanupPreference": "OnSuccess",
+                "environmentVariables": [
+                  {
+                    "name": "TABLE_URL",
+                    "value": "[uri(environment().resourceManager, format('{0}/tables/InsightsMetrics?api-version=2022-10-01', resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))))]"
+                  }
+                ],
+                "forceUpdateTag": "[parameters('vmInsightsTableWaitForceUpdateTag')]",
+                "retentionInterval": "P1D",
+                "timeout": "PT10M",
+                "scriptContent": "      set -euo pipefail\r\n\r\n      for attempt in $(seq 1 120); do\r\n        if az rest --method get --url \"$TABLE_URL\" --only-show-errors >/dev/null 2>&1; then\r\n          echo \"InsightsMetrics table is available.\"\r\n          exit 0\r\n        fi\r\n\r\n        echo \"Waiting for InsightsMetrics table (attempt $attempt of 120).\"\r\n        sleep 5\r\n      done\r\n\r\n      echo \"InsightsMetrics table was not available within 10 minutes.\" >&2\r\n      exit 1\r\n    "
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]",
+                "[resourceId('Microsoft.OperationsManagement/solutions', format('VMInsights({0})', parameters('logAnalyticsWorkspaceName')))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-VMInsights-TableWait', parameters('namingPrefix')))]",
+                "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-VMInsights-TableWait', parameters('namingPrefix'))), variables('readerRoleDefinitionId')))]"
+              ]
+            },
+            {
               "type": "Microsoft.Insights/dataCollectionRules",
               "apiVersion": "2023-03-11",
               "name": "[variables('vmInsightsDataCollectionRuleName')]",
@@ -1728,7 +1790,7 @@
               },
               "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]",
-                "[resourceId('Microsoft.OperationsManagement/solutions', format('VMInsights({0})', parameters('logAnalyticsWorkspaceName')))]"
+                "[resourceId('Microsoft.Resources/deploymentScripts', format('{0}-WaitFor-VMInsightsTable', parameters('namingPrefix')))]"
               ]
             },
             {

@@ -34,6 +34,9 @@ param location string = resourceGroup().location
 @description('Name of the Log Analytics workspace used by VM Insights and Arc-enabled servers')
 param logAnalyticsWorkspaceName string = '${namingPrefix}-LogAnalytics'
 
+@description('Forces the VM Insights table readiness check to run on every deployment')
+param vmInsightsTableWaitForceUpdateTag string = utcNow()
+
 @description('Log retention in days for the Log Analytics workspace')
 @minValue(30)
 @maxValue(730)
@@ -80,6 +83,7 @@ var vmInsightsDataCollectionRuleName = '${namingPrefix}-VMInsights-DCR'
 var windowsMonitorInitiativeId = tenantResourceId('Microsoft.Authorization/policySetDefinitions', '9575b8b7-78ab-4281-b53b-d3c1ace2260b')
 var linuxMonitorInitiativeId = tenantResourceId('Microsoft.Authorization/policySetDefinitions', '118f04da-0375-44d1-84e3-0fd9e1849403')
 var contributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
+var readerRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
 
 var primarySubnet = [
   {
@@ -674,6 +678,66 @@ resource vmInsightsSolution 'Microsoft.OperationsManagement/solutions@2015-11-01
   }
 }
 
+resource vmInsightsTableWaitIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${namingPrefix}-VMInsights-TableWait'
+  location: location
+}
+
+resource vmInsightsTableWaitReaderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(logAnalyticsWorkspace.id, vmInsightsTableWaitIdentity.id, readerRoleDefinitionId)
+  scope: logAnalyticsWorkspace
+  properties: {
+    principalId: vmInsightsTableWaitIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: readerRoleDefinitionId
+  }
+}
+
+resource vmInsightsTableWait 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+  name: '${namingPrefix}-WaitFor-VMInsightsTable'
+  location: location
+  kind: 'AzureCLI'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${vmInsightsTableWaitIdentity.id}': {}
+    }
+  }
+  properties: {
+    azCliVersion: '2.67.0'
+    cleanupPreference: 'OnSuccess'
+    environmentVariables: [
+      {
+        name: 'TABLE_URL'
+        value: uri(environment().resourceManager, '${logAnalyticsWorkspace.id}/tables/InsightsMetrics?api-version=2022-10-01')
+      }
+    ]
+    forceUpdateTag: vmInsightsTableWaitForceUpdateTag
+    retentionInterval: 'P1D'
+    timeout: 'PT10M'
+    scriptContent: '''
+      set -euo pipefail
+
+      for attempt in $(seq 1 120); do
+        if az rest --method get --url "$TABLE_URL" --only-show-errors >/dev/null 2>&1; then
+          echo "InsightsMetrics table is available."
+          exit 0
+        fi
+
+        echo "Waiting for InsightsMetrics table (attempt $attempt of 120)."
+        sleep 5
+      done
+
+      echo "InsightsMetrics table was not available within 10 minutes." >&2
+      exit 1
+    '''
+  }
+  dependsOn: [
+    vmInsightsSolution
+    vmInsightsTableWaitReaderRoleAssignment
+  ]
+}
+
 resource vmInsightsDataCollectionRule 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
   name: vmInsightsDataCollectionRuleName
   location: location
@@ -731,7 +795,7 @@ resource vmInsightsDataCollectionRule 'Microsoft.Insights/dataCollectionRules@20
     ]
   }
   dependsOn: [
-    vmInsightsSolution
+    vmInsightsTableWait
   ]
 }
 
