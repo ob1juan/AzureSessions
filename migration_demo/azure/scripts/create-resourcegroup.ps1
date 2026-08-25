@@ -3,7 +3,6 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $ResourceGroupName = 'MigrationDemo',
 
-    [Parameter(Mandatory = $true)]
     [string] $Subscription,
 
     [string] $Location = 'CentralUS',
@@ -239,7 +238,10 @@ if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
     throw 'Azure CLI is required but was not found in PATH.'
 }
 
-Invoke-AzCommand -Arguments @('account', 'set', '--subscription', $Subscription)
+if (-not [string]::IsNullOrWhiteSpace($Subscription)) {
+    Invoke-AzCommand -Arguments @('account', 'set', '--subscription', $Subscription)
+}
+
 $account = Invoke-AzJson -Arguments @(
     'account', 'show',
     '--query', '{id:id,name:name,tenantId:tenantId,user:user}'
