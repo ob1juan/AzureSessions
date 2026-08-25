@@ -8,6 +8,10 @@ param(
 
     [string] $Location = 'CentralUS',
 
+    [switch] $SetPolicyExemptions = $true,
+
+    [switch] $SetTags = $true,
+
     [string] $PimJustification = 'Activate Owner to create an Azure resource group'
 )
 
@@ -16,6 +20,9 @@ $ownerRoleDefinitionGuid = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
 $policyAssignmentsToExclude = @(
     '/providers/microsoft.management/managementgroups/c2a60037-2356-452a-aa29-853c795d20f6/providers/microsoft.authorization/policyassignments/mcapsgovdenypolicies'
     '/providers/microsoft.management/managementgroups/republic-landingzones/providers/microsoft.authorization/policyassignments/enforce-gr-keyvault'
+)
+$tagsToSet = @(
+    'SecurityControl=Ignore'
 )
 
 function Get-AzCliFailureMessage {
@@ -239,22 +246,45 @@ $account = Invoke-AzJson -Arguments @(
 )
 Assert-SubscriptionOwner -Account $account -Justification $PimJustification
 
-if (-not $PSCmdlet.ShouldProcess("$ResourceGroupName in $($account.name)", "Create resource group in $Location with SecurityControl:Ignore tag")) {
+if (-not $PSCmdlet.ShouldProcess("$ResourceGroupName in $($account.name)", "Create or update resource group in $Location")) {
     return
 }
 
-$resourceGroup = Invoke-AzJson -Arguments @(
-    'group', 'create',
+$resourceGroupExists = Invoke-AzJson -Arguments @(
+    'group', 'exists',
     '--name', $ResourceGroupName,
-    '--location', $Location,
-    '--subscription', $account.id,
-    '--tags', 'SecurityControl=Ignore',
-    '--query', '{id:id,name:name,location:location,tags:tags}'
+    '--subscription', $account.id
 )
-Write-Host "Resource group '$($resourceGroup.name)' is ready in '$($resourceGroup.location)'."
 
-foreach ($policyAssignmentId in $policyAssignmentsToExclude) {
-    New-PolicyExemption -ResourceGroupId $resourceGroup.id -PolicyAssignmentId $policyAssignmentId
+if ($resourceGroupExists -and -not $SetTags) {
+    $resourceGroup = Invoke-AzJson -Arguments @(
+        'group', 'show',
+        '--name', $ResourceGroupName,
+        '--subscription', $account.id,
+        '--query', '{id:id,name:name,location:location,tags:tags}'
+    )
+}
+else {
+    $groupArguments = @(
+        'group', 'create',
+        '--name', $ResourceGroupName,
+        '--location', $Location,
+        '--subscription', $account.id,
+        '--query', '{id:id,name:name,location:location,tags:tags}'
+    )
+    if ($SetTags) {
+        $groupArguments += @('--tags') + $tagsToSet
+    }
+
+    $resourceGroup = Invoke-AzJson -Arguments $groupArguments
 }
 
-Write-Host "Resource group '$ResourceGroupName' created with the requested tag and policy exemptions."
+Write-Host "Resource group '$($resourceGroup.name)' is ready in '$($resourceGroup.location)'."
+
+if ($SetPolicyExemptions) {
+    foreach ($policyAssignmentId in $policyAssignmentsToExclude) {
+        New-PolicyExemption -ResourceGroupId $resourceGroup.id -PolicyAssignmentId $policyAssignmentId
+    }
+}
+
+Write-Host "Resource group '$ResourceGroupName' configuration completed."
