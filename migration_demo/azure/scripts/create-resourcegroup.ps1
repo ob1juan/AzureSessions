@@ -163,7 +163,7 @@ function Assert-SubscriptionOwner {
         "$activationScope/providers/Microsoft.Authorization/roleDefinitions/$ownerRoleDefinitionGuid"
     }
 
-    if (-not $PSCmdlet.ShouldProcess($activationScope, 'Activate eligible PIM Owner role for one hour')) {
+    if (-not $PSCmdlet.ShouldProcess($activationScope, 'Activate eligible PIM Owner role for eight hours')) {
         throw 'Owner activation was cancelled.'
     }
 
@@ -180,7 +180,7 @@ function Assert-SubscriptionOwner {
                 startDateTime = [DateTimeOffset]::UtcNow.ToString('o')
                 expiration    = @{
                     type     = 'AfterDuration'
-                    duration = 'PT1H'
+                    duration = 'PT8H'
                 }
             }
         }
