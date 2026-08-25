@@ -1,7 +1,7 @@
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'DeleteResourceGroup')]
 param(
-    [Parameter(Mandatory = $true, ParameterSetName = 'DeleteResourceGroup')]
-    [string] $ResourceGroupName,
+    [Parameter(ParameterSetName = 'DeleteResourceGroup')]
+    [string] $ResourceGroupName = 'MigrationDemo',
 
     [Parameter(Mandatory = $true, ParameterSetName = 'PurgeSubscription')]
     [switch] $PurgeOnly,
