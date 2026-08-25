@@ -1,13 +1,13 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory = $true)]
-    [string] $ResourceGroupName,
+    [string] $ResourceGroupName = "MigrationDemo",
 
     [Parameter(Mandatory = $true)]
     [string] $Subscription,
 
     [Parameter(Mandatory = $true)]
-    [string] $Location,
+    [string] $Location = "CentralUS",
 
     [string] $PimJustification = 'Activate Owner to create an Azure resource group'
 )
@@ -62,6 +62,29 @@ function Invoke-AzCommand {
     $output = @(& az @Arguments --only-show-errors --output none 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
+    }
+}
+
+function Invoke-AzRestJson {
+    param(
+        [Parameter(Mandatory = $true)] [string] $Method,
+        [Parameter(Mandatory = $true)] [string] $Url,
+        [Parameter(Mandatory = $true)] [string] $Body
+    )
+
+    $bodyPath = Join-Path ([System.IO.Path]::GetTempPath()) "az-rest-$([guid]::NewGuid()).json"
+    try {
+        [System.IO.File]::WriteAllText($bodyPath, $Body, [System.Text.UTF8Encoding]::new($false))
+        return Invoke-AzJson -Arguments @(
+            'rest',
+            '--method', $Method,
+            '--url', $Url,
+            '--body', "@$bodyPath",
+            '--headers', 'Content-Type=application/json'
+        )
+    }
+    finally {
+        Remove-Item -LiteralPath $bodyPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -158,13 +181,7 @@ function Assert-SubscriptionOwner {
     } | ConvertTo-Json -Depth 10 -Compress
 
     Write-Host "Activating PIM Owner for '$($principal.userPrincipalName)' on subscription '$($Account.name)'."
-    $activation = Invoke-AzJson -Arguments @(
-        'rest',
-        '--method', 'put',
-        '--url', $requestUrl,
-        '--body', $requestBody,
-        '--headers', 'Content-Type=application/json'
-    )
+    $activation = Invoke-AzRestJson -Method 'put' -Url $requestUrl -Body $requestBody
 
     for ($attempt = 1; $attempt -le 120; $attempt++) {
         $status = $activation.properties.status
@@ -207,13 +224,7 @@ function New-PolicyExemption {
     } | ConvertTo-Json -Depth 10 -Compress
 
     if ($PSCmdlet.ShouldProcess($PolicyAssignmentId, "Create policy exemption '$exemptionName'")) {
-        Invoke-AzJson -Arguments @(
-            'rest',
-            '--method', 'put',
-            '--url', $exemptionUrl,
-            '--body', $exemptionBody,
-            '--headers', 'Content-Type=application/json'
-        ) | Out-Null
+        Invoke-AzRestJson -Method 'put' -Url $exemptionUrl -Body $exemptionBody | Out-Null
         Write-Host "Policy exemption '$exemptionName' created."
     }
 }
