@@ -224,3 +224,5 @@ Configure the Azure Migrate project and appliance, register the Hyper-V source, 
 - **Discovery returns no machines:** Recheck Hyper-V credentials, host connectivity, firewall rules, and the appliance validation status.
 - **Assessment data is incomplete:** Leave discovery running long enough to collect performance data, then refresh the project.
 - **Provider installation fails:** Confirm the host has internet access, adequate permissions, and that the downloaded provider matches the migration workflow.
+
+Continue with [Lab 04 - Migrate SQL Server with Azure Database Migration Service](04-sql-database-migration.md).

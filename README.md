@@ -10,6 +10,7 @@ Use the guided lab sequence below to run the full demo from a new subscription t
 2. [Lab 01 - Azure Deployment](migration_demo/lab_guides/01-azure-deployment.md)
 3. [Lab 02 - Login to Host VM](migration_demo/lab_guides/02-login-to-host-vm.md)
 4. [Lab 03 - Azure Migrate Setup](migration_demo/lab_guides/03-azure-migrate-setup.md)
+5. [Lab 04 - Migrate SQL Server with Azure Database Migration Service](migration_demo/lab_guides/04-sql-database-migration.md)
 
 Each lab guide is written to be runnable independently, but the best experience is to follow them in order.
 
@@ -82,3 +83,4 @@ At a high level, run the demo as follows:
 2. Deploy the migration demo infrastructure using [Lab 01 - Azure Deployment](migration_demo/lab_guides/01-azure-deployment.md).
 3. Connect to and validate the nested environment using [Lab 02 - Login to Host VM](migration_demo/lab_guides/02-login-to-host-vm.md).
 4. Discover and assess workloads with Azure Migrate using [Lab 03 - Azure Migrate Setup](migration_demo/lab_guides/03-azure-migrate-setup.md).
+5. Migrate the SQL Server database to Azure SQL Database using [Lab 04 - Migrate SQL Server with Azure Database Migration Service](migration_demo/lab_guides/04-sql-database-migration.md).
