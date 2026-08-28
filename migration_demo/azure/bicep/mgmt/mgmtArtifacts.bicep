@@ -45,6 +45,9 @@ param logAnalyticsRetentionInDays int = 30
 @description('Choice to deploy Bastion to connect to the client VM')
 param deployBastion bool = false
 
+@description('Use the client VM public IP instead of a subnet NAT gateway so the Virtual WAN VPN site sees a stable, reachable peer address.')
+param enableSiteToSiteVpn bool = false
+
 @description('Bastion host Sku name')
 @allowed([
   'Basic'
@@ -95,7 +98,7 @@ var primarySubnet = [
       networkSecurityGroup: {
         id: networkSecurityGroup.id
       }
-      natGateway: (deployBastion || flavor != 'ITPro') ? {
+      natGateway: ((deployBastion || flavor != 'ITPro') && !enableSiteToSiteVpn) ? {
         id: natGateway.id
       } : null
       defaultOutboundAccess: false
@@ -125,7 +128,7 @@ var dataOpsSubnets = [
       networkSecurityGroup: {
         id: networkSecurityGroup.id
       }
-      natGateway: (deployBastion || flavor != 'ITPro') ? {
+      natGateway: ((deployBastion || flavor != 'ITPro') && !enableSiteToSiteVpn) ? {
         id: natGateway.id
       } : null
       defaultOutboundAccess: false
@@ -140,7 +143,7 @@ var dataOpsSubnets = [
       networkSecurityGroup: {
         id: networkSecurityGroup.id
       }
-      natGateway: (deployBastion || flavor != 'ITPro')
+      natGateway: ((deployBastion || flavor != 'ITPro') && !enableSiteToSiteVpn)
         ? {
             id: natGateway.id
           }
@@ -194,7 +197,7 @@ resource drVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-07-01' = if (f
           networkSecurityGroup: {
             id: networkSecurityGroup.id
           }
-          natGateway: (deployBastion || flavor != 'ITPro') ? {
+          natGateway: ((deployBastion || flavor != 'ITPro') && !enableSiteToSiteVpn) ? {
             id: natGatewayDR.id
           } : null
           defaultOutboundAccess: false
@@ -204,7 +207,7 @@ resource drVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-07-01' = if (f
   }
 }
 
-resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = if (deployBastion || flavor != 'ITPro') {
+resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = if ((deployBastion || flavor != 'ITPro') && !enableSiteToSiteVpn) {
   name: '${natGatewayName}-PIP'
   location: location
   properties: {
@@ -217,7 +220,7 @@ resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = i
   }
 }
 
-resource natGatewayDRPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = if (deployBastion || flavor == 'DataOps') {
+resource natGatewayDRPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = if ((deployBastion || flavor == 'DataOps') && !enableSiteToSiteVpn) {
   name: '${natGatewayName}-DR-PIP'
   location: location
   properties: {
@@ -230,7 +233,7 @@ resource natGatewayDRPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' =
   }
 }
 
-resource natGateway 'Microsoft.Network/natGateways@2024-07-01' = if (deployBastion || flavor != 'ITPro') {
+resource natGateway 'Microsoft.Network/natGateways@2024-07-01' = if ((deployBastion || flavor != 'ITPro') && !enableSiteToSiteVpn) {
   name: natGatewayName
   location: location
   sku: {
@@ -246,7 +249,7 @@ resource natGateway 'Microsoft.Network/natGateways@2024-07-01' = if (deployBasti
   }
 }
 
-resource natGatewayDR 'Microsoft.Network/natGateways@2024-07-01' = if (deployBastion || flavor == 'DataOps') {
+resource natGatewayDR 'Microsoft.Network/natGateways@2024-07-01' = if ((deployBastion || flavor == 'DataOps') && !enableSiteToSiteVpn) {
   name: drNatGatewayName
   location: location
   sku: {
@@ -397,6 +400,22 @@ resource networkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2024-05-0
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '5022'
+        }
+      }
+      {
+        name: 'allow_vwan_site_to_site_vpn'
+        properties: {
+          priority: 208
+          protocol: 'Udp'
+          access: 'Allow'
+          direction: 'Inbound'
+          sourceAddressPrefix: 'Internet'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRanges: [
+            '500'
+            '4500'
+          ]
         }
       }
     ]
@@ -869,6 +888,7 @@ resource linuxMonitorPolicyRoleAssignment 'Microsoft.Authorization/roleAssignmen
 
 output vnetId string = arcVirtualNetwork.id
 output subnetId string = arcVirtualNetwork.properties.subnets[0].id
+output vnetAddressPrefix string = addressPrefix
 output keyVaultName string = keyVaultName
 output keyVaultId string = kv.id
 output logAnalyticsWorkspaceId string = logAnalyticsWorkspace.id

@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "11802616490170974019"
+      "templateHash": "8618728695633501003"
     }
   },
   "parameters": {
@@ -23,6 +23,13 @@
       "minValue": 12,
       "metadata": {
         "description": "Length for generated passwords that are stored in Key Vault"
+      }
+    },
+    "vpnSharedKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional site-to-site VPN pre-shared key. Leave empty to use the deployment-specific generated lab key."
       }
     },
     "managedDatabaseAdminUsername": {
@@ -227,6 +234,13 @@
       "metadata": {
         "description": "The availability zone for the Virtual Machine, public IP, and data disk for the ArcBox client VM"
       }
+    },
+    "virtualHubAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.20.0.0/23",
+      "metadata": {
+        "description": "Non-overlapping address prefix assigned to the Azure Virtual WAN hub."
+      }
     }
   },
   "variables": {
@@ -234,6 +248,10 @@
     "randomSeed": "[uniqueString(resourceGroup().id, parameters('guid'))]",
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "generatedManagedDatabasePassword": "[format('Aa1!{0}', substring(base64(format('{0}-managed-databases', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
+    "generatedVpnSharedKey": "[format('Vw1!{0}', substring(base64(format('{0}-vwan-vpn', variables('randomSeed'))), 0, 28))]",
+    "effectiveVpnSharedKey": "[if(empty(parameters('vpnSharedKey')), variables('generatedVpnSharedKey'), parameters('vpnSharedKey'))]",
+    "hyperVNetworkAddressPrefix": "10.10.1.0/24",
+    "ubuntuVpnGatewayIp": "10.10.1.102",
     "flavor": "ITPro",
     "customerUsageAttributionDeploymentName": "c4a26bed-72cb-415d-91a3-e2577c7c92f5",
     "migrateUtilityStorageAccountName": "[format('mig{0}', uniqueString(resourceGroup().id, parameters('migrateProjectName')))]"
@@ -503,7 +521,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "6275246158239535646"
+              "templateHash": "16669395924786702098"
             }
           },
           "parameters": {
@@ -638,21 +656,44 @@
             }
           },
           "variables": {
-            "bastionName": "[format('{0}-Bastion', parameters('namingPrefix'))]",
-            "publicIpAddressName": "[if(equals(parameters('deployBastion'), false()), format('{0}-PIP', parameters('vmName')), format('{0}-PIP', variables('bastionName')))]",
+            "publicIpAddressName": "[if(parameters('deployBastion'), format('{0}-VPN-PIP', parameters('vmName')), format('{0}-PIP', parameters('vmName')))]",
             "networkInterfaceName": "[format('{0}-NIC', parameters('vmName'))]",
-            "osDiskType": "Premium_LRS",
-            "PublicIPNoBastion": {
-              "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName'))]"
-            }
+            "osDiskType": "Premium_LRS"
           },
           "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-VPN-NSG', parameters('vmName'))]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "Allow-IKEv2-IPsec",
+                    "properties": {
+                      "priority": 100,
+                      "protocol": "Udp",
+                      "access": "Allow",
+                      "direction": "Inbound",
+                      "sourceAddressPrefix": "Internet",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "*",
+                      "destinationPortRanges": [
+                        "500",
+                        "4500"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
             {
               "type": "Microsoft.Network/networkInterfaces",
               "apiVersion": "2024-05-01",
               "name": "[variables('networkInterfaceName')]",
               "location": "[parameters('location')]",
               "properties": {
+                "enableIPForwarding": true,
                 "ipConfigurations": [
                   {
                     "name": "ipconfig1",
@@ -661,17 +702,22 @@
                         "id": "[parameters('subnetId')]"
                       },
                       "privateIPAllocationMethod": "Dynamic",
-                      "publicIPAddress": "[if(equals(parameters('deployBastion'), false()), variables('PublicIPNoBastion'), null())]"
+                      "publicIPAddress": {
+                        "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName'))]"
+                      }
                     }
                   }
-                ]
+                ],
+                "networkSecurityGroup": {
+                  "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-VPN-NSG', parameters('vmName')))]"
+                }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName'))]"
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-VPN-NSG', parameters('vmName')))]"
               ]
             },
             {
-              "condition": "[equals(parameters('deployBastion'), false())]",
               "type": "Microsoft.Network/publicIPAddresses",
               "apiVersion": "2024-05-01",
               "name": "[variables('publicIpAddressName')]",
@@ -849,7 +895,7 @@
             },
             "publicIP": {
               "type": "string",
-              "value": "[if(equals(parameters('deployBastion'), false()), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName')), '2024-05-01').ipAddress, '')]"
+              "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpAddressName')), '2024-05-01').ipAddress]"
             },
             "vmPrincipalId": {
               "type": "string",
@@ -889,6 +935,9 @@
           },
           "natGatewayName": {
             "value": "[parameters('natGatewayName')]"
+          },
+          "enableSiteToSiteVpn": {
+            "value": true
           }
         },
         "template": {
@@ -898,7 +947,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "4463161556570094185"
+              "templateHash": "5523711521837954947"
             }
           },
           "parameters": {
@@ -1004,6 +1053,13 @@
                 "description": "Choice to deploy Bastion to connect to the client VM"
               }
             },
+            "enableSiteToSiteVpn": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Use the client VM public IP instead of a subnet NAT gateway so the Virtual WAN VPN site sees a stable, reachable peer address."
+              }
+            },
             "bastionSku": {
               "type": "string",
               "defaultValue": "Basic",
@@ -1074,7 +1130,7 @@
                   "networkSecurityGroup": {
                     "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
                   },
-                  "natGateway": "[if(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('natGatewayName'))), null())]",
+                  "natGateway": "[if(and(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), not(parameters('enableSiteToSiteVpn'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('natGatewayName'))), null())]",
                   "defaultOutboundAccess": false
                 }
               }
@@ -1090,7 +1146,7 @@
                   "networkSecurityGroup": {
                     "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
                   },
-                  "natGateway": "[if(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('natGatewayName'))), null())]",
+                  "natGateway": "[if(and(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), not(parameters('enableSiteToSiteVpn'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('natGatewayName'))), null())]",
                   "defaultOutboundAccess": false
                 }
               },
@@ -1103,7 +1159,7 @@
                   "networkSecurityGroup": {
                     "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
                   },
-                  "natGateway": "[if(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('natGatewayName'))), null())]",
+                  "natGateway": "[if(and(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), not(parameters('enableSiteToSiteVpn'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('natGatewayName'))), null())]",
                   "defaultOutboundAccess": false
                 }
               }
@@ -1155,7 +1211,7 @@
                       "networkSecurityGroup": {
                         "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
                       },
-                      "natGateway": "[if(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('drNatGatewayName'))), null())]",
+                      "natGateway": "[if(and(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), not(parameters('enableSiteToSiteVpn'))), createObject('id', resourceId('Microsoft.Network/natGateways', parameters('drNatGatewayName'))), null())]",
                       "defaultOutboundAccess": false
                     }
                   }
@@ -1167,7 +1223,7 @@
               ]
             },
             {
-              "condition": "[or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro')))]",
+              "condition": "[and(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), not(parameters('enableSiteToSiteVpn')))]",
               "type": "Microsoft.Network/publicIPAddresses",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}-PIP', parameters('natGatewayName'))]",
@@ -1182,7 +1238,7 @@
               }
             },
             {
-              "condition": "[or(parameters('deployBastion'), equals(parameters('flavor'), 'DataOps'))]",
+              "condition": "[and(or(parameters('deployBastion'), equals(parameters('flavor'), 'DataOps')), not(parameters('enableSiteToSiteVpn')))]",
               "type": "Microsoft.Network/publicIPAddresses",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}-DR-PIP', parameters('natGatewayName'))]",
@@ -1197,7 +1253,7 @@
               }
             },
             {
-              "condition": "[or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro')))]",
+              "condition": "[and(or(parameters('deployBastion'), not(equals(parameters('flavor'), 'ITPro'))), not(parameters('enableSiteToSiteVpn')))]",
               "type": "Microsoft.Network/natGateways",
               "apiVersion": "2024-07-01",
               "name": "[parameters('natGatewayName')]",
@@ -1218,7 +1274,7 @@
               ]
             },
             {
-              "condition": "[or(parameters('deployBastion'), equals(parameters('flavor'), 'DataOps'))]",
+              "condition": "[and(or(parameters('deployBastion'), equals(parameters('flavor'), 'DataOps')), not(parameters('enableSiteToSiteVpn')))]",
               "type": "Microsoft.Network/natGateways",
               "apiVersion": "2024-07-01",
               "name": "[parameters('drNatGatewayName')]",
@@ -1385,6 +1441,22 @@
                       "sourcePortRange": "*",
                       "destinationAddressPrefix": "*",
                       "destinationPortRange": "5022"
+                    }
+                  },
+                  {
+                    "name": "allow_vwan_site_to_site_vpn",
+                    "properties": {
+                      "priority": 208,
+                      "protocol": "Udp",
+                      "access": "Allow",
+                      "direction": "Inbound",
+                      "sourceAddressPrefix": "Internet",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "*",
+                      "destinationPortRanges": [
+                        "500",
+                        "4500"
+                      ]
                     }
                   }
                 ]
@@ -1887,6 +1959,10 @@
               "type": "string",
               "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName')), '2024-07-01').subnets[0].id]"
             },
+            "vnetAddressPrefix": {
+              "type": "string",
+              "value": "[variables('addressPrefix')]"
+            },
             "keyVaultName": {
               "type": "string",
               "value": "[variables('keyVaultName')]"
@@ -1908,6 +1984,416 @@
       },
       "dependsOn": [
         "deploymentPrerequisites"
+      ]
+    },
+    "virtualWanDeployment": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('virtualWanDeployment-{0}', uniqueString('virtualWanDeployment', deployment().name))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namingPrefix": {
+            "value": "[parameters('namingPrefix')]"
+          },
+          "connectedVnetId": {
+            "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.vnetId.value]"
+          },
+          "vpnSitePublicIp": {
+            "value": "[reference('clientVmDeployment').outputs.publicIP.value]"
+          },
+          "vpnSharedKey": {
+            "value": "[variables('effectiveVpnSharedKey')]"
+          },
+          "azureVnetAddressPrefix": {
+            "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.vnetAddressPrefix.value]"
+          },
+          "hyperVNetworkAddressPrefix": {
+            "value": "[variables('hyperVNetworkAddressPrefix')]"
+          },
+          "virtualHubAddressPrefix": {
+            "value": "[parameters('virtualHubAddressPrefix')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "6380907748495945692"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for the Virtual WAN resources."
+              }
+            },
+            "namingPrefix": {
+              "type": "string",
+              "maxLength": 7,
+              "metadata": {
+                "description": "Naming prefix shared by the migration demo resources."
+              }
+            },
+            "connectedVnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Azure VNet that contains the Hyper-V host VM."
+              }
+            },
+            "vpnSitePublicIp": {
+              "type": "string",
+              "metadata": {
+                "description": "Public IP address used by the nested Ubuntu VPN endpoint through the Hyper-V host NAT."
+              }
+            },
+            "vpnSharedKey": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Pre-shared key used by the Azure Virtual WAN site-to-site VPN connection."
+              }
+            },
+            "azureVnetAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Address prefix of the Azure VNet connected to the virtual hub."
+              }
+            },
+            "hyperVNetworkAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Address prefix of the private Hyper-V network advertised by the VPN site."
+              }
+            },
+            "virtualHubAddressPrefix": {
+              "type": "string",
+              "defaultValue": "10.20.0.0/23",
+              "metadata": {
+                "description": "Non-overlapping address prefix assigned to the Virtual WAN hub."
+              }
+            }
+          },
+          "variables": {
+            "virtualWanName": "[format('{0}-vWAN', parameters('namingPrefix'))]",
+            "virtualHubName": "[format('{0}-vHub', parameters('namingPrefix'))]",
+            "firewallPolicyName": "[format('{0}-vHub-FirewallPolicy', parameters('namingPrefix'))]",
+            "firewallName": "[format('{0}-vHub-Firewall', parameters('namingPrefix'))]",
+            "vpnGatewayName": "[format('{0}-vHub-VpnGateway', parameters('namingPrefix'))]",
+            "vpnSiteName": "[format('{0}-HyperV-Site', parameters('namingPrefix'))]",
+            "vpnSiteLinkName": "[format('{0}-HyperV-Link', parameters('namingPrefix'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualWans",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('virtualWanName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "allowBranchToBranchTraffic": true,
+                "allowVnetToVnetTraffic": true,
+                "disableVpnEncryption": false,
+                "type": "Standard"
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualHubs",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('virtualHubName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "addressPrefix": "[parameters('virtualHubAddressPrefix')]",
+                "hubRoutingPreference": "VpnGateway",
+                "sku": "Standard",
+                "virtualWan": {
+                  "id": "[resourceId('Microsoft.Network/virtualWans', variables('virtualWanName'))]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualWans', variables('virtualWanName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/virtualHubs/hubVirtualNetworkConnections",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', variables('virtualHubName'), format('{0}-VNet-Connection', parameters('namingPrefix')))]",
+              "properties": {
+                "allowHubToRemoteVnetTransit": true,
+                "allowRemoteVnetToUseHubVnetGateways": true,
+                "enableInternetSecurity": false,
+                "remoteVirtualNetwork": {
+                  "id": "[parameters('connectedVnetId')]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualHubs/routingIntent', variables('virtualHubName'), 'routingIntent')]",
+                "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/firewallPolicies",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('firewallPolicyName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "dnsSettings": {
+                  "enableProxy": false
+                },
+                "sku": {
+                  "tier": "Standard"
+                },
+                "threatIntelMode": "Alert"
+              }
+            },
+            {
+              "type": "Microsoft.Network/firewallPolicies/ruleCollectionGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', variables('firewallPolicyName'), 'HybridPrivateTraffic')]",
+              "properties": {
+                "priority": 100,
+                "ruleCollections": [
+                  {
+                    "name": "AllowHyperVAndAzure",
+                    "priority": 100,
+                    "ruleCollectionType": "FirewallPolicyFilterRuleCollection",
+                    "action": {
+                      "type": "Allow"
+                    },
+                    "rules": [
+                      {
+                        "name": "AzureToHyperV",
+                        "ruleType": "NetworkRule",
+                        "sourceAddresses": [
+                          "[parameters('azureVnetAddressPrefix')]"
+                        ],
+                        "destinationAddresses": [
+                          "[parameters('hyperVNetworkAddressPrefix')]"
+                        ],
+                        "destinationPorts": [
+                          "*"
+                        ],
+                        "ipProtocols": [
+                          "Any"
+                        ]
+                      },
+                      {
+                        "name": "HyperVToAzure",
+                        "ruleType": "NetworkRule",
+                        "sourceAddresses": [
+                          "[parameters('hyperVNetworkAddressPrefix')]"
+                        ],
+                        "destinationAddresses": [
+                          "[parameters('azureVnetAddressPrefix')]"
+                        ],
+                        "destinationPorts": [
+                          "*"
+                        ],
+                        "ipProtocols": [
+                          "Any"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/firewallPolicies', variables('firewallPolicyName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/azureFirewalls",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('firewallName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "firewallPolicy": {
+                  "id": "[resourceId('Microsoft.Network/firewallPolicies', variables('firewallPolicyName'))]"
+                },
+                "hubIPAddresses": {
+                  "publicIPs": {
+                    "count": 1
+                  }
+                },
+                "sku": {
+                  "name": "AZFW_Hub",
+                  "tier": "Standard"
+                },
+                "threatIntelMode": "Alert",
+                "virtualHub": {
+                  "id": "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/firewallPolicies', variables('firewallPolicyName'))]",
+                "[resourceId('Microsoft.Network/firewallPolicies/ruleCollectionGroups', variables('firewallPolicyName'), 'HybridPrivateTraffic')]",
+                "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/virtualHubs/routingIntent",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', variables('virtualHubName'), 'routingIntent')]",
+              "properties": {
+                "routingPolicies": [
+                  {
+                    "name": "PrivateTrafficPolicy",
+                    "destinations": [
+                      "PrivateTraffic"
+                    ],
+                    "nextHop": "[resourceId('Microsoft.Network/azureFirewalls', variables('firewallName'))]"
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/azureFirewalls', variables('firewallName'))]",
+                "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/vpnGateways",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('vpnGatewayName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "virtualHub": {
+                  "id": "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
+                },
+                "vpnGatewayScaleUnit": 1
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualHubs/routingIntent', variables('virtualHubName'), 'routingIntent')]",
+                "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/vpnSites",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('vpnSiteName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('hyperVNetworkAddressPrefix')]"
+                  ]
+                },
+                "deviceProperties": {
+                  "deviceModel": "strongSwan",
+                  "deviceVendor": "Ubuntu",
+                  "linkSpeedInMbps": 100
+                },
+                "virtualWan": {
+                  "id": "[resourceId('Microsoft.Network/virtualWans', variables('virtualWanName'))]"
+                },
+                "vpnSiteLinks": [
+                  {
+                    "name": "[variables('vpnSiteLinkName')]",
+                    "properties": {
+                      "ipAddress": "[parameters('vpnSitePublicIp')]",
+                      "linkProperties": {
+                        "linkProviderName": "Nested Hyper-V lab",
+                        "linkSpeedInMbps": 100
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualWans', variables('virtualWanName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/vpnGateways/vpnConnections",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', variables('vpnGatewayName'), format('{0}-HyperV-Connection', parameters('namingPrefix')))]",
+              "properties": {
+                "enableInternetSecurity": false,
+                "remoteVpnSite": {
+                  "id": "[resourceId('Microsoft.Network/vpnSites', variables('vpnSiteName'))]"
+                },
+                "vpnLinkConnections": [
+                  {
+                    "name": "[format('{0}-Connection', variables('vpnSiteLinkName'))]",
+                    "properties": {
+                      "connectionBandwidth": 100,
+                      "dpdTimeoutSeconds": 45,
+                      "enableBgp": false,
+                      "ipsecPolicies": [
+                        {
+                          "dhGroup": "DHGroup14",
+                          "ikeEncryption": "AES256",
+                          "ikeIntegrity": "SHA256",
+                          "ipsecEncryption": "AES256",
+                          "ipsecIntegrity": "SHA256",
+                          "pfsGroup": "PFS14",
+                          "saDataSizeKilobytes": 102400000,
+                          "saLifeTimeSeconds": 27000
+                        }
+                      ],
+                      "sharedKey": "[parameters('vpnSharedKey')]",
+                      "usePolicyBasedTrafficSelectors": false,
+                      "vpnConnectionProtocolType": "IKEv2",
+                      "vpnLinkConnectionMode": "Default",
+                      "vpnSiteLink": {
+                        "id": "[format('{0}/vpnSiteLinks/{1}', resourceId('Microsoft.Network/vpnSites', variables('vpnSiteName')), variables('vpnSiteLinkName'))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/vpnGateways', variables('vpnGatewayName'))]",
+                "[resourceId('Microsoft.Network/vpnSites', variables('vpnSiteName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "virtualWanId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualWans', variables('virtualWanName'))]"
+            },
+            "virtualHubId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
+            },
+            "hubVnetConnectionId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualHubs/hubVirtualNetworkConnections', variables('virtualHubName'), format('{0}-VNet-Connection', parameters('namingPrefix')))]"
+            },
+            "firewallId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/azureFirewalls', variables('firewallName'))]"
+            },
+            "vpnGatewayId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/vpnGateways', variables('vpnGatewayName'))]"
+            },
+            "vpnGatewayPublicIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/vpnGateways', variables('vpnGatewayName')), '2024-05-01').ipConfigurations[0].publicIpAddress]"
+            },
+            "vpnSiteId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/vpnSites', variables('vpnSiteName'))]"
+            },
+            "vpnConnectionId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/vpnGateways/vpnConnections', variables('vpnGatewayName'), format('{0}-HyperV-Connection', parameters('namingPrefix')))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "clientVmDeployment",
+        "mgmtArtifactsAndPolicyDeployment"
       ]
     },
     "managedDatabases": {
@@ -2237,6 +2723,24 @@
           "azurePostgresqlDatabaseName": {
             "value": "[reference('managedDatabases').outputs.postgresqlDatabaseName.value]"
           },
+          "vpnSharedKeyBase64": {
+            "value": "[base64(variables('effectiveVpnSharedKey'))]"
+          },
+          "vpnSitePublicIp": {
+            "value": "[reference('clientVmDeployment').outputs.publicIP.value]"
+          },
+          "vpnGatewayPublicIp": {
+            "value": "[reference('virtualWanDeployment').outputs.vpnGatewayPublicIp.value]"
+          },
+          "azureVnetAddressPrefix": {
+            "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.vnetAddressPrefix.value]"
+          },
+          "hyperVNetworkAddressPrefix": {
+            "value": "[variables('hyperVNetworkAddressPrefix')]"
+          },
+          "ubuntuVpnGatewayIp": {
+            "value": "[variables('ubuntuVpnGatewayIp')]"
+          },
           "tenantId": {
             "value": "[parameters('tenantId')]"
           },
@@ -2278,7 +2782,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "4925928383885336297"
+              "templateHash": "4713018308258084986"
             }
           },
           "parameters": {
@@ -2334,6 +2838,42 @@
               "type": "string",
               "metadata": {
                 "description": "Azure Database for PostgreSQL database name."
+              }
+            },
+            "vpnSharedKeyBase64": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Site-to-site VPN pre-shared key encoded as base64 for safe command-line transport and Key Vault storage."
+              }
+            },
+            "vpnSitePublicIp": {
+              "type": "string",
+              "metadata": {
+                "description": "Public IP address assigned to the Hyper-V host and used as the Virtual WAN VPN site endpoint."
+              }
+            },
+            "vpnGatewayPublicIp": {
+              "type": "string",
+              "metadata": {
+                "description": "Public IP address of the first Azure Virtual WAN VPN gateway instance."
+              }
+            },
+            "azureVnetAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Address prefix of the Azure VNet connected to the Virtual WAN hub."
+              }
+            },
+            "hyperVNetworkAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Address prefix of the private Hyper-V network advertised by the VPN site."
+              }
+            },
+            "ubuntuVpnGatewayIp": {
+              "type": "string",
+              "metadata": {
+                "description": "Reserved private IP address of the nested Ubuntu VPN gateway."
               }
             },
             "vmAutologon": {
@@ -2427,7 +2967,7 @@
                   "fileUris": [
                     "[uri(parameters('templateBaseUrl'), 'artifacts/Bootstrap.ps1')]"
                   ],
-                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -windowsAdminPasswordBase64 {1} -managedDatabaseAdminUsername {2} -managedDatabaseAdminPasswordBase64 {3} -azureSqlServerFqdn {4} -azureSqlDatabaseName {5} -azurePostgresqlServerFqdn {6} -azurePostgresqlDatabaseName {7} -tenantId {8} -subscriptionId {9} -resourceGroup {10} -azureLocation {11} -templateBaseUrl {12} -flavor {13} -vmAutologon {14} -rdpPort {15} -namingPrefix {16} -debugEnabled {17} -sqlServerEdition {18} -autoShutdownEnabled {19} -autoShutdownTimezone \"{20}\"', parameters('windowsAdminUsername'), parameters('windowsAdminPasswordBase64'), parameters('managedDatabaseAdminUsername'), parameters('managedDatabaseAdminPasswordBase64'), parameters('azureSqlServerFqdn'), parameters('azureSqlDatabaseName'), parameters('azurePostgresqlServerFqdn'), parameters('azurePostgresqlDatabaseName'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'), parameters('autoShutdownTimezone'))]"
+                  "commandToExecute": "[format('powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername {0} -windowsAdminPasswordBase64 {1} -managedDatabaseAdminUsername {2} -managedDatabaseAdminPasswordBase64 {3} -azureSqlServerFqdn {4} -azureSqlDatabaseName {5} -azurePostgresqlServerFqdn {6} -azurePostgresqlDatabaseName {7} -vpnSharedKeyBase64 {8} -vpnSitePublicIp {9} -vpnGatewayPublicIp {10} -azureVnetAddressPrefix {11} -hyperVNetworkAddressPrefix {12} -ubuntuVpnGatewayIp {13} -tenantId {14} -subscriptionId {15} -resourceGroup {16} -azureLocation {17} -templateBaseUrl {18} -flavor {19} -vmAutologon {20} -rdpPort {21} -namingPrefix {22} -debugEnabled {23} -sqlServerEdition {24} -autoShutdownEnabled {25} -autoShutdownTimezone \"{26}\"', parameters('windowsAdminUsername'), parameters('windowsAdminPasswordBase64'), parameters('managedDatabaseAdminUsername'), parameters('managedDatabaseAdminPasswordBase64'), parameters('azureSqlServerFqdn'), parameters('azureSqlDatabaseName'), parameters('azurePostgresqlServerFqdn'), parameters('azurePostgresqlDatabaseName'), parameters('vpnSharedKeyBase64'), parameters('vpnSitePublicIp'), parameters('vpnGatewayPublicIp'), parameters('azureVnetAddressPrefix'), parameters('hyperVNetworkAddressPrefix'), parameters('ubuntuVpnGatewayIp'), parameters('tenantId'), subscription().subscriptionId, resourceGroup().name, parameters('location'), parameters('templateBaseUrl'), parameters('flavor'), parameters('vmAutologon'), parameters('rdpPort'), parameters('namingPrefix'), parameters('debugEnabled'), parameters('sqlServerEdition'), parameters('autoShutdownEnabled'), parameters('autoShutdownTimezone'))]"
                 }
               }
             }
@@ -2437,7 +2977,9 @@
       "dependsOn": [
         "arcOnboardingSubRoleAssignment",
         "clientVmDeployment",
-        "managedDatabases"
+        "managedDatabases",
+        "mgmtArtifactsAndPolicyDeployment",
+        "virtualWanDeployment"
       ]
     }
   },
@@ -2485,6 +3027,30 @@
     "azurePostgresqlDatabaseName": {
       "type": "string",
       "value": "[reference('managedDatabases').outputs.postgresqlDatabaseName.value]"
+    },
+    "virtualWanId": {
+      "type": "string",
+      "value": "[reference('virtualWanDeployment').outputs.virtualWanId.value]"
+    },
+    "virtualHubId": {
+      "type": "string",
+      "value": "[reference('virtualWanDeployment').outputs.virtualHubId.value]"
+    },
+    "virtualHubFirewallId": {
+      "type": "string",
+      "value": "[reference('virtualWanDeployment').outputs.firewallId.value]"
+    },
+    "virtualWanVpnGatewayId": {
+      "type": "string",
+      "value": "[reference('virtualWanDeployment').outputs.vpnGatewayId.value]"
+    },
+    "virtualWanVpnGatewayPublicIp": {
+      "type": "string",
+      "value": "[reference('virtualWanDeployment').outputs.vpnGatewayPublicIp.value]"
+    },
+    "hyperVSitePublicIp": {
+      "type": "string",
+      "value": "[reference('clientVmDeployment').outputs.publicIP.value]"
     }
   }
 }

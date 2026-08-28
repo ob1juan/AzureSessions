@@ -37,7 +37,11 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
 ### Step 1: Azure Infrastructure Provisioning
 1. **Trigger:** The user clicks "Deploy to Azure" and submits the ARM template (`azure/ARM/azuredeploy.json`).
 2. **Prerequisites:** A subscription-scoped ARM deployment registers required Azure features before dependent resources are created. The Azure CLI equivalent is available at `azure/scripts/Register-DeploymentPrerequisites.sh` for manual deployments.
-3. **Azure Resources:** Azure provisions the base Network (VNet), Bastion, Storage, and the core **Client VM** (a Windows Server Azure VM that supports nested virtualization).
+3. **Azure Resources:** Azure provisions the base Network (VNet), Bastion, Storage, the core **Client VM** (a Windows Server Azure VM that supports nested virtualization), and a secured Standard Virtual WAN hub.
+   - The Azure VNet is connected to the virtual hub; routing intent manages connection association and propagation without explicit route-table configuration.
+   - Azure Firewall Standard and private-traffic routing intent inspect traffic between the VNet and the Hyper-V branch.
+   - A Virtual WAN VPN gateway and site advertise the Hyper-V `10.10.1.0/24` prefix.
+   - A dedicated public IP on the client VM carries symmetric IKEv2/IPsec NAT-T traffic to the nested Ubuntu endpoint; the host subnet NAT Gateway is omitted so outbound packets use that same address.
 4. **Bridge to Host:** The ARM template adds a Custom Script Extension to the Client VM, injecting `Bootstrap.ps1` from the `artifacts/` folder to run upon VM creation.
 
 ### Step 2: Hyper-V Host Bootstrap 
@@ -55,6 +59,7 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
      - `migdem-iis` (Windows Server + IIS)
      - `migdem-sql` (Windows Server + SQL Server)
      - `migdem-ubuntu` (Ubuntu Linux)
+    - **Private Network Connectivity:** Configures Hyper-V NAT mappings for UDP 500/4500, installs strongSwan on Ubuntu, establishes the IKEv2/IPsec tunnel to Azure Virtual WAN, enables Linux forwarding, and adds the Azure VNet route to the nested Windows workload through Ubuntu (`10.10.1.102`). OpenVPN is installed and enabled for optional lab use but is not the Azure site-to-site protocol.
    - **Application Configuration:**
      - Connects to the **SQL VM** via PowerShell Direct, deploying the AdventureWorks database and the IIS-hosted ASP.NET Framework Web Forms storefront.
      - Connects to the **Ubuntu VM** via SSH, transferring `Configure-Postgres.sh` to install PostgreSQL plus a Java/Tomcat storefront fronted by Apache HTTPD.
@@ -82,4 +87,7 @@ Here is the step-by-step mapping of how the deployment flows from the cloud down
 - **Azure ARM (`azuredeploy.json`)** gets you the Cloud environment and a bare metal "Datacenter" (Client VM).
 - **Host Bootstrap (`Bootstrap.ps1`)** turns that bare metal into a Hyper-V Hypervisor.
 - **Nested Orchestration (`ArcServersLogonScript.ps1`)** populates your datacenter with active VMs and Legacy Apps.
+- **Secured Virtual WAN** connects the private Hyper-V network to the Azure VNet through Ubuntu and Azure Firewall Standard.
 - **Arc Scripts** hook those legacy applications back into Azure for hybrid management and migration planning.
+
+See [Azure Virtual WAN and Hyper-V private networking](VWAN_NETWORKING.md) for the full address plan and troubleshooting guidance.

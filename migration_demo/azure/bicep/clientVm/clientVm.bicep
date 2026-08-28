@@ -73,17 +73,40 @@ param zones string = '1'
 @description('Option to enable spot pricing for the ArcBox Client VM')
 param enableAzureSpotPricing bool = false
 
-var bastionName = '${namingPrefix}-Bastion'
-var publicIpAddressName = deployBastion == false ? '${vmName}-PIP' : '${bastionName}-PIP'
+var publicIpAddressName = deployBastion ? '${vmName}-VPN-PIP' : '${vmName}-PIP'
 var networkInterfaceName = '${vmName}-NIC'
 var osDiskType = 'Premium_LRS'
-var PublicIPNoBastion = {
-  id: publicIpAddress.id
+
+resource vpnEndpointNetworkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
+  name: '${vmName}-VPN-NSG'
+  location: location
+  properties: {
+    securityRules: [
+      {
+        name: 'Allow-IKEv2-IPsec'
+        properties: {
+          priority: 100
+          protocol: 'Udp'
+          access: 'Allow'
+          direction: 'Inbound'
+          sourceAddressPrefix: 'Internet'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRanges: [
+            '500'
+            '4500'
+          ]
+        }
+      }
+    ]
+  }
 }
+
 resource networkInterface 'Microsoft.Network/networkInterfaces@2024-05-01' = {
   name: networkInterfaceName
   location: location
   properties: {
+    enableIPForwarding: true
     ipConfigurations: [
       {
         name: 'ipconfig1'
@@ -92,14 +115,19 @@ resource networkInterface 'Microsoft.Network/networkInterfaces@2024-05-01' = {
             id: subnetId
           }
           privateIPAllocationMethod: 'Dynamic'
-          publicIPAddress: deployBastion == false ? PublicIPNoBastion : null
+          publicIPAddress: {
+            id: publicIpAddress.id
+          }
         }
       }
     ]
+    networkSecurityGroup: {
+      id: vpnEndpointNetworkSecurityGroup.id
+    }
   }
 }
 
-resource publicIpAddress 'Microsoft.Network/publicIPAddresses@2024-05-01' = if (deployBastion == false) {
+resource publicIpAddress 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
   name: publicIpAddressName
   location: location
   zones: [zones]
@@ -252,5 +280,5 @@ resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = if (autoShut
 }
 
 output adminUsername string = windowsAdminUsername
-output publicIP string = deployBastion == false ? publicIpAddress!.properties.ipAddress : ''
+output publicIP string = publicIpAddress.properties.ipAddress
 output vmPrincipalId string = vm.identity.principalId

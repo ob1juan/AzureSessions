@@ -5,6 +5,10 @@ param tenantId string = tenant().tenantId
 @minValue(12)
 param passwordLength int = 16
 
+@secure()
+@description('Optional site-to-site VPN pre-shared key. Leave empty to use the deployment-specific generated lab key.')
+param vpnSharedKey string = ''
+
 @description('Administrator login for the managed Azure SQL and PostgreSQL demo databases.')
 param managedDatabaseAdminUsername string = 'arcboxadmin'
 
@@ -116,10 +120,17 @@ param enableAzureSpotPricing bool = false
 ])
 param zones string = '1'
 
+@description('Non-overlapping address prefix assigned to the Azure Virtual WAN hub.')
+param virtualHubAddressPrefix string = '10.20.0.0/23'
+
 var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/${githubRepo}/${githubBranch}/${githubRepoPath}'
 var randomSeed = uniqueString(resourceGroup().id, guid)
 var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windows'), 0, passwordLength - 4)}'
 var generatedManagedDatabasePassword = 'Aa1!${substring(base64('${randomSeed}-managed-databases'), 0, passwordLength - 4)}'
+var generatedVpnSharedKey = 'Vw1!${substring(base64('${randomSeed}-vwan-vpn'), 0, 28)}'
+var effectiveVpnSharedKey = empty(vpnSharedKey) ? generatedVpnSharedKey : vpnSharedKey
+var hyperVNetworkAddressPrefix = '10.10.1.0/24'
+var ubuntuVpnGatewayIp = '10.10.1.102'
 var flavor = 'ITPro'
 var customerUsageAttributionDeploymentName = 'c4a26bed-72cb-415d-91a3-e2577c7c92f5'
 var migrateUtilityStorageAccountName = 'mig${uniqueString(resourceGroup().id, migrateProjectName)}'
@@ -307,6 +318,20 @@ module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
     location: location
     namingPrefix: namingPrefix
     natGatewayName: natGatewayName
+    enableSiteToSiteVpn: true
+  }
+}
+
+module virtualWanDeployment 'network/virtualWan.bicep' = {
+  params: {
+    location: location
+    namingPrefix: namingPrefix
+    connectedVnetId: mgmtArtifactsAndPolicyDeployment.outputs.vnetId
+    vpnSitePublicIp: clientVmDeployment.outputs.publicIP
+    vpnSharedKey: effectiveVpnSharedKey
+    azureVnetAddressPrefix: mgmtArtifactsAndPolicyDeployment.outputs.vnetAddressPrefix
+    hyperVNetworkAddressPrefix: hyperVNetworkAddressPrefix
+    virtualHubAddressPrefix: virtualHubAddressPrefix
   }
 }
 
@@ -338,7 +363,6 @@ module arcOnboardingSubRoleAssignment 'clientVm/arcOnboardingSubRoleAssignment.b
 module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
   name: 'clientVmBootstrapDeployment'
   dependsOn: [
-    clientVmDeployment
     arcOnboardingSubRoleAssignment
   ]
   params: {
@@ -351,6 +375,12 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
     azureSqlDatabaseName: managedDatabases.outputs.sqlDatabaseName
     azurePostgresqlServerFqdn: managedDatabases.outputs.postgresqlServerFqdn
     azurePostgresqlDatabaseName: managedDatabases.outputs.postgresqlDatabaseName
+    vpnSharedKeyBase64: base64(effectiveVpnSharedKey)
+    vpnSitePublicIp: clientVmDeployment.outputs.publicIP
+    vpnGatewayPublicIp: virtualWanDeployment.outputs.vpnGatewayPublicIp
+    azureVnetAddressPrefix: mgmtArtifactsAndPolicyDeployment.outputs.vnetAddressPrefix
+    hyperVNetworkAddressPrefix: hyperVNetworkAddressPrefix
+    ubuntuVpnGatewayIp: ubuntuVpnGatewayIp
     tenantId: tenantId
     templateBaseUrl: templateBaseUrl
     flavor: flavor
@@ -376,3 +406,9 @@ output azureSqlServerFqdn string = managedDatabases.outputs.sqlServerFqdn
 output azureSqlDatabaseName string = managedDatabases.outputs.sqlDatabaseName
 output azurePostgresqlServerFqdn string = managedDatabases.outputs.postgresqlServerFqdn
 output azurePostgresqlDatabaseName string = managedDatabases.outputs.postgresqlDatabaseName
+output virtualWanId string = virtualWanDeployment.outputs.virtualWanId
+output virtualHubId string = virtualWanDeployment.outputs.virtualHubId
+output virtualHubFirewallId string = virtualWanDeployment.outputs.firewallId
+output virtualWanVpnGatewayId string = virtualWanDeployment.outputs.vpnGatewayId
+output virtualWanVpnGatewayPublicIp string = virtualWanDeployment.outputs.vpnGatewayPublicIp
+output hyperVSitePublicIp string = clientVmDeployment.outputs.publicIP

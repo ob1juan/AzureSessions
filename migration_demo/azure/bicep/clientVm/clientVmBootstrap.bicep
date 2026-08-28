@@ -27,6 +27,25 @@ param azurePostgresqlServerFqdn string
 @description('Azure Database for PostgreSQL database name.')
 param azurePostgresqlDatabaseName string
 
+@description('Site-to-site VPN pre-shared key encoded as base64 for safe command-line transport and Key Vault storage.')
+@secure()
+param vpnSharedKeyBase64 string
+
+@description('Public IP address assigned to the Hyper-V host and used as the Virtual WAN VPN site endpoint.')
+param vpnSitePublicIp string
+
+@description('Public IP address of the first Azure Virtual WAN VPN gateway instance.')
+param vpnGatewayPublicIp string
+
+@description('Address prefix of the Azure VNet connected to the Virtual WAN hub.')
+param azureVnetAddressPrefix string
+
+@description('Address prefix of the private Hyper-V network advertised by the VPN site.')
+param hyperVNetworkAddressPrefix string
+
+@description('Reserved private IP address of the nested Ubuntu VPN gateway.')
+param ubuntuVpnGatewayIp string
+
 @description('Enable automatic logon into ArcBox Virtual Machine')
 param vmAutologon bool
 
@@ -87,7 +106,7 @@ resource vmBootstrap 'Microsoft.Compute/virtualMachines/extensions@2024-07-01' =
       fileUris: [
         uri(templateBaseUrl, 'artifacts/Bootstrap.ps1')
       ]
-      commandToExecute: 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername ${windowsAdminUsername} -windowsAdminPasswordBase64 ${windowsAdminPasswordBase64} -managedDatabaseAdminUsername ${managedDatabaseAdminUsername} -managedDatabaseAdminPasswordBase64 ${managedDatabaseAdminPasswordBase64} -azureSqlServerFqdn ${azureSqlServerFqdn} -azureSqlDatabaseName ${azureSqlDatabaseName} -azurePostgresqlServerFqdn ${azurePostgresqlServerFqdn} -azurePostgresqlDatabaseName ${azurePostgresqlDatabaseName} -tenantId ${tenantId} -subscriptionId ${subscription().subscriptionId} -resourceGroup ${resourceGroup().name} -azureLocation ${location} -templateBaseUrl ${templateBaseUrl} -flavor ${flavor} -vmAutologon ${vmAutologon} -rdpPort ${rdpPort} -namingPrefix ${namingPrefix} -debugEnabled ${debugEnabled} -sqlServerEdition ${sqlServerEdition} -autoShutdownEnabled ${autoShutdownEnabled} -autoShutdownTimezone "${autoShutdownTimezone}"'
+      commandToExecute: 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername ${windowsAdminUsername} -windowsAdminPasswordBase64 ${windowsAdminPasswordBase64} -managedDatabaseAdminUsername ${managedDatabaseAdminUsername} -managedDatabaseAdminPasswordBase64 ${managedDatabaseAdminPasswordBase64} -azureSqlServerFqdn ${azureSqlServerFqdn} -azureSqlDatabaseName ${azureSqlDatabaseName} -azurePostgresqlServerFqdn ${azurePostgresqlServerFqdn} -azurePostgresqlDatabaseName ${azurePostgresqlDatabaseName} -vpnSharedKeyBase64 ${vpnSharedKeyBase64} -vpnSitePublicIp ${vpnSitePublicIp} -vpnGatewayPublicIp ${vpnGatewayPublicIp} -azureVnetAddressPrefix ${azureVnetAddressPrefix} -hyperVNetworkAddressPrefix ${hyperVNetworkAddressPrefix} -ubuntuVpnGatewayIp ${ubuntuVpnGatewayIp} -tenantId ${tenantId} -subscriptionId ${subscription().subscriptionId} -resourceGroup ${resourceGroup().name} -azureLocation ${location} -templateBaseUrl ${templateBaseUrl} -flavor ${flavor} -vmAutologon ${vmAutologon} -rdpPort ${rdpPort} -namingPrefix ${namingPrefix} -debugEnabled ${debugEnabled} -sqlServerEdition ${sqlServerEdition} -autoShutdownEnabled ${autoShutdownEnabled} -autoShutdownTimezone "${autoShutdownTimezone}"'
     }
   }
 }

@@ -37,7 +37,8 @@ Connect to the deployed Azure client VM through Azure Bastion, confirm that the 
    ![Open the deployment status report on the host.](images/22-deploymentstatus.png)
 
 3. Confirm that the Hyper-V feature and virtual switch setup completed.
-4. Confirm that the nested workload provisioning has started or completed:
+4. Confirm that **Hyper-V to Azure vWAN VPN** is complete. This step configures Ubuntu as the IKEv2/IPsec endpoint and installs the persistent Azure VNet route on the nested Windows workload.
+5. Confirm that the nested workload provisioning has started or completed:
    - `migdem-iis`
    - `migdem-sql`
    - `migdem-ubuntu`
@@ -45,7 +46,7 @@ Connect to the deployed Azure client VM through Azure Bastion, confirm that the 
 
    ![Confirm Hyper-V is available on the host.](images/23-hyper-v.png)
 
-5. If the report shows in-progress components, select **Refresh** and allow the automation to continue. Do not repeatedly restart the host while bootstrap scripts are running.
+6. If the report shows in-progress components, select **Refresh** and allow the automation to continue. Do not repeatedly restart the host while bootstrap scripts are running.
 
 ## Part 3: Validate the host environment
 
@@ -53,7 +54,8 @@ Connect to the deployed Azure client VM through Azure Bastion, confirm that the 
 2. Confirm that the host can resolve the nested VM names.
 3. Confirm that the nested VMs are starting or running.
 4. Use the generated desktop shortcuts to test the demo application endpoints after the status report shows the relevant components as complete.
-5. Leave the host session open or record the host VM and resource group names for the Azure Migrate setup.
+5. From the host, verify the Ubuntu `azure-vwan` strongSwan connection reports **ESTABLISHED** and that the SQL VM route for `10.16.0.0/16` uses `10.10.1.102` as its next hop.
+6. Leave the host session open or record the host VM and resource group names for the Azure Migrate setup.
 
 ## Expected environment
 
@@ -72,5 +74,6 @@ The host VM is the Azure client VM running nested Hyper-V. The nested workloads 
 - **Credentials fail:** Retrieve the current generated credential from Key Vault or the lab credential flow. Do not reset the password unless the lab owner directs you to do so.
 - **Nested VMs are missing:** Refresh the deployment status report, check the bootstrap status, and allow the host automation time to finish.
 - **A nested VM is stopped:** Start it from Hyper-V Manager only after confirming that the provisioning step has completed.
+- **The vWAN tunnel is down:** Confirm Ubuntu owns `10.10.1.102`, the Azure VPN gateway is provisioned, and UDP 500/4500 is allowed to the host VPN public IP. Then force-rerun the **Hyper-V to Azure vWAN VPN** component as described in the deployment status report.
 
 Continue with [Lab 03 - Azure Migrate Setup](03-azure-migrate-setup.md).

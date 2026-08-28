@@ -25,7 +25,7 @@ $defaultComponents = @(
         Description = 'Custom Script Extension bootstrap, artifact download, module install, autologon, and scheduled task registration.'
         RunsOn = 'Client VM / Hyper-V host'
         ScriptPath = 'Custom Script Extension download folder\Bootstrap.ps1'
-        Command = 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername <template value> -tenantId <tenant id> -subscriptionId <subscription id> -resourceGroup <resource group> -azureLocation <location> -templateBaseUrl <artifact url> -flavor ITPro -vmAutologon <true|false> -rdpPort <port> -namingPrefix <prefix> -debugEnabled <true|false> -sqlServerEdition <edition> -autoShutdownEnabled <true|false> -autoShutdownTimezone <Windows time zone>'
+        Command = 'powershell.exe -ExecutionPolicy Bypass -File Bootstrap.ps1 -adminUsername <template value> -tenantId <tenant id> -subscriptionId <subscription id> -resourceGroup <resource group> -azureLocation <location> -templateBaseUrl <artifact url> -flavor ITPro -vmAutologon <true|false> -rdpPort <port> -namingPrefix <prefix> -debugEnabled <true|false> -sqlServerEdition <edition> -autoShutdownEnabled <true|false> -autoShutdownTimezone <Windows time zone> -vpnSitePublicIp <site IP> -vpnGatewayPublicIp <gateway IP> -azureVnetAddressPrefix <CIDR> -hyperVNetworkAddressPrefix <CIDR> -ubuntuVpnGatewayIp <IP>'
         RerunCommand = 'Redeploy the Bootstrap VM extension or rerun the ARM deployment after fixing the reported issue.'
         LogPath = 'C:\ArcBox\Logs\Bootstrap.log'
         WorkingDirectory = 'Custom Script Extension download folder'
@@ -118,6 +118,17 @@ $defaultComponents = @(
         LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
         WorkingDirectory = 'C:\ArcBox'
         RecoveryInstructions = 'Fix VHD download, SSH, or Hyper-V errors, then rerun ArcServersLogonScript. Existing VHDs are reused.'
+    }
+    @{
+        Name = 'Hyper-V to Azure vWAN VPN'
+        Description = 'Nested Ubuntu IKEv2/IPsec gateway, Hyper-V NAT forwarding, Azure-prefix guest route, and secured Virtual WAN connectivity.'
+        RunsOn = 'Hyper-V host and nested Ubuntu/SQL VMs'
+        ScriptPath = 'C:\ArcBox\Configure-VwanVpn.sh copied to /home/jumpstart/Configure-VwanVpn.sh on the nested Ubuntu VM'
+        Command = 'Installs strongSwan and OpenVPN, configures the Azure vWAN IPsec tunnel, enables Linux forwarding, and adds a persistent 10.16.0.0/16 route through 10.10.1.102 on the nested SQL VM.'
+        RerunCommand = 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ArcBox\ArcServersLogonScript.ps1" -ForceComponents "Hyper-V to Azure vWAN VPN"'
+        LogPath = 'C:\ArcBox\Logs\ArcServersLogonScript.log'
+        WorkingDirectory = 'C:\ArcBox'
+        RecoveryInstructions = 'Confirm UDP 500/4500 reach the host VPN public IP, the Ubuntu VM owns 10.10.1.102, and the vWAN VPN gateway is provisioned; then force-rerun this component.'
     }
     @{
         Name = 'ArcBox-SQL website and database'

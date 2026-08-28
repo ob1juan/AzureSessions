@@ -39,6 +39,9 @@ graph TD
         Monitor[Azure Monitor / Log Analytics]
         APIM[Azure API Management]
         Defender[Microsoft Defender for Cloud]
+        vWAN[Azure Virtual WAN Hub]
+        Firewall[Azure Firewall Standard]
+        AzureVNet[Migration Demo VNet]
     end
 
     subgraph On-Premises Datacenter
@@ -58,12 +61,17 @@ graph TD
     WinIIS -.-> |Onboarded via Arc| Arc
     WinSQL -.-> |Onboarded via Arc| Arc
     Ubuntu -.-> |Onboarded via Arc| Arc
+    Ubuntu ==>|IKEv2 / IPsec S2S| vWAN
+    vWAN --> Firewall
+    Firewall --> AzureVNet
 
     Arc -.-> Monitor
     Arc -.-> Defender
 
     Migrate -.-> |Appliance Discovery & Replication| HyperV
 ```
+
+The Hyper-V private network (`10.10.1.0/24`) is advertised to the connected Azure VNet through an IKEv2/IPsec site-to-site connection and inspected by Azure Firewall Standard in the secured virtual hub. Azure Virtual WAN does not support OpenVPN for site-to-site connections, so Ubuntu uses strongSwan for the Azure tunnel; OpenVPN is installed and enabled separately for optional lab use. See [Azure Virtual WAN and Hyper-V private networking](migration_demo/VWAN_NETWORKING.md) for the address plan, routes, security policy, and validation flow.
 
 ## Deploy Migration Demo (ARM)
 
@@ -74,6 +82,8 @@ Use the button below to deploy the migration demo from the ARM template:
 The template defaults resource deployment to Central US because Azure Migrate is not available in every Azure region. Select another region only after confirming that it supports `Microsoft.Migrate/migrateProjects`.
 
 The template registers required subscription features through Azure Resource Manager before creating network resources. The Azure CLI fallback is available at `migration_demo/azure/scripts/Register-DeploymentPrerequisites.sh` for manual deployments.
+
+The deployment includes a Standard Virtual WAN hub, Virtual WAN VPN gateway, and Azure Firewall Standard. These resources accrue hourly charges; delete the demo resource group when the lab is complete.
 
 ## Demo Usage Summary
 

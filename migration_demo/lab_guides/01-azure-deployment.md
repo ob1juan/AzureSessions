@@ -5,7 +5,7 @@ Deploy the migration demo infrastructure from the Azure portal, validate the dep
 ## Outcomes
 
 - Deploy the migration demo ARM template.
-- Provision the Azure client VM, virtual network, Bastion, Key Vault, storage, and supporting resources.
+- Provision the Azure client VM, virtual network, Bastion, Key Vault, storage, secured Virtual WAN hub, VPN gateway, and Azure Firewall Standard.
 - Confirm that the deployment completed successfully before connecting to the host.
 
 ## Prerequisites
@@ -36,6 +36,8 @@ Deploy the migration demo infrastructure from the Azure portal, validate the dep
    - **Deploy Bastion:** leave enabled so the host can be accessed without exposing RDP publicly.
    - **Bastion SKU:** use **Basic** unless the lab owner specifies another SKU.
    - **SQL Server edition:** use **Developer** for the demo unless a licensed edition is required.
+   - **Virtual hub address prefix:** leave `10.20.0.0/23` unless it overlaps another connected network.
+   - **VPN shared key:** optionally provide a secure lab-specific IPsec key. Leave it empty to use the deployment-specific generated value; never record it in the lab guide.
    - **GitHub account, repository, path, and branch:** verify that they point to the source artifacts for this environment.
 
    ![Enter the migration demo deployment parameters.](images/16-template-info.png)
@@ -54,7 +56,7 @@ Deploy the migration demo infrastructure from the Azure portal, validate the dep
 
    ![Deployment completed successfully.](images/18-deploymentcomplete.png)
 
-4. Open **Resources** and confirm that the resource group contains the client VM, virtual network, Bastion, Key Vault, storage, and Azure Migrate resources.
+4. Open **Resources** and confirm that the resource group contains the client VM, virtual network, Bastion, Key Vault, storage, Azure Migrate resources, Virtual WAN, virtual hub, VPN gateway, VPN site, and Azure Firewall.
 
    ![Review the deployed resources.](images/19-resources.png)
 
@@ -70,6 +72,8 @@ Record these values in the lab notes:
 - Windows admin username
 - Key Vault name
 - Azure Migrate project name
+- Virtual WAN hub name
+- Hyper-V site public IP
 
 Do not copy generated passwords into this guide or commit them to the repository. Retrieve credentials from the deployed Key Vault or the lab-provided credential flow.
 
@@ -78,6 +82,9 @@ Do not copy generated passwords into this guide or commit them to the repository
 - The deployment status is **Succeeded**.
 - The client VM is running.
 - Bastion is provisioned and attached to the virtual network.
+- The Azure VNet connection, VPN gateway, VPN site, and secured Virtual WAN hub are provisioned.
+- Azure Firewall uses the Standard tier and the hub has private-traffic routing intent.
+- The client VM has a static public IP for the VPN site, and its subnet has no NAT Gateway association that could change the tunnel's outbound source address.
 - The Key Vault and storage resources are available.
 - The Azure Migrate project resource exists.
 - No unexpected resources were created in another subscription or directory.
@@ -87,6 +94,9 @@ Do not copy generated passwords into this guide or commit them to the repository
 - **Validation fails:** Review the parameter values, region availability, provider registration, and subscription quota.
 - **Deployment fails:** Open the failed operation in the deployment details and correct the reported resource or permission issue before redeploying.
 - **Bastion is unavailable:** Confirm that the Bastion deployment completed and that the selected SKU is supported in the chosen region.
+- **Virtual WAN deployment appears slow:** Virtual hub, VPN gateway, and firewall provisioning commonly take significantly longer than basic VNet resources. Wait for their operations to finish before diagnosing the Ubuntu tunnel.
 - **Unexpected charges are a concern:** Stop the deployment, review Cost Management, and delete the demo resource group when the lab is complete.
+
+Azure Firewall, the Virtual WAN hub, and the Virtual WAN VPN gateway accrue hourly charges. Review [Azure Virtual WAN and Hyper-V private networking](../VWAN_NETWORKING.md) before leaving the environment deployed.
 
 Continue with [Lab 02 - Login to Host VM](02-login-to-host-vm.md).

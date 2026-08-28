@@ -25,6 +25,12 @@ $azureLocation = $env:azureLocation
 $resourceGroup = $env:resourceGroup
 $namingPrefix = $env:namingPrefix
 $autoShutdownTimezone = $env:autoShutdownTimezone
+$virtualWanEnabled = [string]::Equals($env:virtualWanEnabled, 'true', [System.StringComparison]::OrdinalIgnoreCase)
+$vpnSitePublicIp = $env:vpnSitePublicIp
+$vpnGatewayPublicIp = $env:vpnGatewayPublicIp
+$azureVnetAddressPrefix = $env:azureVnetAddressPrefix
+$hyperVNetworkAddressPrefix = $env:hyperVNetworkAddressPrefix
+$ubuntuVpnGatewayIp = if ([string]::IsNullOrWhiteSpace($env:ubuntuVpnGatewayIp)) { '10.10.1.102' } else { $env:ubuntuVpnGatewayIp }
 
 # Shared ArcBox VHD source used by SQL/Ubuntu VM downloads.
 $vhdSourceFolder = 'https://jumpstartprodsg.blob.core.windows.net/arcbox/prod/*'
@@ -431,6 +437,48 @@ function Ensure-ArcBoxDhcpScope {
     } else {
         Write-Warning "DHCP scope '$ScopeName' is configured, but interface '$InterfaceAlias' was not found for DHCP binding."
     }
+}
+
+function Ensure-ArcBoxVpnNatMappings {
+    <#
+    .SYNOPSIS
+    Forwards IKEv2 and IPsec NAT-T from the Azure VM public endpoint to the nested Ubuntu gateway.
+
+    .DESCRIPTION
+    The Ubuntu VM initiates and terminates the strongSwan tunnel, while the Windows Hyper-V host
+    performs two layers of NAT (Hyper-V NAT and the Azure public IP mapping). Static UDP mappings
+    also let either Azure VPN gateway instance re-establish the tunnel after an idle timeout.
+    #>
+    param(
+        [string]$NatName = 'InternalNat',
+        [string]$InternalIPAddress = '10.10.1.102'
+    )
+
+    foreach ($port in @(500, 4500)) {
+        $matchingMapping = @(Get-NetNatStaticMapping -NatName $NatName -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Protocol -eq 'UDP' -and
+                $_.ExternalPort -eq $port -and
+                [string]$_.InternalIPAddress -eq $InternalIPAddress -and
+                $_.InternalPort -eq $port
+            })
+        if ($matchingMapping.Count -gt 0) {
+            continue
+        }
+
+        Get-NetNatStaticMapping -NatName $NatName -ErrorAction SilentlyContinue |
+            Where-Object { $_.Protocol -eq 'UDP' -and $_.ExternalPort -eq $port } |
+            ForEach-Object {
+                Remove-NetNatStaticMapping -StaticMappingID $_.StaticMappingID -Confirm:$false -ErrorAction SilentlyContinue
+            }
+
+        Add-NetNatStaticMapping -NatName $NatName -Protocol UDP -ExternalIPAddress '0.0.0.0/0' -ExternalPort $port -InternalIPAddress $InternalIPAddress -InternalPort $port -ErrorAction Stop | Out-Null
+    }
+
+    $firewallRuleName = 'ArcBox-vWAN-IKEv2-IPsec'
+    Get-NetFirewallRule -Name $firewallRuleName -ErrorAction SilentlyContinue |
+        Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    New-NetFirewallRule -Name $firewallRuleName -DisplayName 'ArcBox vWAN IKEv2/IPsec' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 500, 4500 -Profile Any | Out-Null
 }
 
 function Set-ArcBoxDhcpReservation {
@@ -1026,9 +1074,14 @@ if ($Env:flavor -ne 'DevOps') {
         # Create the NAT network
         Write-Host 'Creating Internal NAT'
         $natName = 'InternalNat'
-        $netNat = Get-NetNat
-        if ($netNat.Name -ne $natName) {
+        $netNat = Get-NetNat -Name $natName -ErrorAction SilentlyContinue
+        if ($null -eq $netNat) {
             New-NetNat -Name $natName -InternalIPInterfaceAddressPrefix 10.10.1.0/24
+        }
+
+        if ($virtualWanEnabled) {
+            Write-Host "Forwarding IKEv2/IPsec NAT-T to the nested Ubuntu gateway at $ubuntuVpnGatewayIp"
+            Ensure-ArcBoxVpnNatMappings -NatName $natName -InternalIPAddress $ubuntuVpnGatewayIp
         }
 
         Write-Host 'Configuring DHCP scope for Internal NAT'
@@ -1509,10 +1562,9 @@ if ($Env:flavor -ne 'DevOps') {
         # (outside the per-component blocks) so re-runs that retry only failed components still have
         # every variable they need, even when the 'ArcBox-Ubuntu VM' component is skipped.
         $ubuntuVmName = "$namingPrefix-pgsql"
-        # Default to the reserved address, but prefer whichever internal-subnet IP the VM actually
-        # obtained so re-runs that skip VM creation still target the correct address (Ubuntu's
-        # DUID-based DHCP client-id often means the MAC reservation for 10.10.1.102 is not honored
-        # and it leases a pool address instead).
+        # Default to the reserved VPN address, but discover the current address so re-runs can still
+        # reach and repair a VM that retained an older dynamic lease before the MAC-based DHCP client
+        # identifier was configured.
         $ubuntuVmIp = '10.10.1.102'
         try {
             $ubuntuDiscoveredIp = @(Get-VM -Name $ubuntuVmName -ErrorAction SilentlyContinue |
@@ -1606,7 +1658,7 @@ if ($Env:flavor -ne 'DevOps') {
             # sends a MAC-based DHCP client identifier (option 61 = 01 + MAC). Include the matching
             # 0x01 hardware-type prefix on the reservation ClientId so the VM is actually assigned its
             # reserved 10.10.1.102 address instead of a dynamic pool address (e.g. 10.10.1.100).
-            Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVmIp -MacAddress $ubuntuVmMacAddressRaw -IncludeHardwareTypePrefix
+            Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVpnGatewayIp -MacAddress $ubuntuVmMacAddressRaw -IncludeHardwareTypePrefix
             if (Get-VM -Name $SQLvmName -ErrorAction SilentlyContinue) {
                 $sqlVmMacAddress = (Get-VMNetworkAdapter -VMName $SQLvmName -ErrorAction Stop | Select-Object -First 1 -ExpandProperty MacAddress)
                 Set-ArcBoxDhcpReservation -Name $SQLvmName -IPAddress $SQLvmIp -MacAddress $sqlVmMacAddress
@@ -1753,6 +1805,114 @@ fi
                     }
                 } catch { }
                 Complete-DeploymentComponent -Name 'ArcBox-Ubuntu VM' -Status Failed -Message $_.Exception.Message
+            }
+        }
+
+        if ($virtualWanEnabled -and -not (Test-ComponentCompleted -Name 'Hyper-V to Azure vWAN VPN')) {
+            Start-DeploymentComponent -Name 'Hyper-V to Azure vWAN VPN' -Message 'Configuring the nested Ubuntu strongSwan endpoint and private routes through the secured Virtual WAN hub.'
+            $vpnSession = $null
+            $vpnSharedKey = $null
+            try {
+                if (-not $ubuntuVmReady) {
+                    throw "Ubuntu VM '$ubuntuVmName' is not ready; the Virtual WAN VPN endpoint cannot be configured."
+                }
+                foreach ($requiredValue in @{
+                    vpnSitePublicIp = $vpnSitePublicIp
+                    vpnGatewayPublicIp = $vpnGatewayPublicIp
+                    azureVnetAddressPrefix = $azureVnetAddressPrefix
+                    hyperVNetworkAddressPrefix = $hyperVNetworkAddressPrefix
+                }.GetEnumerator()) {
+                    if ([string]::IsNullOrWhiteSpace([string]$requiredValue.Value)) {
+                        throw "Required Virtual WAN setting '$($requiredValue.Key)' is empty."
+                    }
+                }
+
+                if ($ubuntuVmIp -ne $ubuntuVpnGatewayIp) {
+                    Write-Host "Renewing Ubuntu VPN endpoint '$ubuntuVmName' from '$ubuntuVmIp' onto its required address '$ubuntuVpnGatewayIp'."
+                    $ubuntuVmMacAddressRaw = Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop |
+                        Select-Object -First 1 -ExpandProperty MacAddress
+                    Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVpnGatewayIp -MacAddress $ubuntuVmMacAddressRaw -IncludeHardwareTypePrefix
+
+                    Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+                    $addressRenewSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+                    try {
+                        Invoke-ArcBoxLinuxScript -Session $addressRenewSession -Command "sudo nohup sh -c 'sleep 5 && netplan apply' </dev/null >/dev/null 2>&1 &"
+                    } finally {
+                        Remove-PSSession $addressRenewSession -ErrorAction SilentlyContinue
+                    }
+
+                    $addressRenewDeadline = (Get-Date).AddSeconds(180)
+                    do {
+                        Start-Sleep -Seconds 10
+                        $ubuntuVmAddresses = @(Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop |
+                            Select-Object -ExpandProperty IPAddresses |
+                            Where-Object { $_ -match '^10\.10\.1\.\d+$' })
+                        if ($ubuntuVpnGatewayIp -in $ubuntuVmAddresses) {
+                            $ubuntuVmIp = $ubuntuVpnGatewayIp
+                            break
+                        }
+                        Write-Host "Waiting for '$ubuntuVmName' to acquire reserved address '$ubuntuVpnGatewayIp'. Current addresses: $($ubuntuVmAddresses -join ', ')"
+                    } while ((Get-Date) -lt $addressRenewDeadline)
+
+                    if ($ubuntuVmIp -ne $ubuntuVpnGatewayIp) {
+                        throw "Ubuntu VPN endpoint '$ubuntuVmName' did not acquire required address '$ubuntuVpnGatewayIp' after its DHCP reservation was renewed."
+                    }
+                }
+
+                Ensure-ArcBoxVpnNatMappings -InternalIPAddress $ubuntuVpnGatewayIp
+                Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
+                $vpnConfigLocalPath = Join-Path -Path $Env:ArcBoxDir -ChildPath 'Configure-VwanVpn.sh'
+                $vpnConfigRemotePath = "/home/$nestedLinuxUsername/Configure-VwanVpn.sh"
+                Copy-FileToLinuxVm -LocalPath $vpnConfigLocalPath -RemotePath $vpnConfigRemotePath -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -NormalizeLineEndings
+
+                Import-Module Az.KeyVault -RequiredVersion 6.4.1 -Force
+                $vpnSharedKey = Get-AzKeyVaultSecret -VaultName $env:keyVaultName -Name 'vwanVpnSharedKey' -AsPlainText -ErrorAction Stop
+                if ([string]::IsNullOrWhiteSpace($vpnSharedKey)) {
+                    throw "Key Vault secret 'vwanVpnSharedKey' is empty."
+                }
+
+                $remoteSharedKeyPath = "/home/$nestedLinuxUsername/.arcbox-vwan.psk"
+                $vpnSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
+                Invoke-Command -Session $vpnSession -ScriptBlock {
+                    param($SharedKeyPath, $SharedKey, $VpnScriptPath)
+                    [System.IO.File]::WriteAllText($SharedKeyPath, $SharedKey, [System.Text.UTF8Encoding]::new($false))
+                    chmod 600 $SharedKeyPath
+                    chmod +x $VpnScriptPath
+                } -ArgumentList $remoteSharedKeyPath, $vpnSharedKey, $vpnConfigRemotePath -ErrorAction Stop
+
+                $vpnCommand = "VPN_SHARED_KEY_FILE='$remoteSharedKeyPath' VPN_SITE_PUBLIC_IP='$vpnSitePublicIp' VPN_GATEWAY_PUBLIC_IP='$vpnGatewayPublicIp' HYPERV_NETWORK_PREFIX='$hyperVNetworkAddressPrefix' AZURE_NETWORK_PREFIX='$azureVnetAddressPrefix' bash '$vpnConfigRemotePath'"
+                Invoke-ArcBoxLinuxScript -Session $vpnSession -Command $vpnCommand
+
+                if (Get-VM -Name $SQLvmName -ErrorAction SilentlyContinue) {
+                    Invoke-Command -VMName $SQLvmName -Credential $winCreds -ScriptBlock {
+                        param($DestinationPrefix, $NextHop)
+                        $adapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
+                        if ($null -eq $adapter) {
+                            throw 'No active network adapter was found for the Azure vWAN route.'
+                        }
+
+                        Get-NetRoute -DestinationPrefix $DestinationPrefix -ErrorAction SilentlyContinue |
+                            Where-Object { $_.NextHop -ne $NextHop -or $_.InterfaceIndex -ne $adapter.ifIndex } |
+                            Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
+
+                        $route = Get-NetRoute -DestinationPrefix $DestinationPrefix -ErrorAction SilentlyContinue |
+                            Where-Object { $_.NextHop -eq $NextHop -and $_.InterfaceIndex -eq $adapter.ifIndex } |
+                            Select-Object -First 1
+                        if ($null -eq $route) {
+                            New-NetRoute -DestinationPrefix $DestinationPrefix -InterfaceIndex $adapter.ifIndex -NextHop $NextHop -RouteMetric 5 -PolicyStore PersistentStore -ErrorAction Stop | Out-Null
+                        }
+                    } -ArgumentList $azureVnetAddressPrefix, $ubuntuVpnGatewayIp -ErrorAction Stop
+                }
+
+                Complete-DeploymentComponent -Name 'Hyper-V to Azure vWAN VPN' -Message "IKEv2/IPsec is established from $hyperVNetworkAddressPrefix to $azureVnetAddressPrefix through Azure Firewall Standard."
+            } catch {
+                Write-Warning "Component 'Hyper-V to Azure vWAN VPN' failed: $($_.Exception.Message)"
+                Complete-DeploymentComponent -Name 'Hyper-V to Azure vWAN VPN' -Status Failed -Message $_.Exception.Message
+            } finally {
+                $vpnSharedKey = $null
+                if ($null -ne $vpnSession) {
+                    Remove-PSSession $vpnSession -ErrorAction SilentlyContinue
+                }
             }
         }
 

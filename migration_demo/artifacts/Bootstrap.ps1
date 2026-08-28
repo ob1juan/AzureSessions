@@ -7,6 +7,12 @@ param (
     [string]$azureSqlDatabaseName,
     [string]$azurePostgresqlServerFqdn,
     [string]$azurePostgresqlDatabaseName,
+    [string]$vpnSharedKeyBase64,
+    [string]$vpnSitePublicIp,
+    [string]$vpnGatewayPublicIp,
+    [string]$azureVnetAddressPrefix,
+    [string]$hyperVNetworkAddressPrefix,
+    [string]$ubuntuVpnGatewayIp,
     [string]$tenantId,
     [string]$subscriptionId,
     [string]$resourceGroup,
@@ -38,6 +44,12 @@ param (
 [System.Environment]::SetEnvironmentVariable('azureSqlDatabaseName', $azureSqlDatabaseName, [System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('azurePostgresqlServerFqdn', $azurePostgresqlServerFqdn, [System.EnvironmentVariableTarget]::Machine)
 [System.Environment]::SetEnvironmentVariable('azurePostgresqlDatabaseName', $azurePostgresqlDatabaseName, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('virtualWanEnabled', 'true', [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('vpnSitePublicIp', $vpnSitePublicIp, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('vpnGatewayPublicIp', $vpnGatewayPublicIp, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('azureVnetAddressPrefix', $azureVnetAddressPrefix, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('hyperVNetworkAddressPrefix', $hyperVNetworkAddressPrefix, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable('ubuntuVpnGatewayIp', $ubuntuVpnGatewayIp, [System.EnvironmentVariableTarget]::Machine)
 
 # Set the Hyper-V host time zone to match the time zone supplied by the ARM/Bicep template
 # (the same Windows time zone ID used for the Azure auto-shutdown schedule). The nested VMs are
@@ -168,6 +180,10 @@ $managedDatabaseAdminPassword = [System.Text.Encoding]::UTF8.GetString([System.C
 Set-Secret -Name managedDatabaseAdminUsername -Secret $managedDatabaseAdminUsername
 Set-Secret -Name managedDatabaseAdminPassword -Secret (ConvertTo-SecureString $managedDatabaseAdminPassword -AsPlainText -Force)
 
+$vpnSharedKey = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($vpnSharedKeyBase64))
+Set-Secret -Name vwanVpnSharedKey -Secret (ConvertTo-SecureString $vpnSharedKey -AsPlainText -Force)
+$vpnSharedKey = $null
+
 $adminPassword = Get-Secret -Name windowsAdminPassword -AsPlainText
 
 if ($vmAutologon -eq "true") {
@@ -241,6 +257,7 @@ Invoke-WebRequest ($templateBaseUrl + "artifacts/iis/Configure-IIS.ps1") -OutFil
 Invoke-WebRequest ($templateBaseUrl + "artifacts/iis/Initialize-ArcBoxSqlDemo.ps1") -OutFile $Env:ArcBoxDir\Initialize-ArcBoxSqlDemo.ps1
 Invoke-WebRequest ($templateBaseUrl + "artifacts/postgres/Configure-Postgres.sh") -OutFile $Env:ArcBoxDir\Configure-Postgres.sh
 Invoke-WebRequest ($templateBaseUrl + "artifacts/Configure-UbuntuDns.sh") -OutFile $Env:ArcBoxDir\Configure-UbuntuDns.sh
+Invoke-WebRequest ($templateBaseUrl + "artifacts/Configure-VwanVpn.sh") -OutFile $Env:ArcBoxDir\Configure-VwanVpn.sh
 
 New-Item -path alias:azdata -value 'C:\Program Files (x86)\Microsoft SDKs\Azdata\CLI\wbin\azdata.cmd'
 
