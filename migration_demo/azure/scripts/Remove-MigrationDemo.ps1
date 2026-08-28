@@ -150,7 +150,8 @@ function Assert-SubscriptionOwner {
     $eligibilityResponse = Invoke-AzJson -Arguments @(
         'rest',
         '--method', 'get',
-        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilityScheduleInstances?api-version=2020-10-01&%24filter=asTarget()"
+        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilityScheduleInstances?api-version=2020-10-01",
+        '--url-parameters', '$filter=asTarget()'
     )
     $ownerEligibility = @($eligibilityResponse.value | Where-Object {
         $_.properties.expandedProperties.roleDefinition.displayName -eq 'Owner' -or

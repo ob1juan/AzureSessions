@@ -7,15 +7,17 @@ param(
 
     [string] $Location = 'CentralUS',
 
-    [switch] $SetPolicyExemptions = $true,
+    [switch] $SetPolicyExemptions,
 
-    [switch] $SetTags = $true,
+    [switch] $SetTags,
 
     [string] $PimJustification = 'Activate Owner to create an Azure resource group'
 )
 
 $ErrorActionPreference = 'Stop'
 $ownerRoleDefinitionGuid = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
+$setPolicyExemptionsEnabled = -not $PSBoundParameters.ContainsKey('SetPolicyExemptions') -or $SetPolicyExemptions.IsPresent
+$setTagsEnabled = -not $PSBoundParameters.ContainsKey('SetTags') -or $SetTags.IsPresent
 $policyAssignmentsToExclude = @(
     '/providers/microsoft.management/managementgroups/c2a60037-2356-452a-aa29-853c795d20f6/providers/microsoft.authorization/policyassignments/mcapsgovdenypolicies'
     '/providers/microsoft.management/managementgroups/republic-landingzones/providers/microsoft.authorization/policyassignments/enforce-gr-keyvault'
@@ -46,11 +48,28 @@ Azure CLI details: $details
     return "Azure CLI command failed: az $($Arguments -join ' ')$([Environment]::NewLine)$details"
 }
 
+function Get-AzCliExecutable {
+    # The MSI-installed az.cmd expands %* through cmd.exe, which treats &, parentheses, and other
+    # characters in REST URLs/OData filters as shell syntax. The signed azps.ps1 launcher invokes
+    # Azure CLI's Python entry point directly and preserves each PowerShell argument verbatim.
+    if ($env:OS -eq 'Windows_NT') {
+        $azPowerShellCommand = Get-Command azps.ps1 -ErrorAction SilentlyContinue
+        if ($azPowerShellCommand) {
+            return $azPowerShellCommand.Source
+        }
+    }
+
+    $azCommand = Get-Command az -ErrorAction Stop
+    return $azCommand.Source
+}
+
 function Invoke-AzJson {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    $output = @(& az @Arguments --only-show-errors --output json 2>&1)
-    if ($LASTEXITCODE -ne 0) {
+    $azCommand = Get-AzCliExecutable
+    $output = @(& $azCommand @Arguments --only-show-errors --output json 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
         throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
     }
 
@@ -64,8 +83,10 @@ function Invoke-AzJson {
 function Invoke-AzCommand {
     param([Parameter(Mandatory = $true)] [string[]] $Arguments)
 
-    $output = @(& az @Arguments --only-show-errors --output none 2>&1)
-    if ($LASTEXITCODE -ne 0) {
+    $azCommand = Get-AzCliExecutable
+    $output = @(& $azCommand @Arguments --only-show-errors --output none 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
         throw (Get-AzCliFailureMessage -Arguments $Arguments -Output $output)
     }
 }
@@ -122,6 +143,7 @@ function Test-SubscriptionOwner {
 }
 
 function Assert-SubscriptionOwner {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)] [object] $Account,
         [Parameter(Mandatory = $true)] [string] $Justification
@@ -137,11 +159,13 @@ function Assert-SubscriptionOwner {
         return
     }
 
+    Write-Host "Subscription Owner access is not active for '$($principal.userPrincipalName)'. Searching eligible PIM assignments."
     $subscriptionScope = "/subscriptions/$($Account.id)"
     $eligibilityResponse = Invoke-AzJson -Arguments @(
         'rest',
         '--method', 'get',
-        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilityScheduleInstances?api-version=2020-10-01&%24filter=asTarget()"
+        '--url', "https://management.azure.com$subscriptionScope/providers/Microsoft.Authorization/roleEligibilityScheduleInstances?api-version=2020-10-01",
+        '--url-parameters', '$filter=asTarget()'
     )
     $ownerEligibility = @($eligibilityResponse.value | Where-Object {
         $_.properties.expandedProperties.roleDefinition.displayName -eq 'Owner' -or
@@ -153,8 +177,20 @@ function Assert-SubscriptionOwner {
         throw "The signed-in user is not an Owner and has no eligible PIM Owner assignment for subscription '$($Account.name)' ($($Account.id))."
     }
 
-    $eligibility = $ownerEligibility | Select-Object -First 1
+    $eligibility = @($ownerEligibility | Sort-Object @{
+        Expression = {
+            if ($_.properties.expandedProperties.principal.id -eq $principal.id -and
+                $_.properties.memberType -ne 'Inherited') {
+                0
+            }
+            else {
+                1
+            }
+        }
+    })[0]
     $activationScope = $eligibility.properties.scope
+    $eligiblePrincipal = $eligibility.properties.expandedProperties.principal
+    Write-Host "Eligible PIM Owner assignment found at '$activationScope' through '$($eligiblePrincipal.displayName)' ($($eligiblePrincipal.type))."
     $ownerRoleDefinitionId = if ($activationScope -like '/providers/Microsoft.Management/managementGroups/*') {
         "/providers/Microsoft.Authorization/roleDefinitions/$ownerRoleDefinitionGuid"
     }
@@ -163,6 +199,10 @@ function Assert-SubscriptionOwner {
     }
 
     if (-not $PSCmdlet.ShouldProcess($activationScope, 'Activate eligible PIM Owner role for eight hours')) {
+        if ($WhatIfPreference) {
+            Write-Host 'Owner activation skipped because WhatIf is enabled.'
+            return
+        }
         throw 'Owner activation was cancelled.'
     }
 
@@ -211,6 +251,7 @@ function Assert-SubscriptionOwner {
 }
 
 function New-PolicyExemption {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)] [string] $ResourceGroupId,
         [Parameter(Mandatory = $true)] [string] $PolicyAssignmentId
@@ -258,7 +299,7 @@ $resourceGroupExists = Invoke-AzJson -Arguments @(
     '--subscription', $account.id
 )
 
-if ($resourceGroupExists -and -not $SetTags) {
+if ($resourceGroupExists -and -not $setTagsEnabled) {
     $resourceGroup = Invoke-AzJson -Arguments @(
         'group', 'show',
         '--name', $ResourceGroupName,
@@ -274,7 +315,7 @@ else {
         '--subscription', $account.id,
         '--query', '{id:id,name:name,location:location,tags:tags}'
     )
-    if ($SetTags) {
+    if ($setTagsEnabled) {
         $groupArguments += @('--tags') + $tagsToSet
     }
 
@@ -283,7 +324,7 @@ else {
 
 Write-Host "Resource group '$($resourceGroup.name)' is ready in '$($resourceGroup.location)'."
 
-if ($SetPolicyExemptions) {
+if ($setPolicyExemptionsEnabled) {
     foreach ($policyAssignmentId in $policyAssignmentsToExclude) {
         New-PolicyExemption -ResourceGroupId $resourceGroup.id -PolicyAssignmentId $policyAssignmentId
     }
