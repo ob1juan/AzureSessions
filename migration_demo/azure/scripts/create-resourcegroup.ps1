@@ -18,9 +18,15 @@ $ErrorActionPreference = 'Stop'
 $ownerRoleDefinitionGuid = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635'
 $setPolicyExemptionsEnabled = -not $PSBoundParameters.ContainsKey('SetPolicyExemptions') -or $SetPolicyExemptions.IsPresent
 $setTagsEnabled = -not $PSBoundParameters.ContainsKey('SetTags') -or $SetTags.IsPresent
-$policyAssignmentsToExclude = @(
-    '/providers/microsoft.management/managementgroups/c2a60037-2356-452a-aa29-853c795d20f6/providers/microsoft.authorization/policyassignments/mcapsgovdenypolicies'
-    '/providers/microsoft.management/managementgroups/republic-landingzones/providers/microsoft.authorization/policyassignments/enforce-gr-keyvault'
+$policyExclusions = @(
+    @{
+        PolicyAssignmentId            = '/providers/microsoft.management/managementgroups/c2a60037-2356-452a-aa29-853c795d20f6/providers/microsoft.authorization/policyassignments/mcapsgovdenypolicies'
+        PolicyDefinitionReferenceIds = @()
+    }
+    @{
+        PolicyAssignmentId            = '/providers/Microsoft.Management/managementGroups/Republic-sandboxes/providers/Microsoft.Authorization/policyAssignments/Enforce-ALZ-Sandbox'
+        PolicyDefinitionReferenceIds = @('SandboxNotAllowed')
+    }
 )
 $tagsToSet = @(
     'SecurityControl=Ignore'
@@ -254,20 +260,23 @@ function New-PolicyExemption {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)] [string] $ResourceGroupId,
-        [Parameter(Mandatory = $true)] [string] $PolicyAssignmentId
+        [Parameter(Mandatory = $true)] [string] $PolicyAssignmentId,
+        [string[]] $PolicyDefinitionReferenceIds = @()
     )
 
     $policyAssignmentName = $PolicyAssignmentId.Split('/')[-1]
     $exemptionName = "$policyAssignmentName-exemption"
     $exemptionUrl = "https://management.azure.com$ResourceGroupId/providers/Microsoft.Authorization/policyExemptions/$exemptionName`?api-version=2022-07-01-preview"
-    $exemptionBody = @{
-        properties = @{
-            displayName        = "Exclude $policyAssignmentName for $ResourceGroupName"
-            description        = "Resource group exemption created by create-resourcegroup.ps1"
-            exemptionCategory  = 'Waiver'
-            policyAssignmentId = $PolicyAssignmentId
-        }
-    } | ConvertTo-Json -Depth 10 -Compress
+    $exemptionProperties = @{
+        displayName        = "Exclude $policyAssignmentName for $ResourceGroupName"
+        description        = "Resource group exemption created by create-resourcegroup.ps1"
+        exemptionCategory  = 'Waiver'
+        policyAssignmentId = $PolicyAssignmentId
+    }
+    if ($PolicyDefinitionReferenceIds.Count -gt 0) {
+        $exemptionProperties.policyDefinitionReferenceIds = $PolicyDefinitionReferenceIds
+    }
+    $exemptionBody = @{ properties = $exemptionProperties } | ConvertTo-Json -Depth 10 -Compress
 
     if ($PSCmdlet.ShouldProcess($PolicyAssignmentId, "Create policy exemption '$exemptionName'")) {
         Invoke-AzRestJson -Method 'put' -Url $exemptionUrl -Body $exemptionBody | Out-Null
@@ -325,8 +334,13 @@ else {
 Write-Host "Resource group '$($resourceGroup.name)' is ready in '$($resourceGroup.location)'."
 
 if ($setPolicyExemptionsEnabled) {
-    foreach ($policyAssignmentId in $policyAssignmentsToExclude) {
-        New-PolicyExemption -ResourceGroupId $resourceGroup.id -PolicyAssignmentId $policyAssignmentId
+    foreach ($policyExclusion in $policyExclusions) {
+        $exemptionParameters = @{
+            ResourceGroupId              = $resourceGroup.id
+            PolicyAssignmentId           = $policyExclusion.PolicyAssignmentId
+            PolicyDefinitionReferenceIds = @($policyExclusion.PolicyDefinitionReferenceIds)
+        }
+        New-PolicyExemption @exemptionParameters
     }
 }
 
