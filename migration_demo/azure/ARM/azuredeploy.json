@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "8781085326154079362"
+      "templateHash": "13888642134174593275"
     }
   },
   "parameters": {
@@ -2020,7 +2020,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "6380907748495945692"
+              "templateHash": "6103438352043269267"
             }
           },
           "parameters": {
@@ -2219,7 +2219,6 @@
                   "name": "AZFW_Hub",
                   "tier": "Standard"
                 },
-                "threatIntelMode": "Alert",
                 "virtualHub": {
                   "id": "[resourceId('Microsoft.Network/virtualHubs', variables('virtualHubName'))]"
                 }

@@ -154,7 +154,6 @@ resource hubFirewall 'Microsoft.Network/azureFirewalls@2024-05-01' = {
       name: 'AZFW_Hub'
       tier: 'Standard'
     }
-    threatIntelMode: 'Alert'
     virtualHub: {
       id: virtualHub.id
     }
