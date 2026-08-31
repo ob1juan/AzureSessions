@@ -181,7 +181,10 @@ Set-Secret -Name managedDatabaseAdminUsername -Secret $managedDatabaseAdminUsern
 Set-Secret -Name managedDatabaseAdminPassword -Secret (ConvertTo-SecureString $managedDatabaseAdminPassword -AsPlainText -Force)
 
 $vpnSharedKey = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($vpnSharedKeyBase64))
-Set-Secret -Name vwanVpnSharedKey -Secret (ConvertTo-SecureString $vpnSharedKey -AsPlainText -Force)
+Set-Secret -Name vwanVpnSharedKey -Secret (ConvertTo-SecureString $vpnSharedKey -AsPlainText -Force) -ErrorAction Stop
+$vpnSharedKeyDesktopPath = Join-Path -Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory)) -ChildPath 'Virtual WAN VPN Shared Key.txt'
+Set-Content -Path $vpnSharedKeyDesktopPath -Value $vpnSharedKey -NoNewline -Encoding ASCII -Force
+Write-Output "Saved the Virtual WAN VPN shared key to '$vpnSharedKeyDesktopPath'."
 $vpnSharedKey = $null
 
 $adminPassword = Get-Secret -Name windowsAdminPassword -AsPlainText

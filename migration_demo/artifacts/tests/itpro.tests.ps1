@@ -36,6 +36,16 @@ Describe "Azure Virtual WAN hybrid network" {
         @(Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.Network/vpnGateways/vpnConnections').Count | Should -Be 1
     }
 
+    It "stores the generated VPN shared key in Key Vault and on the host desktop" {
+        $desktopKeyPath = Join-Path -Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory)) -ChildPath 'Virtual WAN VPN Shared Key.txt'
+        $desktopKeyPath | Should -Exist
+
+        $desktopKey = Get-Content -Path $desktopKeyPath -Raw
+        $keyVaultKey = Get-AzKeyVaultSecret -VaultName $env:keyVaultName -Name 'vwanVpnSharedKey' -AsPlainText -ErrorAction Stop
+        (-not [string]::IsNullOrWhiteSpace($keyVaultKey)) | Should -BeTrue
+        ($desktopKey -ceq $keyVaultKey) | Should -BeTrue
+    }
+
     It "uses the host public IP symmetrically without a subnet NAT Gateway" {
         $hostNic = Get-AzResource -ResourceGroupName $env:resourceGroup -ResourceType 'Microsoft.Network/networkInterfaces' -Name "$($env:namingPrefix)-Host-NIC" -ExpandProperties
         $hostNic.Properties.enableIPForwarding | Should -BeTrue

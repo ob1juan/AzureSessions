@@ -2,7 +2,7 @@ using 'main.bicep'
 
 param tenantId = '<your tenant id>'
 
-param windowsAdminUsername = 'arcdemo'
+param windowsAdminUsername = 'AZAdmin'
 
 param passwordLength = 16
 

@@ -5,10 +5,6 @@ param tenantId string = tenant().tenantId
 @minValue(12)
 param passwordLength int = 16
 
-@secure()
-@description('Optional site-to-site VPN pre-shared key. Leave empty to use the deployment-specific generated lab key.')
-param vpnSharedKey string = ''
-
 @description('Administrator login for the managed Azure SQL and PostgreSQL demo databases.')
 param managedDatabaseAdminUsername string = 'arcboxadmin'
 
@@ -16,7 +12,7 @@ param managedDatabaseAdminUsername string = 'arcboxadmin'
 param useAzureSqlFreeLimit bool = true
 
 @description('Username for Windows account')
-param windowsAdminUsername string
+param windowsAdminUsername string = 'AZAdmin'
 
 @description('Enable automatic logon into ArcBox Virtual Machine')
 param vmAutologon bool = true
@@ -127,8 +123,6 @@ var templateBaseUrl = 'https://raw.githubusercontent.com/${githubAccount}/${gith
 var randomSeed = uniqueString(resourceGroup().id, guid)
 var generatedWindowsAdminPassword = 'Aa1!${substring(base64('${randomSeed}-windows'), 0, passwordLength - 4)}'
 var generatedManagedDatabasePassword = 'Aa1!${substring(base64('${randomSeed}-managed-databases'), 0, passwordLength - 4)}'
-var generatedVpnSharedKey = 'Vw1!${substring(base64('${randomSeed}-vwan-vpn'), 0, 28)}'
-var effectiveVpnSharedKey = empty(vpnSharedKey) ? generatedVpnSharedKey : vpnSharedKey
 var hyperVNetworkAddressPrefix = '10.10.1.0/24'
 var ubuntuVpnGatewayIp = '10.10.1.102'
 var flavor = 'ITPro'
@@ -162,6 +156,10 @@ resource migrateUtilityStorageAccount 'Microsoft.Storage/storageAccounts@2023-05
     }
   }
 }
+
+// Derive a stable VPN key from Azure-generated random key material so incremental redeployments
+// do not rotate the tunnel secret unexpectedly.
+var generatedVpnSharedKey = 'Vw1!${sys.guid(migrateUtilityStorageAccount.listKeys().keys[0].value, 'vwan-vpn')}'
 
 resource migrateUtilityBlobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
   parent: migrateUtilityStorageAccount
@@ -328,7 +326,7 @@ module virtualWanDeployment 'network/virtualWan.bicep' = {
     namingPrefix: namingPrefix
     connectedVnetId: mgmtArtifactsAndPolicyDeployment.outputs.vnetId
     vpnSitePublicIp: clientVmDeployment.outputs.publicIP
-    vpnSharedKey: effectiveVpnSharedKey
+    vpnSharedKey: generatedVpnSharedKey
     azureVnetAddressPrefix: mgmtArtifactsAndPolicyDeployment.outputs.vnetAddressPrefix
     hyperVNetworkAddressPrefix: hyperVNetworkAddressPrefix
     virtualHubAddressPrefix: virtualHubAddressPrefix
@@ -375,7 +373,7 @@ module clientVmBootstrapDeployment 'clientVm/clientVmBootstrap.bicep' = {
     azureSqlDatabaseName: managedDatabases.outputs.sqlDatabaseName
     azurePostgresqlServerFqdn: managedDatabases.outputs.postgresqlServerFqdn
     azurePostgresqlDatabaseName: managedDatabases.outputs.postgresqlDatabaseName
-    vpnSharedKeyBase64: base64(effectiveVpnSharedKey)
+    vpnSharedKeyBase64: base64(generatedVpnSharedKey)
     vpnSitePublicIp: clientVmDeployment.outputs.publicIP
     vpnGatewayPublicIp: virtualWanDeployment.outputs.vpnGatewayPublicIp
     azureVnetAddressPrefix: mgmtArtifactsAndPolicyDeployment.outputs.vnetAddressPrefix

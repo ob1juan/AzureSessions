@@ -45,15 +45,16 @@ The deployment also installs and enables the OpenVPN service on Ubuntu so it is 
 
 ## Secrets
 
-Set the optional secure `vpnSharedKey` template parameter to supply a lab-specific key. If it is empty, the template derives a stable deployment-specific key. Bootstrap stores the effective value in Key Vault as `vwanVpnSharedKey`; the host retrieves it only while configuring Ubuntu and transfers it through the existing SSH session in a temporary mode-600 file.
+The template automatically derives a stable, deployment-specific key from Azure-generated random key material, so the deployment form does not request a VPN shared key. Bootstrap stores the value in Key Vault as `vwanVpnSharedKey` and saves it to `Virtual WAN VPN Shared Key.txt` on the Hyper-V host's shared desktop. The host retrieves the Key Vault secret while configuring Ubuntu and transfers it through the existing SSH session in a temporary mode-600 file.
 
-Do not put the pre-shared key in documentation, logs, or source control.
+Do not put the pre-shared key in documentation, logs, or source control. Delete the desktop copy when it is no longer needed.
 
 ## Validation
 
 On the Hyper-V host, open the deployment status report and confirm **Hyper-V to Azure vWAN VPN** is complete. The integration tests additionally verify that:
 
 - the Virtual WAN, hub, firewall, VPN gateway, site, and connection exist;
+- the generated shared key exists in Key Vault and matches the host desktop copy;
 - the firewall is Standard, private routing intent is present, and the host subnet has no NAT Gateway override;
 - UDP 500/4500 map to the reserved Ubuntu endpoint and Linux forwarding is enabled;
 - strongSwan reports the `azure-vwan` connection as established;

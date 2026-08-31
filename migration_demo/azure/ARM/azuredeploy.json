@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "8618728695633501003"
+      "templateHash": "8781085326154079362"
     }
   },
   "parameters": {
@@ -25,13 +25,6 @@
         "description": "Length for generated passwords that are stored in Key Vault"
       }
     },
-    "vpnSharedKey": {
-      "type": "securestring",
-      "defaultValue": "",
-      "metadata": {
-        "description": "Optional site-to-site VPN pre-shared key. Leave empty to use the deployment-specific generated lab key."
-      }
-    },
     "managedDatabaseAdminUsername": {
       "type": "string",
       "defaultValue": "arcboxadmin",
@@ -48,6 +41,7 @@
     },
     "windowsAdminUsername": {
       "type": "string",
+      "defaultValue": "AZAdmin",
       "metadata": {
         "description": "Username for Windows account"
       }
@@ -248,8 +242,6 @@
     "randomSeed": "[uniqueString(resourceGroup().id, parameters('guid'))]",
     "generatedWindowsAdminPassword": "[format('Aa1!{0}', substring(base64(format('{0}-windows', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
     "generatedManagedDatabasePassword": "[format('Aa1!{0}', substring(base64(format('{0}-managed-databases', variables('randomSeed'))), 0, sub(parameters('passwordLength'), 4)))]",
-    "generatedVpnSharedKey": "[format('Vw1!{0}', substring(base64(format('{0}-vwan-vpn', variables('randomSeed'))), 0, 28))]",
-    "effectiveVpnSharedKey": "[if(empty(parameters('vpnSharedKey')), variables('generatedVpnSharedKey'), parameters('vpnSharedKey'))]",
     "hyperVNetworkAddressPrefix": "10.10.1.0/24",
     "ubuntuVpnGatewayIp": "10.10.1.102",
     "flavor": "ITPro",
@@ -2009,7 +2001,7 @@
             "value": "[reference('clientVmDeployment').outputs.publicIP.value]"
           },
           "vpnSharedKey": {
-            "value": "[variables('effectiveVpnSharedKey')]"
+            "value": "[format('Vw1!{0}', guid(listKeys('migrateUtilityStorageAccount', '2023-05-01').keys[0].value, 'vwan-vpn'))]"
           },
           "azureVnetAddressPrefix": {
             "value": "[reference('mgmtArtifactsAndPolicyDeployment').outputs.vnetAddressPrefix.value]"
@@ -2393,7 +2385,8 @@
       },
       "dependsOn": [
         "clientVmDeployment",
-        "mgmtArtifactsAndPolicyDeployment"
+        "mgmtArtifactsAndPolicyDeployment",
+        "migrateUtilityStorageAccount"
       ]
     },
     "managedDatabases": {
@@ -2724,7 +2717,7 @@
             "value": "[reference('managedDatabases').outputs.postgresqlDatabaseName.value]"
           },
           "vpnSharedKeyBase64": {
-            "value": "[base64(variables('effectiveVpnSharedKey'))]"
+            "value": "[base64(format('Vw1!{0}', guid(listKeys('migrateUtilityStorageAccount', '2023-05-01').keys[0].value, 'vwan-vpn')))]"
           },
           "vpnSitePublicIp": {
             "value": "[reference('clientVmDeployment').outputs.publicIP.value]"
@@ -2979,6 +2972,7 @@
         "clientVmDeployment",
         "managedDatabases",
         "mgmtArtifactsAndPolicyDeployment",
+        "migrateUtilityStorageAccount",
         "virtualWanDeployment"
       ]
     }
