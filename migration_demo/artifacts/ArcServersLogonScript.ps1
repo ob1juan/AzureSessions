@@ -486,6 +486,7 @@ function Set-ArcBoxDhcpReservation {
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string]$IPAddress,
         [Parameter(Mandatory = $true)][string]$MacAddress,
+        [string]$CurrentIPAddress = '',
         [string]$ScopeId = '10.10.1.0',
         # Set for Linux guests that send a MAC-based DHCP client identifier (option 61) so the
         # reservation ClientId includes the 0x01 Ethernet hardware-type prefix and actually matches.
@@ -496,22 +497,30 @@ function Set-ArcBoxDhcpReservation {
 
     $clientId = ConvertTo-ArcBoxDhcpClientId -MacAddress $MacAddress -IncludeHardwareTypePrefix:$IncludeHardwareTypePrefix
     $normalizedClientId = ($clientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    $normalizedMacAddress = ($MacAddress -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
     $existingReservations = @(Get-DhcpServerv4Reservation -ScopeId $ScopeId -ErrorAction SilentlyContinue)
     foreach ($reservation in $existingReservations) {
         $reservationClientId = ([string]$reservation.ClientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
-        if ($reservation.IPAddress.IPAddressToString -eq $IPAddress -or $reservationClientId -eq $normalizedClientId) {
+        if ($reservation.IPAddress.IPAddressToString -eq $IPAddress -or
+            $reservationClientId -eq $normalizedClientId -or
+            $reservationClientId.EndsWith($normalizedMacAddress)) {
             Remove-DhcpServerv4Reservation -ScopeId $ScopeId -ClientId $reservation.ClientId -ErrorAction SilentlyContinue
         }
     }
 
-    Add-DhcpServerv4Reservation -ScopeId $ScopeId -IPAddress $IPAddress -ClientId $clientId -Name $Name -Description "ArcBox reserved address for $Name" -ErrorAction Stop | Out-Null
-
+    # Clear both the target lease and any dynamic lease the guest obtained under its old DUID.
+    # Otherwise networkd can renew that still-valid lease instead of requesting the reservation.
     Get-DhcpServerv4Lease -ScopeId $ScopeId -ErrorAction SilentlyContinue |
         Where-Object {
+            $leaseClientId = ([string]$_.ClientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
             $_.IPAddress.IPAddressToString -eq $IPAddress -or
-            (([string]$_.ClientId -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() -eq $normalizedClientId)
+            (-not [string]::IsNullOrWhiteSpace($CurrentIPAddress) -and $_.IPAddress.IPAddressToString -eq $CurrentIPAddress) -or
+            $leaseClientId -eq $normalizedClientId -or
+            $leaseClientId.EndsWith($normalizedMacAddress)
         } |
         ForEach-Object { Remove-DhcpServerv4Lease -IPAddress $_.IPAddress -ErrorAction SilentlyContinue }
+
+    Add-DhcpServerv4Reservation -ScopeId $ScopeId -IPAddress $IPAddress -ClientId $clientId -Name $Name -Description "ArcBox reserved address for $Name" -ErrorAction Stop | Out-Null
 
     Write-Host "DHCP reservation configured: $Name ($clientId) -> $IPAddress"
 }
@@ -1828,15 +1837,18 @@ fi
                 }
 
                 if ($ubuntuVmIp -ne $ubuntuVpnGatewayIp) {
-                    Write-Host "Renewing Ubuntu VPN endpoint '$ubuntuVmName' from '$ubuntuVmIp' onto its required address '$ubuntuVpnGatewayIp'."
+                    Write-Host "Moving Ubuntu VPN endpoint '$ubuntuVmName' from '$ubuntuVmIp' onto its required address '$ubuntuVpnGatewayIp'."
                     $ubuntuVmMacAddressRaw = Get-VMNetworkAdapter -VMName $ubuntuVmName -ErrorAction Stop |
                         Select-Object -First 1 -ExpandProperty MacAddress
-                    Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVpnGatewayIp -MacAddress $ubuntuVmMacAddressRaw -IncludeHardwareTypePrefix
+                    Set-ArcBoxDhcpReservation -Name $ubuntuVmName -IPAddress $ubuntuVpnGatewayIp -MacAddress $ubuntuVmMacAddressRaw -CurrentIPAddress $ubuntuVmIp -IncludeHardwareTypePrefix
 
                     Wait-ArcBoxLinuxSshReady -IPAddress $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername
                     $addressRenewSession = New-PSSession -HostName $ubuntuVmIp -KeyFilePath $sshKeyPath -UserName $nestedLinuxUsername -ErrorAction Stop
                     try {
-                        Invoke-ArcBoxLinuxScript -Session $addressRenewSession -Command "sudo nohup sh -c 'sleep 5 && netplan apply' </dev/null >/dev/null 2>&1 &"
+                        # netplan may consider the existing configuration unchanged and retain the
+                        # current lease. Restart networkd after applying it to force a fresh DHCP
+                        # request with the MAC client identifier used by the reservation.
+                        Invoke-ArcBoxLinuxScript -Session $addressRenewSession -Command "sudo nohup sh -c 'sleep 5 && netplan apply && systemctl restart systemd-networkd' </dev/null >/dev/null 2>&1 &"
                     } finally {
                         Remove-PSSession $addressRenewSession -ErrorAction SilentlyContinue
                     }
